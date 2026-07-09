@@ -14,8 +14,9 @@
 
 import React, { useState } from 'react';
 import { RotateCcw, ChevronDown, ChevronUp, Star, CheckSquare, Square, Check, Pencil, Trash2, X, FileText } from 'lucide-react';
-import { getEffectiveTp, getBucket, getSourceTag, getSourceType, getSourceTypeStyle, formatOriginLabel } from '../../utils/dashboardHelpers';
+import { getEffectiveTp, getBucket, getSourceTag, getSourceType, getSourceTypeStyle, formatOriginLabel, getSubmissionStatusDetails } from '../../utils/dashboardHelpers';
 import yaml from 'js-yaml';
+import { useGitHubAuth } from '../../hooks/useGitHubAuth';
 
 const getCleanModelName = (name) => {
     if (!name) return '';
@@ -23,6 +24,7 @@ const getCleanModelName = (name) => {
 };
 
 export const UnifiedDataTable = (props) => {
+    const { user } = useGitHubAuth();
     const [editingRunId, setEditingRunId] = useState(null);
     const [editingValue, setEditingValue] = useState('');
     const [rawYamlContent, setRawYamlContent] = useState(null);
@@ -507,8 +509,8 @@ export const UnifiedDataTable = (props) => {
                                     const benchmarkData = stat.data || [];
                                     const meta = benchmarkData[0]?.metadata || {};
                                     const sourceStr = benchmarkData[0]?.source || '';
-                                    const isBrv02 = sourceStr.startsWith('brv02:');
-                                    const runId = isBrv02 ? sourceStr.replace('brv02:', '') : null;
+                                    const isBrv02 = sourceStr.startsWith('brv02:') || benchmarkData[0]?.source_info?.type === 'benchmark_report_v02';
+                                    const runId = isBrv02 ? (sourceStr.startsWith('brv02:') ? sourceStr.replace('brv02:', '') : benchmarkData[0]?.run_id) : null;
                                     const tp = getEffectiveTp(benchmarkData[0]) || '-';
                                     
                                     const uniqueIsl = [...new Set(benchmarkData.map(d => getBucket(d.isl || d.workload?.input_tokens)))];
@@ -596,7 +598,7 @@ export const UnifiedDataTable = (props) => {
                                                              }
 
                                                              if (visibleSpecs.stage) {
-                                                                 const isBrv02Run = benchmarkData[0]?.source?.startsWith('brv02:');
+                                                                 const isBrv02Run = benchmarkData[0]?.source?.startsWith('brv02:') || benchmarkData[0]?.source_info?.type === 'benchmark_report_v02';
                                                                  if (isBrv02Run) {
                                                                      const stageCount = benchmarkData.length;
                                                                      specs.push(
@@ -863,10 +865,29 @@ export const UnifiedDataTable = (props) => {
                                                                                 </button>
                                                                             )}
                                                                         </div>
-                                                                        <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 flex-shrink-0">
-                                                                             <span className="text-[10px] sm:text-xs bg-slate-100 dark:bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700/80 text-slate-500 dark:text-slate-400 font-semibold whitespace-nowrap">
-                                                                                 {getSourceTag(benchmarkData[0])}
-                                                                             </span>
+                                                                        <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 flex-shrink-0">
+                                                                            {(() => {
+                                                                                const isResultsStore = benchmarkData[0]?.source_info?.type === 'benchmark_report_v02';
+                                                                                const isMine = isResultsStore && user && benchmarkData[0]?.github_author?.username === user.username;
+                                                                                if (isMine) {
+                                                                                    return (
+                                                                                        <span className="text-[10px] sm:text-xs bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/50 px-1.5 py-0.5 rounded font-semibold whitespace-nowrap">
+                                                                                            Yours
+                                                                                        </span>
+                                                                                    );
+                                                                                }
+                                                                                if (isResultsStore) {
+                                                                                    return (
+                                                                                        <span className="text-[10px] sm:text-xs bg-sky-50 dark:bg-sky-950/30 text-sky-600 dark:text-sky-400 border border-sky-100 dark:border-sky-900/50 px-1.5 py-0.5 rounded font-semibold whitespace-nowrap">
+                                                                                            Community
+                                                                                        </span>
+                                                                                    );
+                                                                                }
+                                                                                return null;
+                                                                            })()}
+                                                                            <span className="text-[10px] sm:text-xs bg-slate-100 dark:bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700/80 text-slate-500 dark:text-slate-400 font-semibold whitespace-nowrap">
+                                                                                {getSourceTag(benchmarkData[0])}
+                                                                            </span>
                                                                              {(() => {
                                                                                  const type = getSourceType(benchmarkData[0]);
                                                                                  const style = getSourceTypeStyle(type);
@@ -908,8 +929,55 @@ export const UnifiedDataTable = (props) => {
                                              {/* Expanded Table Details */}
                                              {isExpanded && (
                                                  <div className="border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/30 p-4">
+                                                     {benchmarkData[0]?.source_info?.type === 'benchmark_report_v02' && (
+                                                         <div className="mb-3 p-2 bg-slate-100 dark:bg-slate-800/40 rounded border border-slate-200 dark:border-slate-700/80 font-sans flex flex-wrap gap-x-6 gap-y-2.5 text-xs text-slate-600 dark:text-slate-400">
+                                                             <div className="flex items-center gap-1.5">
+                                                                 <span className="font-semibold text-slate-700 dark:text-slate-300">Run UUID:</span>
+                                                                 <span className="font-mono bg-slate-200 dark:bg-slate-800/50 px-1.5 py-0.5 rounded text-[11px] select-all">{benchmarkData[0]?.run_id}</span>
+                                                             </div>
+                                                             <div className="flex items-center gap-1.5">
+                                                                 <span className="font-semibold text-slate-700 dark:text-slate-300">Submitted:</span>
+                                                                 <span>{benchmarkData[0]?.source_info?.submitted_at ? new Date(benchmarkData[0].source_info.submitted_at).toLocaleString() : 'Unknown'}</span>
+                                                                 {benchmarkData[0]?.github_author?.username && (
+                                                                     <span className="flex items-center gap-1 bg-slate-200/50 dark:bg-slate-800/50 px-1.5 py-0.5 rounded ml-1">
+                                                                         <img 
+                                                                             src={`https://github.com/${benchmarkData[0].github_author.username}.png`} 
+                                                                             alt={benchmarkData[0].github_author.username} 
+                                                                             className="w-4 h-4 rounded-full border border-slate-300 dark:border-slate-600"
+                                                                             onError={(e) => { e.target.style.display = 'none'; }}
+                                                                         />
+                                                                         <a 
+                                                                             href={`https://github.com/${benchmarkData[0].github_author.username}`} 
+                                                                             target="_blank" 
+                                                                             rel="noopener noreferrer" 
+                                                                             className="text-indigo-600 dark:text-indigo-400 hover:underline font-semibold"
+                                                                         >
+                                                                             {benchmarkData[0].github_author.username}
+                                                                         </a>
+                                                                     </span>
+                                                                 )}
+                                                             </div>
+                                                             <div className="flex items-center gap-1.5">
+                                                                 <span className="font-semibold text-slate-700 dark:text-slate-300">Status:</span>
+                                                                 {(() => {
+                                                                     const details = getSubmissionStatusDetails(benchmarkData[0]?.source_info?.submission_state);
+                                                                     return (
+                                                                         <span className={`px-1.5 py-0.5 rounded border text-[11px] font-bold ${details.bg} ${details.text} ${details.border}`}>
+                                                                             {details.label}
+                                                                         </span>
+                                                                     );
+                                                                 })()}
+                                                             </div>
+                                                             {(benchmarkData[0]?.source_info?.submission_state === 'public' || benchmarkData[0]?.source_info?.submission_state === 'promoted' || benchmarkData[0]?.source_info?.approved_at) && (
+                                                                 <div className="flex items-center gap-1.5">
+                                                                     <span className="font-semibold text-slate-700 dark:text-slate-300">Approved:</span>
+                                                                     <span>{benchmarkData[0].source_info.approved_at ? new Date(benchmarkData[0].source_info.approved_at).toLocaleString() : (benchmarkData[0].source_info.submitted_at ? new Date(benchmarkData[0].source_info.submitted_at).toLocaleString() : 'Unknown')}</span>
+                                                                 </div>
+                                                             )}
+                                                         </div>
+                                                     )}
 
-                                                      <div className="overflow-x-auto rounded border border-slate-200 dark:border-slate-700">
+                                                     <div className="overflow-x-auto rounded border border-slate-200 dark:border-slate-700">
                                                           <table className="w-full text-left text-slate-600 dark:text-slate-300 text-xs bg-white dark:bg-slate-800">
                                                               <thead className="bg-slate-100 dark:bg-slate-700/50 text-slate-700 dark:text-slate-100 uppercase text-[10px] font-medium border-b border-slate-200 dark:border-slate-700">
                                                                   <tr>

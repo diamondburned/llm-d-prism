@@ -15,6 +15,7 @@
 import { useCallback } from 'react';
 import { CacheManager } from '../utils/cacheManager';
 import { parseJsonEntry, parseLogFile } from '../utils/dataParser';
+import { parseReportV02, stageToEntry } from '../utils/benchmarkReportV02Parser';
 
 export const useGCS = ({ pendingRequests, addToast }) => {
     const fetchBucketData = useCallback(async (bucket, forceRefresh = false) => {
@@ -78,9 +79,30 @@ export const useGCS = ({ pendingRequests, addToast }) => {
                             if (jsonContent.metrics || jsonContent.load_summary) {
                                 const entry = parseJsonEntry({ ...jsonContent, source: `gcs:${cleanBucketName}` }, file.name);
                                 entries = [entry];
+                            } else if (jsonContent.format === 'brv02' && Array.isArray(jsonContent.entries)) {
+                                for (const stageEntry of jsonContent.entries) {
+                                    if (stageEntry.raw_report) {
+                                        const parsedStage = parseReportV02(stageEntry.raw_report, file.name);
+                                        if (parsedStage) {
+                                            parsedStage.runId = jsonContent.runId;
+                                            parsedStage.runLabel = jsonContent.runLabel;
+                                            parsedStage.github_author = jsonContent.github_author;
+                                            
+                                            // Extract submission details from GCS metadata
+                                            const customMeta = file.metadata || {};
+                                            parsedStage.submission_state = customMeta.submission_state || customMeta.state || 'submitted_pending_processing';
+                                            parsedStage.submitted_at = jsonContent.submitted_at || file.timeCreated || file.updated || null;
+                                            parsedStage.approved_at = customMeta.approved_at || null;
+
+                                            const entry = stageToEntry(parsedStage);
+                                            entries.push(entry);
+                                        }
+                                    }
+                                }
+                                console.log(`[useGCS] Successfully parsed results-store file ${file.name} with ${entries.length} stages.`);
                             }
-                        } catch {
-                            // Try parsing as log file
+                        } catch (err) {
+                            console.warn(`[useGCS] Failed to parse JSON for file ${file.name}:`, err);
                         }
                         
                         if (entries.length === 0) {
@@ -94,7 +116,9 @@ export const useGCS = ({ pendingRequests, addToast }) => {
 
                                 if (e.source_info) {
                                     e.source_info.origin = `gcs:${cleanBucketName}`;
-                                    e.source_info.type = type;
+                                    if (e.source_info.type !== 'benchmark_report_v02') {
+                                        e.source_info.type = type;
+                                    }
                                 } else {
                                     e.source_info = {
                                         type,

@@ -12,15 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import React, { useMemo } from 'react';
-import { Database, Eye, ArrowLeft, MessageCircle, X, Loader } from 'lucide-react';
+import React, { useMemo, useCallback } from 'react';
+import { Database, Eye, ArrowLeft, MessageCircle, X, Loader, Upload, Send, AlertCircle } from 'lucide-react';
 import { FilterPanel } from './ManageBenchmarks/FilterPanel';
 import { UnifiedDataTable } from './ManageBenchmarks/UnifiedDataTable';
 import DataConnectionsPanel from './DataConnectionsPanel';
 import { INTEGRATIONS, getSourceTag, getBenchmarkKey, getBucket, getRatioType, getAcceleratorCount, getEffectiveTp, sortBuckets } from '../utils/dashboardHelpers';
 
 import { UploadValidationDialog } from './DataConnections/UploadValidationDialog';
-import { Upload } from 'lucide-react';
+import { SubmitOAuthDialog } from './ManageBenchmarks/SubmitOAuthDialog';
+import { useGitHubAuth } from '../hooks/useGitHubAuth.js';
 
 const getCleanModelName = (name) => {
     if (!name) return '';
@@ -52,135 +53,203 @@ export default function ManageBenchmarks({ onNavigate, onNavigateBack, dashboard
         brv02CustomLabels,
         setBrv02CustomLabels,
         removeBrv02Run,
+        promoteStagedRunId,
         expandedModels,
         setExpandedModels,
-        handleValidatedUpload
+        handleValidatedUpload,
+        loadAllData
     } = dashboardData;
 
+    const { isConfigured, isAuthenticated, accessToken, login } = useGitHubAuth();
     const [isUploadDialogOpen, setIsUploadDialogOpen] = React.useState(false);
+    const [isSubmitDialogOpen, setIsSubmitDialogOpen] = React.useState(false);
     const [initialStagedFiles, setInitialStagedFiles] = React.useState([]);
     const [activeTab, setActiveTab] = React.useState('all'); // 'all' or 'submissions'
 
+    React.useEffect(() => {
+        const showDialog = sessionStorage.getItem('prism_show_submit_dialog_after_login');
+        if (showDialog === 'true') {
+            setIsSubmitDialogOpen(true);
+            sessionStorage.removeItem('prism_show_submit_dialog_after_login');
+        }
+    }, []);
+
     const [submissions, setSubmissions] = React.useState([]);
     const [isLoadingSubmissions, setIsLoadingSubmissions] = React.useState(false);
+    const [nextPageToken, setNextPageToken] = React.useState(null);
+    const [isLoadingMore, setIsLoadingMore] = React.useState(false);
 
-    // Queries the server's filesystem for actually staged runs, falling back to and
-    // merging with browser local storage runs for a seamless and responsive experience.
-    React.useEffect(() => {
-        let isMounted = true;
+    const mapStateToStatus = useCallback((state) => {
+        switch (state) {
+            case 'staged':
+                return 'staged';
+            case 'submitted_pending_processing':
+            case 'submitted_pending_review':
+                return 'in_review';
+            case 'public':
+            case 'promoted':
+                return 'approved';
+            case 'rejected':
+                return 'changes_requested';
+            default:
+                return 'in_review';
+        }
+    }, []);
 
-        const loadSubmissions = async () => {
+    const hasUnsupportedFilters = useMemo(() => {
+        if (!activeFilters) return false;
+        return Object.keys(activeFilters).some(key => {
+            const val = activeFilters[key];
+            if (val instanceof Set) return val.size > 0;
+            if (Array.isArray(val)) return val.length > 0;
+            return !!val;
+        });
+    }, [activeFilters]);
+
+    const loadSubmissions = useCallback(async (reset = true) => {
+        if (reset) {
             setIsLoadingSubmissions(true);
-            try {
-                const res = await fetch('/api/local/list');
-                if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-                const listData = await res.json();
-                
-                const uploadFiles = (listData.items || []).filter(item => 
-                    item.name.endsWith('prism_run_upload.json')
-                );
+            setNextPageToken(null);
+        }
 
-                const serverSubmissions = [];
-                if (uploadFiles.length > 0) {
-                    const fetchPromises = uploadFiles.map(async (file) => {
-                        try {
-                            const fileRes = await fetch(file.mediaLink);
-                            if (fileRes.ok) {
-                                const runPayload = await fileRes.json();
-                                return {
-                                    id: runPayload.runId || file.name.split('/')[0],
-                                    runId: runPayload.runId || file.name.split('/')[0],
-                                    model: runPayload.model_name || "Custom Model",
-                                    hardware: runPayload.hardware?.hardware_name || runPayload.run_metadata?.accelerator || "Detected Hardware",
-                                    wellLitPath: runPayload.well_lit_path || "none / custom",
-                                    submittedAt: runPayload.timestamp || runPayload.run_metadata?.timestamp || (runPayload.entries?.[0]?.raw_report?.run?.time?.start) || new Date().toISOString().split('T')[0],
-                                    status: runPayload.status || "staged",
-                                    feedback: runPayload.feedback || ""
-                                };
-                            }
-                        } catch (err) {
-                            console.error(`Error loading submission from ${file.name}:`, err);
-                        }
-                        return null;
-                    });
-                    
-                    const resolved = await Promise.all(fetchPromises);
-                    serverSubmissions.push(...resolved.filter(Boolean));
-                }
-
-                const mergedList = [...serverSubmissions];
-                if (brv02Runs && brv02Runs.length > 0) {
-                    brv02Runs.forEach(run => {
-                        if (!mergedList.some(s => s.runId === run.runId)) {
-                            const firstStage = run.stages?.[0];
-                            const resolvedModel = firstStage?.scenario?.model || run.run_metadata?.model || "Custom Model";
-                            const resolvedHw = firstStage?.scenario?.hardware || run.run_metadata?.accelerator || "Detected Hardware";
-                            const submittedAt = firstStage?.timestamp || run.run_metadata?.timestamp || new Date().toISOString().split('T')[0];
-
-                            mergedList.push({
-                                id: `dyn-${run.runId}`,
-                                runId: run.runId,
-                                model: resolvedModel,
-                                hardware: resolvedHw,
-                                wellLitPath: run.wellLitPath || "none / custom",
-                                submittedAt: typeof submittedAt === 'string' ? submittedAt.split('T')[0] : new Date().toISOString().split('T')[0],
-                                status: "staged",
-                                feedback: ""
-                            });
-                        }
-                    });
-                }
-
-                // Sort chronologically (latest submissions first)
-                mergedList.sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
-
-                if (isMounted) {
-                    setSubmissions(mergedList);
-                }
-            } catch (error) {
-                console.error("Failed to load submissions:", error);
-                if (isMounted) {
-                    addToast({
-                        message: "Failed to load submitted runs from backend server.",
-                        type: "error"
-                    });
-                    
-                    const fallbackList = [];
-                    if (brv02Runs && brv02Runs.length > 0) {
-                        brv02Runs.forEach(run => {
-                            const firstStage = run.stages?.[0];
-                            const resolvedModel = firstStage?.scenario?.model || run.run_metadata?.model || "Custom Model";
-                            const resolvedHw = firstStage?.scenario?.hardware || run.run_metadata?.accelerator || "Detected Hardware";
-                            const submittedAt = firstStage?.timestamp || run.run_metadata?.timestamp || new Date().toISOString().split('T')[0];
-
-                            fallbackList.push({
-                                id: `dyn-${run.runId}`,
-                                runId: run.runId,
-                                model: resolvedModel,
-                                hardware: resolvedHw,
-                                wellLitPath: run.wellLitPath || "none / custom",
-                                submittedAt: typeof submittedAt === 'string' ? submittedAt.split('T')[0] : new Date().toISOString().split('T')[0],
-                                status: "staged",
-                                feedback: ""
-                            });
-                        });
-                        fallbackList.sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
-                    }
-                    setSubmissions(fallbackList);
-                }
-            } finally {
-                if (isMounted) {
-                    setIsLoadingSubmissions(false);
-                }
+        try {
+            if (hasUnsupportedFilters) {
+                setSubmissions([]);
+                return;
             }
-        };
 
-        loadSubmissions();
+            const params = new URLSearchParams();
+            params.set('own', 'true');
+            params.set('limit', '20');
 
-        return () => {
-            isMounted = false;
-        };
-    }, [brv02Runs, addToast]);
+            const headers = {};
+            if (accessToken) {
+                headers['X-Prism-Github-Token'] = accessToken;
+            }
+
+            const res = await fetch(`/api/results?${params.toString()}`, { headers });
+            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+            const listData = await res.json();
+
+            const serverSubmissions = (listData.items || []).map(item => ({
+                id: item.runId,
+                runId: item.runId,
+                model: item.model_name || "Custom Model",
+                hardware: item.hardware?.hardware_name || "Detected Hardware",
+                wellLitPath: item.well_lit_path || "none / custom",
+                submittedAt: item.submitted_at ? item.submitted_at.split('T')[0] : "Unknown",
+                status: mapStateToStatus(item.state),
+                feedback: item.feedback || ""
+            }));
+
+            let mergedList = [...serverSubmissions];
+
+            if (reset && brv02Runs && brv02Runs.length > 0) {
+                brv02Runs.forEach(run => {
+                    if (!mergedList.some(s => s.runId === run.runId)) {
+                        const firstStage = run.stages?.[0];
+                        const resolvedModel = firstStage?.scenario?.model || run.run_metadata?.model || "Custom Model";
+                        const resolvedHw = firstStage?.scenario?.hardware || run.run_metadata?.accelerator || "Detected Hardware";
+                        const submittedAt = firstStage?.timestamp || run.run_metadata?.timestamp || new Date().toISOString();
+
+                        mergedList.unshift({
+                            id: `dyn-${run.runId}`,
+                            runId: run.runId,
+                            model: resolvedModel,
+                            hardware: resolvedHw,
+                            wellLitPath: run.wellLitPath || "none / custom",
+                            submittedAt: submittedAt.split('T')[0],
+                            status: "staged",
+                            feedback: ""
+                        });
+                    }
+                });
+            }
+
+            setSubmissions(mergedList);
+            setNextPageToken(listData.nextPageToken || null);
+        } catch (error) {
+            console.error("Failed to load submissions:", error);
+            addToast({
+                message: "Failed to load submitted runs from Prism cloud store.",
+                type: "error"
+            });
+
+            // Fallback to local staged only
+            const fallbackList = [];
+            if (brv02Runs && brv02Runs.length > 0) {
+                brv02Runs.forEach(run => {
+                    const firstStage = run.stages?.[0];
+                    const resolvedModel = firstStage?.scenario?.model || run.run_metadata?.model || "Custom Model";
+                    const resolvedHw = firstStage?.scenario?.hardware || run.run_metadata?.accelerator || "Detected Hardware";
+                    const submittedAt = firstStage?.timestamp || run.run_metadata?.timestamp || new Date().toISOString();
+
+                    fallbackList.push({
+                        id: `dyn-${run.runId}`,
+                        runId: run.runId,
+                        model: resolvedModel,
+                        hardware: resolvedHw,
+                        wellLitPath: run.wellLitPath || "none / custom",
+                        submittedAt: submittedAt.split('T')[0],
+                        status: "staged",
+                        feedback: ""
+                    });
+                });
+                fallbackList.sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
+            }
+            setSubmissions(fallbackList);
+        } finally {
+            setIsLoadingSubmissions(false);
+        }
+    }, [accessToken, brv02Runs, hasUnsupportedFilters, mapStateToStatus, addToast]);
+
+    const loadMoreSubmissions = useCallback(async () => {
+        if (!nextPageToken || isLoadingMore) return;
+        setIsLoadingMore(true);
+        try {
+            const params = new URLSearchParams();
+            params.set('own', 'true');
+            params.set('limit', '20');
+            params.set('pageToken', nextPageToken);
+
+            const headers = {};
+            if (accessToken) {
+                headers['X-Prism-Github-Token'] = accessToken;
+            }
+
+            const res = await fetch(`/api/results?${params.toString()}`, { headers });
+            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+            const listData = await res.json();
+
+            const serverSubmissions = (listData.items || []).map(item => ({
+                id: item.runId,
+                runId: item.runId,
+                model: item.model_name || "Custom Model",
+                hardware: item.hardware?.hardware_name || "Detected Hardware",
+                wellLitPath: item.well_lit_path || "none / custom",
+                submittedAt: item.submitted_at ? item.submitted_at.split('T')[0] : "Unknown",
+                status: mapStateToStatus(item.state),
+                feedback: item.feedback || ""
+            }));
+
+            setSubmissions(prev => [...prev, ...serverSubmissions]);
+            setNextPageToken(listData.nextPageToken || null);
+        } catch (error) {
+            console.error("Failed to load more submissions:", error);
+            addToast({
+                message: "Failed to load more submissions.",
+                type: "error"
+            });
+        } finally {
+            setIsLoadingMore(false);
+        }
+    }, [accessToken, nextPageToken, isLoadingMore, mapStateToStatus, addToast]);
+
+    React.useEffect(() => {
+        if (activeTab === 'submissions') {
+            loadSubmissions(true);
+        }
+    }, [activeTab, hasUnsupportedFilters, isAuthenticated, accessToken, loadSubmissions]);
 
     const openUploadDialogWithFiles = (files) => {
         let fileList = [];
@@ -743,6 +812,25 @@ export default function ManageBenchmarks({ onNavigate, onNavigateBack, dashboard
                         <Upload className="w-4 h-4 mr-2" /> Upload
                     </button>
 
+                    <div className="relative group">
+                        <button
+                            onClick={() => setIsSubmitDialogOpen(true)}
+                            disabled={!isConfigured}
+                            className={`px-4 py-2 text-sm font-medium rounded-md border transition-colors flex items-center shadow-lg ${
+                                !isConfigured
+                                ? 'bg-slate-800 text-slate-500 border-slate-700 cursor-not-allowed opacity-50'
+                                : 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500/20'
+                            }`}
+                        >
+                            <Send className="w-4 h-4 mr-2" /> Submit
+                        </button>
+                        {!isConfigured && (
+                            <div className="absolute bottom-full right-0 mb-2 px-3 py-1.5 bg-slate-800 border border-slate-700/80 text-white text-xs font-medium rounded-lg invisible group-hover:visible shadow-xl z-[99999] whitespace-nowrap">
+                                GitHub is not yet configured on Prism.
+                            </div>
+                        )}
+                    </div>
+
                     <button
                         onClick={() => setShowDataPanel(!showDataPanel)}
                         className={`px-4 py-2 text-sm font-medium rounded-md border transition-colors flex items-center ${showDataPanel ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' : 'text-slate-300 bg-slate-800 hover:bg-slate-700 border-slate-700'}`}
@@ -809,6 +897,55 @@ export default function ManageBenchmarks({ onNavigate, onNavigateBack, dashboard
                             }}
                         />
                     </div>
+                ) : !isAuthenticated ? (
+                    <div className="flex flex-col items-center justify-center py-16 px-4 bg-slate-900/40 border border-slate-800/80 rounded-xl max-w-xl mx-auto text-center gap-4 animate-in fade-in duration-200">
+                        <div className="w-12 h-12 bg-slate-800 border border-slate-700 rounded-full flex items-center justify-center text-slate-400">
+                            <Send size={20} />
+                        </div>
+                        <div>
+                            <h4 className="text-sm font-bold text-white mb-1">GitHub Authentication Required</h4>
+                            <p className="text-xs text-slate-400 max-w-xs mx-auto">Please sign in with GitHub to view and track your benchmark submissions.</p>
+                        </div>
+                        <button
+                            onClick={login}
+                            className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg shadow-lg flex items-center gap-2 transition-all"
+                        >
+                            <span className="w-4 h-4 text-white"><svg viewBox="0 0 24 24" fill="currentColor" className="w-full h-full"><path d="M12 2A10 10 0 0 0 2 12c0 4.42 2.87 8.17 6.84 9.5.5.08.66-.23.66-.5v-1.69c-2.77.6-3.36-1.34-3.36-1.34-.46-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.07 2.91.83.1-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.92 0-1.11.38-2 1.03-2.71-.1-.25-.45-1.29.1-2.64 0 0 .84-.27 2.75 1.02.79-.22 1.65-.33 2.5-.33.85 0 1.71.11 2.5.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.35.2 2.39.1 2.64.65.71 1.03 1.6 1.03 2.71 0 3.82-2.34 4.66-4.57 4.91.36.31.69.92.69 1.85V21c0 .27.16.59.67.5C19.14 20.16 22 16.42 22 12A10 10 0 0 0 12 2z"/></svg></span>
+                            Sign in with GitHub
+                        </button>
+                    </div>
+                ) : hasUnsupportedFilters ? (
+                    <div className="flex flex-col items-center justify-center py-16 px-4 bg-slate-900/40 border border-slate-800/80 rounded-xl max-w-xl mx-auto text-center gap-4 animate-in fade-in duration-200">
+                        <div className="w-12 h-12 bg-amber-500/10 border border-amber-500/20 rounded-full flex items-center justify-center text-amber-400">
+                            <AlertCircle size={20} />
+                        </div>
+                        <div>
+                            <h4 className="text-sm font-bold text-white mb-1">Active Filters Detected</h4>
+                            <p className="text-xs text-slate-400 max-w-xs mx-auto">Submission history does not support advanced dashboard filters. Please clear active filters to view your submissions.</p>
+                        </div>
+                        <button
+                            onClick={() => setActiveFilters({
+                                models: new Set(),
+                                hardware: new Set(),
+                                precisions: new Set(),
+                                isl: new Set(),
+                                osl: new Set(),
+                                ratio: new Set(),
+                                acc_count: new Set(),
+                                modelServer: new Set(),
+                                useCase: new Set(),
+                                servingStack: new Set(),
+                                optimizations: new Set(),
+                                origins: new Set(),
+                                components: new Set(),
+                                machines: new Set(),
+                                tp: new Set(),
+                            })}
+                            className="px-4 py-2 text-xs font-semibold text-slate-200 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 transition-all"
+                        >
+                            Clear Active Filters
+                        </button>
+                    </div>
                 ) : (
                     <div className="space-y-6 animate-in fade-in duration-200">
                         <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-2xl">
@@ -835,14 +972,14 @@ export default function ManageBenchmarks({ onNavigate, onNavigateBack, dashboard
                                                 <td colSpan={6} className="px-5 py-12 text-center text-slate-400 font-medium">
                                                     <div className="flex flex-col items-center justify-center gap-3">
                                                         <Loader size={20} className="animate-spin text-cyan-500" />
-                                                        <span className="text-slate-300">Retrieving staged submissions...</span>
+                                                        <span className="text-slate-300">Retrieving submissions from Prism...</span>
                                                     </div>
                                                 </td>
                                             </tr>
                                         ) : submissions.length === 0 ? (
                                             <tr>
                                                 <td colSpan={6} className="px-5 py-12 text-center text-slate-400 font-medium">
-                                                    No active staged benchmarks found. Upload a benchmark folder to get started.
+                                                    No active benchmark submissions found. Upload a benchmark folder to get started.
                                                 </td>
                                             </tr>
                                         ) : (
@@ -907,6 +1044,25 @@ export default function ManageBenchmarks({ onNavigate, onNavigateBack, dashboard
                                     </tbody>
                                 </table>
                             </div>
+
+                            {nextPageToken && (
+                                <div className="p-4 border-t border-slate-800/60 bg-slate-950/20 flex justify-center">
+                                    <button
+                                        onClick={loadMoreSubmissions}
+                                        disabled={isLoadingMore}
+                                        className="px-6 py-2 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 disabled:opacity-50 flex items-center gap-2 transition-all"
+                                    >
+                                        {isLoadingMore ? (
+                                            <>
+                                                <Loader size={12} className="animate-spin text-cyan-400" />
+                                                Loading...
+                                            </>
+                                        ) : (
+                                            "Load More Submissions"
+                                        )}
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
@@ -940,6 +1096,18 @@ export default function ManageBenchmarks({ onNavigate, onNavigateBack, dashboard
                 }}
                 existingRunIds={brv02Runs.map(r => r.runId)}
                 initialFiles={initialStagedFiles}
+                addToast={addToast}
+            />
+
+            <SubmitOAuthDialog
+                isOpen={isSubmitDialogOpen}
+                onClose={() => setIsSubmitDialogOpen(false)}
+                selectedBenchmarks={selectedBenchmarks}
+                modelStats={modelStats}
+                brv02Runs={brv02Runs}
+                removeBrv02Run={removeBrv02Run}
+                promoteStagedRunId={promoteStagedRunId}
+                loadAllData={loadAllData}
                 addToast={addToast}
             />
         </div>

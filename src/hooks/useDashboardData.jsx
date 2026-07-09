@@ -34,6 +34,7 @@ export const useDashboardData = (initialState, dashboardState) => {
     const [gcsLoading, setGcsLoading] = useState(false);
     const [gcsError, setGcsError] = useState(null);
     const [gcsSuccess, setGcsSuccess] = useState(null);
+    const [apiError, setApiError] = useState(null);
     const [lpgLoading, setLpgLoading] = useState(false);
     const [lpgError, setLpgError] = useState(null);
     const [lpgPasteText, setLpgPasteText] = useState("");
@@ -1104,7 +1105,7 @@ export const useDashboardData = (initialState, dashboardState) => {
         }
     }
 
-    const loadAllData = async (fetchedConfig = null) => {
+    const loadAllData = async (fetchedConfig = null, forceRefresh = false) => {
         console.log("[useDashboardData] loadAllData START", { initialState });
         setLoading(true);
         setGcsLoading(true);
@@ -1149,7 +1150,7 @@ export const useDashboardData = (initialState, dashboardState) => {
             // 2. Fetch All Configured Buckets
             const bucketResults = await Promise.all(bucketConfigs.map(b => {
                 const bName = typeof b === 'string' ? b : b.bucket;
-                return fetchBucketData(bName).then(res => ({ ...res, config: b }));
+                return fetchBucketData(bName, forceRefresh).then(res => ({ ...res, config: b }));
             }));
 
             const newProfiles = [];
@@ -1718,6 +1719,35 @@ export const useDashboardData = (initialState, dashboardState) => {
         setBrv02Runs(prev => prev.filter(r => r.runId !== runId));
     };
 
+    const promoteStagedRunId = (oldRunId, newRunId) => {
+        // 1. Remove from local staged runs list
+        setBrv02Runs(prev => prev.filter(r => r.runId !== oldRunId));
+
+        // 2. Transfer custom label configurations
+        setBrv02CustomLabels(prev => {
+            if (!prev[oldRunId]) return prev;
+            const next = { ...prev };
+            next[newRunId] = next[oldRunId];
+            delete next[oldRunId];
+            return next;
+        });
+
+        // 3. Transfer stage selection configuration
+        setBrv02SelectedStages(prev => {
+            if (!prev[oldRunId]) return prev;
+            const next = { ...prev };
+            next[newRunId] = next[oldRunId];
+            delete next[oldRunId];
+            return next;
+        });
+
+        // 4. Transfer baseline selection
+        setBrv02BaselineRunId(prev => {
+            if (prev === oldRunId) return newRunId;
+            return prev;
+        });
+    };
+
     const handleValidatedUpload = async (validBundles) => {
         if (!validBundles || validBundles.length === 0) return;
         
@@ -1774,6 +1804,168 @@ export const useDashboardData = (initialState, dashboardState) => {
         }
     };
 
+    const fetchBucketDelta = async (bucket, currentProfile) => {
+        const cleanBucketName = bucket.replace(/^gs:\/\//, '');
+        let usingProxy = false;
+
+        try {
+            let response = await fetch(`https://storage.googleapis.com/storage/v1/b/${cleanBucketName}/o`);
+
+            // Fallback to Proxy
+            if (response.status === 401 || response.status === 403) {
+                response = await fetch(`/api/gcs/storage/v1/b/${cleanBucketName}/o`);
+                if (response.ok) usingProxy = true;
+            }
+
+            if (!response.ok) throw new Error(`Failed to access bucket (${response.status}).`);
+
+            const json = await response.json();
+            if (!json.items) return { newEntries: [], newFiles: [] };
+
+            const filesToProcess = json.items.filter(item => !item.name.endsWith('/'));
+
+            // Find new files
+            const existingFiles = new Set((currentProfile?.files || []).map(f => f.name));
+            const newFilesToFetch = filesToProcess.filter(f => !existingFiles.has(f.name));
+
+            if (newFilesToFetch.length === 0) return { newEntries: [], newFiles: [] };
+
+            const newEntries = [];
+            const newFileMetadata = [];
+
+            await Promise.all(newFilesToFetch.map(async (file) => {
+                try {
+                    let fileUrl = file.mediaLink;
+                    if (usingProxy && fileUrl.startsWith('https://storage.googleapis.com/')) {
+                        const path = fileUrl.replace('https://storage.googleapis.com/', '');
+                        fileUrl = `/api/gcs/${path}`;
+                    }
+
+                    const fileRes = await fetch(fileUrl);
+                    if (!fileRes.ok) throw new Error(`Fetch failed: ${fileRes.status}`);
+
+                    const content = await fileRes.text();
+                    let entries = [];
+                    try {
+                        const jsonContent = JSON.parse(content);
+                        if (jsonContent.metrics || jsonContent.load_summary) {
+                            const entry = parseJsonEntry({ ...jsonContent, source: `gcs:${cleanBucketName}` }, file.name);
+                            entries = [entry];
+                        }
+                    } catch {
+                        // Ignore JSON parse failures
+                    }
+
+                    if (entries.length === 0) entries = parseLogFile(content, file.name);
+
+                    if (entries.length > 0) {
+                        entries.forEach(e => {
+                            e.source = `gcs:${cleanBucketName}`;
+
+                            // Determine display type
+                            let type = 'storage';
+
+                            if (e.source_info) {
+                                e.source_info.origin = `gcs:${cleanBucketName}`;
+                                e.source_info.type = type;
+                            } else {
+                                e.source_info = {
+                                    type: type,
+                                    origin: `gcs:${cleanBucketName}`,
+                                    file_identifier: file.name,
+                                    raw_url: file.mediaLink
+                                };
+                            }
+                            e.raw_url = `https://storage.googleapis.com/${cleanBucketName}/${file.name}`;
+                            // Normalization Heuristics
+                            if (e.latency?.mean && e.latency.mean < 100) {
+                                e.latency.mean *= 1000;
+                                if (e.latency.p50) e.latency.p50 *= 1000;
+                                if (e.latency.p99) e.latency.p99 *= 1000;
+                            }
+                            if (e.ttft?.mean && e.ttft.mean < 100) {
+                                e.ttft.mean *= 1000;
+                                if (e.ttft.p50) e.ttft.p50 *= 1000;
+                            }
+                            newEntries.push(e);
+                        });
+                        newFileMetadata.push({ name: file.name, entryCount: entries.length });
+                    }
+                } catch (e) {
+                    console.warn(`Failed to process new file ${file.name}:`, e);
+                }
+            }));
+
+            return { newEntries, newFiles: newFileMetadata };
+
+        } catch (e) {
+            console.error("Delta fetch failed", e);
+            throw e;
+        }
+    };
+
+    const refreshSource = async (sourceType, id, mode = 'full') => {
+        setGcsLoading(true);
+        try {
+            if (sourceType === 'gcs') {
+                if (mode === 'delta') {
+                    const currentProfile = gcsProfiles.find(p => p.bucketName === id);
+                    if (!currentProfile) throw new Error("Profile not found for comparison");
+
+                    const { newEntries, newFiles } = await fetchBucketDelta(id, currentProfile);
+
+                    if (newEntries.length > 0) {
+                        updateSourceData(`gcs:${id}`, newEntries, {
+                            ...currentProfile,
+                            files: [...(currentProfile.files || []), ...newFiles],
+                            entryCount: (currentProfile.entryCount || 0) + newEntries.length,
+                            loadedAt: new Date().toISOString()
+                        }, 'append');
+                        setGcsSuccess(`Added ${newEntries.length} new benchmarks.`);
+                    } else {
+                        setGcsSuccess(`No new data found in ${id}.`);
+                    }
+                } else {
+                    // Full Refresh
+                    const result = await fetchBucketData(id, true);
+                    if (result.profile.error) {
+                        setGcsError(result.profile.error);
+                    } else {
+                        updateSourceData(`gcs:${id}`, result.entries, result.profile, 'replace');
+                        setGcsSuccess(`Refreshed bucket: ${id}`);
+                    }
+                }
+            } else if (sourceType === 'giq') {
+                let token = apiConfigs.find(c => c.projectId === id)?.token;
+                if (!token) token = localStorage.getItem(`giq_token_${id}`);
+
+                await CacheManager.remove('giq', id);
+
+                let result = await fetchGiqData(id, token, false);
+
+                if (result.profile.error && token && (result.profile.error.includes('401') || result.profile.error.includes('403'))) {
+                    console.log(`[Refresh] Token expired for ${id}. Retrying with ADC...`);
+                    const retryRes = await fetchGiqData(id, '', true);
+                    if (!retryRes.profile.error) {
+                        result = retryRes;
+                    }
+                }
+
+                if (result.profile.error) {
+                    setApiError(result.profile.error);
+                } else {
+                    updateSourceData(`giq:${id}`, result.entries, { ...result.profile, rawResponse: result.rawResponse }, mode === 'delta' ? 'merge' : 'replace');
+                    setGcsSuccess(`Refreshed GIQ: Found ${result.rawResponse?.list?.profile?.length || '?'} profiles, Loaded ${result.entries.length} benchmarks.`);
+                }
+            }
+            setTimeout(() => setGcsSuccess(null), 3000);
+        } catch (e) {
+            console.error("Refresh failed", e);
+            setGcsError(`Refresh failed: ${e.message}`);
+        }
+        setGcsLoading(false);
+    };
+
     return {
         data, setData,
         loading, setLoading,
@@ -1781,6 +1973,8 @@ export const useDashboardData = (initialState, dashboardState) => {
         gcsLoading, setGcsLoading,
         gcsError, setGcsError,
         gcsSuccess, setGcsSuccess,
+        apiError, setApiError,
+        refreshSource,
         lpgLoading, setLpgLoading,
         lpgError, setLpgError,
         lpgPasteText, setLpgPasteText,
@@ -1816,7 +2010,7 @@ export const useDashboardData = (initialState, dashboardState) => {
         expandedIntegration, setExpandedIntegration,
         awsBucketConfigs, setAwsBucketConfigs,
         fetchAWSBucketData, handleAddAWSBucket, removeAWSBucket,
-        brv02Runs, brv02Error, setBrv02Error, brv02Loading, handleBrv02Upload, handleValidatedUpload, removeBrv02Run,
+        brv02Runs, brv02Error, setBrv02Error, brv02Loading, handleBrv02Upload, handleValidatedUpload, removeBrv02Run, promoteStagedRunId,
         brv02CustomLabels, setBrv02CustomLabels,
         brv02BaselineRunId, setBrv02BaselineRunId,
         brv02SelectedStages, setBrv02SelectedStages

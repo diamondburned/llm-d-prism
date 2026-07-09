@@ -340,6 +340,60 @@ export const getSourceTypeStyle = (type) => {
             };
     }
 };
+export const getSubmissionStatusDetails = (state) => {
+    switch (state) {
+        case 'staged':
+            return {
+                label: 'Staged (Local)',
+                bg: 'bg-slate-100 dark:bg-slate-800',
+                text: 'text-slate-700 dark:text-slate-300',
+                border: 'border-slate-200 dark:border-slate-700'
+            };
+        case 'submitted_pending_processing':
+            return {
+                label: 'Pending Processing',
+                bg: 'bg-amber-50 dark:bg-amber-950/20',
+                text: 'text-amber-700 dark:text-amber-400',
+                border: 'border-amber-200 dark:border-amber-900/50'
+            };
+        case 'submitted_pending_review':
+            return {
+                label: 'Pending Review',
+                bg: 'bg-amber-50 dark:bg-amber-950/20',
+                text: 'text-amber-700 dark:text-amber-400',
+                border: 'border-amber-200 dark:border-amber-900/50'
+            };
+        case 'public':
+            return {
+                label: 'Public',
+                bg: 'bg-emerald-50 dark:bg-emerald-950/20',
+                text: 'text-emerald-700 dark:text-emerald-400',
+                border: 'border-emerald-200 dark:border-emerald-900/50'
+            };
+        case 'promoted':
+            return {
+                label: 'Promoted (Well-Lit)',
+                bg: 'bg-indigo-50 dark:bg-indigo-950/20',
+                text: 'text-indigo-700 dark:text-indigo-400',
+                border: 'border-indigo-200 dark:border-indigo-900/50'
+            };
+        case 'rejected':
+            return {
+                label: 'Rejected',
+                bg: 'bg-red-50 dark:bg-red-950/20',
+                text: 'text-red-700 dark:text-red-400',
+                border: 'border-red-200 dark:border-red-900/50'
+            };
+        default:
+            return {
+                label: state || 'Unknown',
+                bg: 'bg-slate-100 dark:bg-slate-800',
+                text: 'text-slate-600 dark:text-slate-400',
+                border: 'border-slate-200 dark:border-slate-700'
+            };
+    }
+};
+
 
 export const formatOriginLabel = (origin) => {
     if (!origin) return 'Unknown Origin';
@@ -362,6 +416,11 @@ export const getBenchmarkKey = (d) => {
     // For local BRV02 benchmark runs, group them as a single run instead of by stage.
     if (d.source && d.source.startsWith('brv02:')) {
         return d.source;
+    }
+
+    // For results store benchmark runs in GCS, group them by their GCS run ID.
+    if (d.source_info?.type === 'benchmark_report_v02' && d.run_id) {
+        return `results-store:${d.run_id}`;
     }
     
     // For raw ad-hoc file imports (like drag and drop), keep them separated by filename

@@ -447,6 +447,7 @@ export function stageToEntry(stage) {
         // Top-level fields read directly by Dashboard / filter logic
         run_id: stage.runId,
         runLabel: stage.runLabel,
+        github_author: stage.github_author,
         model: modelName,
         model_name: modelName,
         hardware: hardware,
@@ -466,6 +467,9 @@ export function stageToEntry(stage) {
             origin: 'brv02:' + (stage.runLabel || runId || 'local-upload'),
             file_identifier: stage.filename,
             experiment_id: stage.runEid,
+            submission_state: stage.submission_state,
+            submitted_at: stage.submitted_at,
+            approved_at: stage.approved_at,
         },
 
         // Also set under metadata for any code that reads metadata.*
