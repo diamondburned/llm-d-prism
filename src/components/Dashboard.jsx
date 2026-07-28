@@ -1332,7 +1332,8 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
             // Get Configuration from first entry if available (for display)
             // Note: Since we grouped by Key, and Key includes configuration for local, all items in group share configuration.
             // We can attach it to the stat object for rendering.
-            const configuration = groupingData[0].metadata?.configuration || groupingData[0].configuration || 'Unknown';
+            const rawConfig = groupingData[0].metadata?.configuration || groupingData[0].configuration;
+            const configuration = (rawConfig && rawConfig !== 'Unknown') ? rawConfig : '';
 
             // Get sources and URLs
             const sources = [...new Set(groupingData.map(x => x.source))];

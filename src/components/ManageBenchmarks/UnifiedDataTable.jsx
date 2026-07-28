@@ -190,8 +190,6 @@ export const UnifiedDataTable = (props) => {
     const [viewingPayloadRun, setViewingPayloadRun] = useState(null);
     const [rejectingRunId, setRejectingRunId] = useState(null);
     const [rejectionFeedback, setRejectionFeedback] = useState('');
-    const [drawerRejectingRunId, setDrawerRejectingRunId] = useState(null);
-    const [drawerRejectionFeedback, setDrawerRejectionFeedback] = useState('');
 
     const actionPendingRef = React.useRef(false);
     const [isLocalActionPending, setIsLocalActionPending] = React.useState(false);
@@ -1623,203 +1621,38 @@ export const UnifiedDataTable = (props) => {
                                 </div>
                                 
                                 <div className="grid grid-cols-1 gap-3.5">
-                                    {modelStats.filter(s => selectedBenchmarks.has(s.benchmarkKey)).map(stat => {
-                                        const firstEntry = stat.data?.[0];
-                                        if (!firstEntry) return null;
-                                        const src = firstEntry.source || '';
-                                        const isBrv02 = src.startsWith('brv02:') || firstEntry.source_info?.type === 'benchmark_report_v02';
-                                        const runId = isBrv02 ? (src.startsWith('brv02:') ? src.replace('brv02:', '') : firstEntry.run_id) : null;
-                                        const sub = runId && submissionsMap ? submissionsMap[runId] : null;
-                                        const status = sub?.status || firstEntry.source_info?.submission_state || 'staged';
-                                        const isResultsStore = firstEntry.source_info?.type === 'benchmark_report_v02';
-                                        const isMine = isResultsStore && user && firstEntry.github_author?.username === user.username;
-                                        const isLocal = src.startsWith('brv02:');
-                                        const canResubmit = isLocal || isMine || isAdmin;
-                                        
-                                        return (
-                                            <div key={stat.benchmarkKey} className="flex flex-col p-4 rounded-2xl border border-slate-800/50 bg-[#0d131f]/20 hover:bg-[#0d131f]/40 hover:border-slate-700/40 transition-all duration-200">
-                                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                                                    <div className="flex-1 min-w-0 flex flex-col gap-1.5">
-                                                        <div className="flex items-center gap-2 flex-wrap">
-                                                            <button
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    toggleBaseline(stat.benchmarkKey);
-                                                                }}
-                                                                title={stat.benchmarkKey === baselineBenchmarkKey ? 'Clear baseline' : 'Set as baseline'}
-                                                                className={cn(
-                                                                    'p-1.5 rounded-xl border transition-colors flex-shrink-0 cursor-pointer',
-                                                                    stat.benchmarkKey === baselineBenchmarkKey
-                                                                        ? 'bg-cyan-500/10 border-cyan-500/35 text-cyan-400'
-                                                                        : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-cyan-400 hover:border-cyan-500/20'
-                                                                )}
-                                                            >
-                                                                <Pin size={11} className={cn('transition-transform duration-300', stat.benchmarkKey === baselineBenchmarkKey ? 'rotate-[45deg]' : '-rotate-45 opacity-65')} fill={stat.benchmarkKey === baselineBenchmarkKey ? 'currentColor' : 'none'} />
-                                                            </button>
-                                                            <span className="text-sm font-semibold text-white tracking-tight truncate max-w-[280px]" title={stat.model}>
-                                                                {stat.model}
-                                                            </span>
-                                                            {isBrv02 ? (
-                                                                <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-cyan-950/40 text-cyan-400 border border-cyan-900/35">
-                                                                    {stat.hardware}
-                                                                </span>
-                                                            ) : (
-                                                                <Badge tone="success" size="xs" className="normal-case tracking-normal">
-                                                                    Production Results Store
-                                                                </Badge>
-                                                            )}
-
-                                                            {/* Status Badge */}
-                                                            {isBrv02 ? (
-                                                                (status === 'rejected' || status === 'changes_requested') ? (
-                                                                    <StatusChip status="rejected" label="Changes Requested" />
-                                                                ) : status === 'submitted_pending_processing' ? (
-                                                                    <StatusChip status="processing" label="Verifying Format" className="animate-pulse" />
-                                                                ) : (status === 'submitted_pending_review' || status === 'in_review') ? (
-                                                                    <StatusChip status="in_review" label="Pending Review" className="animate-pulse" />
-                                                                ) : (status === 'public' || status === 'promoted' || status === 'approved') ? (
-                                                                    <StatusChip status="approved" label="Public" />
-                                                                ) : (
-                                                                    <StatusChip status={status} />
-                                                                )
-                                                            ) : (
-                                                                <Badge tone="success">
-                                                                    <ShieldCheck className="w-3 h-3" /> Verified
-                                                                </Badge>
-                                                            )}
-                                                        </div>
-                                                        <div className="text-xs text-slate-500 truncate" title={stat.configuration}>
-                                                            {stat.configuration || 'Default Settings'}
-                                                        </div>
-                                                    </div>
-                                                    
-                                                    {/* Actions */}
-                                                    <div className="flex items-center gap-2 flex-shrink-0">
-                                                        {isBrv02 && (
-                                                            <div className="flex items-center gap-2">
-                                                                {canResubmit && status === 'staged' && (
-                                                                    <button
-                                                                        onClick={() => {
-                                                                            const run = brv02Runs.find(r => r.runId === runId);
-                                                                            if (run) {
-                                                                                handleSubmitStagedRunForReview(run);
-                                                                            }
-                                                                        }}
-                                                                        disabled={isLoadingSubmissions || isLocalActionPending}
-                                                                        className="flex items-center gap-1 px-3 py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold uppercase tracking-wider rounded-xl shadow transition-all hover:scale-[1.03] disabled:opacity-50 disabled:pointer-events-none cursor-pointer"
-                                                                    >
-                                                                        <Play className="w-3 h-3 fill-slate-950 text-slate-950" /> Verify Format
-                                                                    </button>
-                                                                )}
-                                                                {canResubmit && status === 'submitted_pending_processing' && (
-                                                                    user?.permission === 'none' ? (
-                                                                        <div className="relative group/tooltip inline-block">
-                                                                            <button
-                                                                                disabled
-                                                                                className="flex items-center gap-1 px-3 py-2 bg-slate-800 text-slate-500 text-xs font-bold uppercase tracking-wider rounded-xl border border-slate-700/50 cursor-not-allowed opacity-60"
-                                                                            >
-                                                                                <Send className="w-3 h-3" /> Submit for Review
-                                                                            </button>
-                                                                            <div className="absolute right-0 bottom-full mb-2 px-3 py-2 bg-slate-900 border border-slate-800 text-slate-350 text-xs font-medium rounded-xl opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all duration-200 shadow-2xl z-[9999] w-64 pointer-events-none leading-relaxed text-center normal-case tracking-normal">
-                                                                                You are not in the Results Store closed-beta. Check back later once the feature is released.
-                                                                            </div>
-                                                                        </div>
-                                                                    ) : (
-                                                                        <button
-                                                                            onClick={() => handleActionClick(async () => updateSubmissionStatus && await updateSubmissionStatus(runId, 'submitted_pending_review', '', stat.model, stat.hardware))}
-                                                                            disabled={isLoadingSubmissions || isLocalActionPending}
-                                                                            className="flex items-center gap-1 px-3 py-2 bg-purple-500 hover:bg-purple-400 text-white text-xs font-bold uppercase tracking-wider rounded-xl shadow transition-all hover:scale-[1.03] disabled:opacity-50 disabled:pointer-events-none cursor-pointer"
-                                                                        >
-                                                                            <Send className="w-3 h-3" /> Submit for Review
-                                                                        </button>
-                                                                    )
-                                                                )}
-                                                                {isAdmin && (status === 'submitted_pending_review' || status === 'in_review') && (
-                                                                    <div className="flex items-center gap-2">
-                                                                        <Button
-                                                                            variant="primary"
-                                                                            size="sm"
-                                                                            className="uppercase tracking-wider"
-                                                                            onClick={() => handleActionClick(async () => updateSubmissionStatus && await updateSubmissionStatus(runId, 'public', '', stat.model, stat.hardware))}
-                                                                            disabled={isLoadingSubmissions || isLocalActionPending}
-                                                                        >
-                                                                            <Check className="w-3 h-3 stroke-[3]" /> Publish Run
-                                                                        </Button>
-                                                                        <Button
-                                                                            variant="danger"
-                                                                            size="sm"
-                                                                            className="uppercase tracking-wider"
-                                                                            onClick={() => {
-                                                                                setDrawerRejectingRunId(runId);
-                                                                                setDrawerRejectionFeedback('');
-                                                                            }}
-                                                                            disabled={isLoadingSubmissions || isLocalActionPending}
-                                                                        >
-                                                                            <X className="w-3 h-3" /> Reject
-                                                                        </Button>
-                                                                    </div>
-                                                                )}
-                                                                {canResubmit && (status === 'rejected' || status === 'changes_requested') && (
-                                                                    <button
-                                                                        onClick={() => updateSubmissionStatus && updateSubmissionStatus(runId, 'submitted_pending_processing', '', stat.model, stat.hardware)}
-                                                                        disabled={isLoadingSubmissions}
-                                                                        className="flex items-center gap-1 px-3 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold uppercase tracking-wider rounded-xl shadow transition-all hover:scale-[1.03] disabled:opacity-50 disabled:pointer-events-none cursor-pointer"
-                                                                    >
-                                                                        <RotateCcw className="w-3.5 h-3.5" /> Resubmit Validation
-                                                                    </button>
-                                                                )}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                                
-                                                {/* Drawer Rejection inline input */}
-                                                {runId !== null && drawerRejectingRunId === runId && (
-                                                    <div className="w-full mt-4 p-4 bg-slate-950/60 border border-red-500/20 rounded-2xl animate-fadeIn flex flex-col gap-3">
-                                                        <div className="text-xs font-bold text-red-400 uppercase tracking-widest flex items-center justify-between select-none">
-                                                            <span>Provide Revision Feedback</span>
-                                                            <button 
-                                                                onClick={() => setDrawerRejectingRunId(null)}
-                                                                className="text-slate-400 hover:text-white"
-                                                            >
-                                                                <X className="w-4 h-4" />
-                                                            </button>
-                                                        </div>
-                                                        <Textarea
-                                                            value={drawerRejectionFeedback}
-                                                            onChange={(e) => setDrawerRejectionFeedback(e.target.value)}
-                                                            placeholder="Explain why this run is rejected or what changes are required..."
-                                                            className="p-3 rounded-xl min-h-[70px] resize-y font-sans focus:border-red-500/40 focus:ring-red-500/40"
-                                                        />
-                                                        <div className="flex justify-end gap-2 mt-1">
-                                                            <Button
-                                                                variant="secondary"
-                                                                size="sm"
-                                                                className="uppercase font-bold"
-                                                                onClick={() => setDrawerRejectingRunId(null)}
-                                                            >
-                                                                Cancel
-                                                            </Button>
-                                                            <Button
-                                                                variant="danger"
-                                                                size="sm"
-                                                                className="uppercase font-bold"
-                                                                onClick={() => {
-                                                                    if (drawerRejectionFeedback.trim() && updateSubmissionStatus) {
-                                                                        updateSubmissionStatus(runId, 'rejected', drawerRejectionFeedback, stat.model, stat.hardware);
-                                                                        setDrawerRejectingRunId(null);
-                                                                    }
-                                                                }}
-                                                                disabled={!drawerRejectionFeedback.trim() || isLoadingSubmissions}
-                                                            >
-                                                                Confirm Rejection
-                                                            </Button>
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        );
-                                    })}
+                                    {modelStats.filter(s => selectedBenchmarks.has(s.benchmarkKey)).map(stat => (
+                                        <BenchmarkRow
+                                            key={stat.benchmarkKey || stat.model}
+                                            stat={stat}
+                                            isSelected={true}
+                                            isExpanded={expandedModels.has(stat.benchmarkKey || stat.model)}
+                                            isBaseline={stat.benchmarkKey === baselineBenchmarkKey}
+                                            user={user}
+                                            isAdmin={isAdmin}
+                                            submissionsMap={submissionsMap}
+                                            brv02Runs={brv02Runs}
+                                            visibleSpecs={visibleSpecs}
+                                            isLoadingSubmissions={isLoadingSubmissions}
+                                            isLocalActionPending={isLocalActionPending}
+                                            rejectingRunId={rejectingRunId}
+                                            rejectionFeedback={rejectionFeedback}
+                                            setRejectingRunId={setRejectingRunId}
+                                            setRejectionFeedback={setRejectionFeedback}
+                                            setViewingPayloadRun={setViewingPayloadRun}
+                                            setRawYamlContent={setRawYamlContent}
+                                            setRawYamlTitle={setRawYamlTitle}
+                                            handleSubmitStagedRunForReview={handleSubmitStagedRunForReview}
+                                            handleActionClick={handleActionClick}
+                                            updateSubmissionStatus={updateSubmissionStatus}
+                                            toggleModelExpansion={toggleModelExpansion}
+                                            handleCheckboxPointerDown={handleCheckboxPointerDown}
+                                            brv02CustomLabels={brv02CustomLabels}
+                                            handleEditStagedRun={handleEditStagedRun}
+                                            defaultSources={defaultSources}
+                                            readOnly={true}
+                                        />
+                                    ))}
                                 </div>
                             </div>
                         </div>
@@ -1913,6 +1746,7 @@ const BenchmarkRow = React.memo(({
     brv02CustomLabels,
     handleEditStagedRun,
     defaultSources,
+    readOnly = false,
 }) => {
     const benchmarkData = stat.data || [];
     const meta = benchmarkData[0]?.metadata || {};
@@ -2016,34 +1850,39 @@ const BenchmarkRow = React.memo(({
                                                 isBaseline && 'ring-2 ring-cyan-400/50'
                                             )}
                                         >
-                                            {statusAccent.accentBar}
+                                            {!readOnly && statusAccent.accentBar}
                                             {/* Card Main Row (Header) */}
                                             <div className="flex items-stretch min-h-[60px]">
                                                 {/* Left Checkbox Area (Dedicated Click Target) */}
-                                                <div 
-                                                    onPointerDown={(e) => handleCheckboxPointerDown(e, stat.benchmarkKey, isSelected)}
-                                                    className={cn(
-                                                        'benchmark-checkbox-area w-12 flex-shrink-0 flex items-center justify-center cursor-pointer border-r transition-colors select-none',
-                                                        statusAccent.accentBar && 'pl-1.5',
-                                                        isSelected
-                                                            ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
-                                                            : 'bg-slate-50 dark:bg-slate-800/50 border-slate-100 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700/50'
-                                                    )}
-                                                    data-benchmark-key={stat.benchmarkKey}
-                                                    style={{ touchAction: 'none' }}
-                                                >
-                                                    <div className={cn(
-                                                        'w-5 h-5 rounded flex items-center justify-center border transition-all',
-                                                        isSelected ? 'bg-blue-500 border-blue-500 text-white' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600'
-                                                    )}>
-                                                        {isSelected && <Check size={14} strokeWidth={3} />}
+                                                {!readOnly && (
+                                                    <div 
+                                                        onPointerDown={(e) => handleCheckboxPointerDown(e, stat.benchmarkKey, isSelected)}
+                                                        className={cn(
+                                                            'benchmark-checkbox-area w-12 flex-shrink-0 flex items-center justify-center cursor-pointer border-r transition-colors select-none',
+                                                            statusAccent.accentBar && 'pl-1.5',
+                                                            isSelected
+                                                                ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
+                                                                : 'bg-slate-50 dark:bg-slate-800/50 border-slate-100 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700/50'
+                                                        )}
+                                                        data-benchmark-key={stat.benchmarkKey}
+                                                        style={{ touchAction: 'none' }}
+                                                    >
+                                                        <div className={cn(
+                                                            'w-5 h-5 rounded flex items-center justify-center border transition-all',
+                                                            isSelected ? 'bg-blue-500 border-blue-500 text-white' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600'
+                                                        )}>
+                                                            {isSelected && <Check size={14} strokeWidth={3} />}
+                                                        </div>
                                                     </div>
-                                                </div>
+                                                )}
 
                                                 {/* Card Content Area (Expand Toggle) */}
                                                 <div 
                                                     onClick={() => toggleModelExpansion(stat.benchmarkKey || stat.model)}
-                                                    className="flex-1 flex items-center justify-between p-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors gap-3"
+                                                    className={cn(
+                                                        'flex-1 flex items-center justify-between cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors gap-3',
+                                                        readOnly ? 'p-3.5 sm:p-4' : 'p-3'
+                                                    )}
                                                 >
                                                     {/* Left side info block */}
                                                     <div className="flex-1 flex flex-wrap sm:flex-nowrap items-center gap-4 min-w-0">
@@ -2279,7 +2118,7 @@ const BenchmarkRow = React.memo(({
                                                                                                  ? (brv02CustomLabels[runId] || benchmarkData[0]?.runLabel || stat.model_name || stat.model || meta.model_name)
                                                                                                  : (stat.model_name || stat.model || meta.model_name)}
                                                                                          </span>
-                                                                                         {isBrv02 && runStatus === 'staged' && (
+                                                                                         {isBrv02 && runStatus === 'staged' && !readOnly && (
                                                                                              <button
                                                                                                  onClick={(e) => {
                                                                                                      e.stopPropagation();
@@ -2296,7 +2135,7 @@ const BenchmarkRow = React.memo(({
                                                                                          )}
                                                                                      </div>
 
-                                                                            {isBrv02 && (
+                                                                            {isBrv02 && !readOnly && (
                                                                                 <div className="flex flex-col items-end gap-1.5 relative">
                                                                                     <div className="flex items-center gap-2">
                                                                                         {(() => {
