@@ -1199,7 +1199,8 @@ export const useDashboardData = (initialState, dashboardState) => {
                     newD.ttft = newD.metrics.ttft || newD.ttft || { mean: 0, p50: 0 };
                     if (newD.ttft && typeof newD.ttft.mean !== 'number') newD.ttft.mean = Number(newD.ttft.mean || 0);
 
-                    newD.qps = Number(newD.workload?.target_qps || newD.metrics.request_rate || 0);
+                    const qpsVal = newD.workload?.target_qps ?? newD.metrics?.request_rate;
+                    newD.qps = qpsVal != null ? Number(qpsVal) : null;
                     // Critical for chart filtering/plotting (chartMode === 'tpot')
                     newD.time_per_output_token = Number(newD.metrics.time_per_output_token || newD.metrics.tpot || newD.metrics.mean_tpot_ms || 0);
                     newD.tpot = newD.time_per_output_token;
@@ -1213,10 +1214,10 @@ export const useDashboardData = (initialState, dashboardState) => {
 
                 // FLATTEN WORKLOAD
                 if (newD.workload) {
-                    newD.isl = newD.workload.input_tokens || newD.isl || 0;
-                    newD.osl = newD.workload.output_tokens || newD.osl || 0;
-                    newD.prompt_len = newD.workload.input_tokens || newD.isl || 0;
-                    newD.output_len = newD.workload.output_tokens || newD.osl || 0;
+                    newD.isl = newD.workload.input_tokens ?? newD.isl ?? null;
+                    newD.osl = newD.workload.output_tokens ?? newD.osl ?? null;
+                    newD.prompt_len = newD.workload.input_tokens ?? newD.isl ?? null;
+                    newD.output_len = newD.workload.output_tokens ?? newD.osl ?? null;
                 }
 
                 // FLATTEN DISAGGREGATED CONFIG (Critical for Table/Chart Display)

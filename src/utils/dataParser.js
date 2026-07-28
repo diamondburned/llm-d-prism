@@ -56,9 +56,9 @@ export const createEntry = (base) => ({
         timestamp: new Date().toISOString()
     },
     workload: {
-        input_tokens: 0,
-        output_tokens: 0,
-        target_qps: 0
+        input_tokens: null,
+        output_tokens: null,
+        target_qps: null
     },
     metrics: {
         throughput: 0,
@@ -468,8 +468,8 @@ export function parseLlmDBenchmark(json, folderName, runName) {
     };
 
     // 3. Metadata
-    const isl = (json.total_input_tokens && json.completed) ? Math.round(json.total_input_tokens / json.completed) : 0;
-    const osl = (json.total_output_tokens && json.completed) ? Math.round(json.total_output_tokens / json.completed) : 0;
+    const isl = (json.total_input_tokens && json.completed) ? Math.round(json.total_input_tokens / json.completed) : null;
+    const osl = (json.total_output_tokens && json.completed) ? Math.round(json.total_output_tokens / json.completed) : null;
     const modelName = normalizeModelName(json.model_id || 'Unknown');
 
     // standard entry creation

@@ -56,7 +56,8 @@ export const useLLMD = ({ setData, setSelectedSources, setAvailableSources, setD
                                         newE.ttft = newE.metrics.ttft || newE.ttft || { mean: 0, p50: 0 };
                                         if (newE.ttft && typeof newE.ttft.mean !== 'number') newE.ttft.mean = Number(newE.ttft.mean || 0);
 
-                                        newE.qps = Number(newE.workload?.target_qps || newE.metrics.request_rate || 0);
+                                        const qpsVal = newE.workload?.target_qps ?? newE.metrics?.request_rate;
+                                        newE.qps = qpsVal != null ? Number(qpsVal) : null;
                                         newE.time_per_output_token = Number(newE.metrics.time_per_output_token || newE.metrics.tpot || newE.metrics.mean_tpot_ms || 0);
                                         newE.tpot = newE.time_per_output_token;
                                         newE.ntpot = newE.time_per_output_token;
@@ -69,8 +70,8 @@ export const useLLMD = ({ setData, setSelectedSources, setAvailableSources, setD
 
                                     // Hoist Workload (Critical for Grouping)
                                     if (newE.workload) {
-                                        newE.isl = newE.workload.input_tokens || newE.isl || 0;
-                                        newE.osl = newE.workload.output_tokens || newE.osl || 0;
+                                        newE.isl = newE.workload.input_tokens ?? newE.isl ?? null;
+                                        newE.osl = newE.workload.output_tokens ?? newE.osl ?? null;
                                     }
 
                                     // Ensure model_name is at root for filters
@@ -182,7 +183,8 @@ export const useLLMD = ({ setData, setSelectedSources, setAvailableSources, setD
                                     e.ttft = e.metrics.ttft || e.ttft || { mean: 0, p50: 0 };
                                     if (e.ttft && typeof e.ttft.mean !== 'number') e.ttft.mean = Number(e.ttft.mean || 0);
 
-                                    e.qps = Number(e.workload?.target_qps || e.metrics.request_rate || 0);
+                                    const qpsVal = e.workload?.target_qps ?? e.metrics?.request_rate;
+                                    e.qps = qpsVal != null ? Number(qpsVal) : null;
                                     e.time_per_output_token = Number(e.metrics.time_per_output_token || e.metrics.tpot || e.metrics.mean_tpot_ms || 0);
                                     e.tpot = e.time_per_output_token;
                                     e.ntpot = e.time_per_output_token;
@@ -195,8 +197,8 @@ export const useLLMD = ({ setData, setSelectedSources, setAvailableSources, setD
 
                                 // Hoist Workload (Critical for Grouping)
                                 if (e.workload) {
-                                    e.isl = e.workload.input_tokens || e.isl || 0;
-                                    e.osl = e.workload.output_tokens || e.osl || 0;
+                                    e.isl = e.workload.input_tokens ?? e.isl ?? null;
+                                    e.osl = e.workload.output_tokens ?? e.osl ?? null;
                                 }
 
                                 // Ensure model_name is at root for filters

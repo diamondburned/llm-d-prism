@@ -510,8 +510,8 @@ export function stageToEntry(stage) {
         hardware: hardware,
         precision: 'Unknown',
         backend: scenario.harness || 'Unknown',
-        isl: scenario.isl || 0,
-        osl: scenario.osl || 0,
+        isl: scenario.isl ?? null,
+        osl: scenario.osl ?? null,
         timestamp: ts,
         throughput,
         latency,
@@ -551,9 +551,9 @@ export function stageToEntry(stage) {
         },
 
         workload: {
-            input_tokens: scenario.isl || 0,
-            output_tokens: scenario.osl || 0,
-            target_qps: scenario.rateQps || 0,
+            input_tokens: scenario.isl ?? null,
+            output_tokens: scenario.osl ?? null,
+            target_qps: scenario.rateQps ?? null,
             concurrency: scenario.concurrency ?? null,
             stage: stage.stageIndex,
         },
