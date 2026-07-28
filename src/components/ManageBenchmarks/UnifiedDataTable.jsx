@@ -397,12 +397,34 @@ export const UnifiedDataTable = (props) => {
 
 
     const drawerMetricAvailability = React.useMemo(() => {
-        const hasNtpot = filteredBySource?.some(d => d.metrics?.ntpot != null);
-        const hasTtft = filteredBySource?.some(d => d.metrics?.ttft?.mean != null || d.ttft?.mean != null);
-        const hasTokensPerSec = filteredBySource?.some(d => d.tokens_per_second != null);
-        const hasItl = filteredBySource?.some(d => d.metrics?.itl != null || d.itl != null);
-        return { ntpot: hasNtpot, ttft: hasTtft, tokens_per_sec: hasTokensPerSec, itl: hasItl };
-    }, [filteredBySource]);
+        const dataToCheck = drawerFilteredData || [];
+        
+        const hasNtpot = dataToCheck.some(d => d.metrics?.ntpot != null);
+        const hasTtft = dataToCheck.some(d => d.metrics?.ttft?.mean != null || d.ttft?.mean != null);
+        const hasTokensPerSec = dataToCheck.some(d => d.tokens_per_second != null);
+        const hasItl = dataToCheck.some(d => d.metrics?.itl != null || d.itl != null);
+        
+        const hasInput = dataToCheck.length > 0 && dataToCheck.every(d => d.throughput <= 0 || (d.metrics?.input_tput || 0) > 0);
+        const hasTotal = dataToCheck.length > 0 && dataToCheck.every(d => d.throughput <= 0 || (d.metrics?.total_tput || 0) > 0);
+        const hasQPS = dataToCheck.length > 0 && dataToCheck.every(d => d.throughput <= 0 || (d.qps || d.metrics?.request_rate || 0) > 0);
+        const hasCost = dataToCheck.some(d => d.metrics?.cost && (
+            (d.metrics.cost.spot || 0) > 0 ||
+            (d.metrics.cost.on_demand || 0) > 0 ||
+            (d.metrics.cost.cud_1y || 0) > 0 ||
+            (d.metrics.cost.cud_3y || 0) > 0
+        ));
+        
+        return { 
+            ntpot: hasNtpot, 
+            ttft: hasTtft, 
+            tokens_per_sec: hasTokensPerSec, 
+            itl: hasItl,
+            input: hasInput,
+            total: hasTotal,
+            qps: hasQPS,
+            cost: hasCost
+        };
+    }, [drawerFilteredData]);
 
     const localSelectedCount = React.useMemo(() => {
         let count = 0;
@@ -1582,7 +1604,7 @@ export const UnifiedDataTable = (props) => {
                                             <button
                                                 id="drawer-publish-selected-btn"
                                                 onClick={handlePublishSelected}
-                                                className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-700 hover:from-cyan-500 hover:to-blue-650 text-white text-xs font-bold uppercase tracking-wider rounded-xl shadow-[0_0_12px_rgba(6,182,212,0.15)] transition-all hover:scale-[1.02] cursor-pointer flex items-center gap-1.5"
+                                                className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-700 hover:from-cyan-500 hover:to-blue-600 text-white text-xs font-bold uppercase tracking-wider rounded-xl shadow-[0_0_12px_rgba(6,182,212,0.15)] transition-all hover:scale-[1.02] cursor-pointer flex items-center gap-1.5"
                                             >
                                                 <Send size={12} />
                                                 Publish Selected ({selectedStagedRuns.length})
@@ -2251,7 +2273,7 @@ const BenchmarkRow = React.memo(({
                                                                      {/* Line 1: Model Title on left, Source Tag & Date on right */}
                                                                      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 w-full">
                                                                          <div className="flex items-center gap-2 min-w-0 flex-1">
-                                                                                     <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                                                                                     <div className="flex items-center gap-1.5 min-w-0 flex-nowrap overflow-hidden">
                                                                                          <span className="font-bold text-sm sm:text-base text-slate-800 dark:text-slate-100 truncate">
                                                                                              {isBrv02 
                                                                                                  ? (brv02CustomLabels[runId] || benchmarkData[0]?.runLabel || stat.model_name || stat.model || meta.model_name)

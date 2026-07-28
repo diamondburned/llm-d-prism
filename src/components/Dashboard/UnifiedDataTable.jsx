@@ -208,7 +208,7 @@ export const UnifiedDataTable = (props) => {
                                                 })()}
                                            </td>
                                            <td className="px-2 py-2 font-medium text-slate-800 dark:text-slate-200">
-                                                <div className="flex items-center gap-2">
+                                                <div className="flex items-center gap-2 min-w-0 overflow-hidden">
                                                     <button
                                                           onClick={(e) => {
                                                               e.stopPropagation();
@@ -223,7 +223,13 @@ export const UnifiedDataTable = (props) => {
                                                               <ChevronDown size={12} />
                                                           )}
                                                       </button>
-                                                    <div>
+                                                                                                         <div className="truncate" title={
+                                                         (() => {
+                                                             const runId = getRunIdFromKey(stat.benchmarkKey);
+                                                             const customLabel = runId ? brv02CustomLabels?.[runId] : null;
+                                                             return customLabel || benchmarkData[0]?.runLabel || (stat.model_name || stat.model || meta.model_name);
+                                                         })()
+                                                     }>
                                                         {(() => {
                                                             const runId = getRunIdFromKey(stat.benchmarkKey);
                                                             const customLabel = runId ? brv02CustomLabels?.[runId] : null;

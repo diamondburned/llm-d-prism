@@ -708,11 +708,11 @@ export const ThroughputCostChart = (props) => {
                                         <div className="flex items-center gap-3">
                                              <span className="text-[10px] text-slate-450 font-extrabold uppercase tracking-wider w-16">X-Axis:</span>
                                              <div className="flex flex-wrap bg-slate-950/60 border border-slate-800/80 rounded-lg p-0.5 gap-0.5">
-                                                 <button onClick={() => switchMode('tpot')} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', chartMode === 'tpot' ? 'bg-indigo-650 text-white shadow' : 'text-slate-400 hover:text-white')}>TPOT</button>
-                                                 <button onClick={() => switchMode('ntpot')} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', chartMode === 'ntpot' ? 'bg-indigo-650 text-white shadow' : 'text-slate-400 hover:text-white')}>NTPOT</button>
-                                                 <button onClick={() => switchMode('ttft')} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', chartMode === 'ttft' ? 'bg-indigo-650 text-white shadow' : 'text-slate-400 hover:text-white')}>TTFT</button>
-                                                 <button onClick={() => switchMode('itl')} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', chartMode === 'itl' ? 'bg-indigo-650 text-white shadow' : 'text-slate-400 hover:text-white')}>ITL</button>
-                                                 <button onClick={() => switchMode('lat')} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', chartMode === 'lat' ? 'bg-indigo-650 text-white shadow' : 'text-slate-400 hover:text-white')}>E2E Latency</button>
+                                                 <button onClick={() => switchMode('tpot')} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', chartMode === 'tpot' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white')}>TPOT</button>
+                                                 <button onClick={() => switchMode('ntpot')} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', chartMode === 'ntpot' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white')}>NTPOT</button>
+                                                 <button onClick={() => switchMode('ttft')} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', chartMode === 'ttft' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white')}>TTFT</button>
+                                                 <button onClick={() => switchMode('itl')} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', chartMode === 'itl' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white')}>ITL</button>
+                                                 <button onClick={() => switchMode('lat')} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', chartMode === 'lat' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white')}>E2E Latency</button>
                                              </div>
                                          </div>
 
@@ -752,8 +752,8 @@ export const ThroughputCostChart = (props) => {
 
                                              {/* Visual Toggles Group */}
                                              <div className="flex items-center gap-1.5 bg-slate-950/60 border border-slate-800/80 rounded-lg p-0.5">
-                                                 <button onClick={() => setShowLabels(!showLabels)} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', showLabels ? 'bg-indigo-655 text-white shadow' : 'text-slate-400 hover:text-white')}>Labels</button>
-                                                 <button onClick={() => setShowDataLabels(!showDataLabels)} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', showDataLabels ? 'bg-pink-650 text-white shadow' : 'text-slate-400 hover:text-white')}>Points</button>
+                                                 <button onClick={() => setShowLabels(!showLabels)} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', showLabels ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white')}>Labels</button>
+                                                 <button onClick={() => setShowDataLabels(!showDataLabels)} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', showDataLabels ? 'bg-pink-600 text-white shadow' : 'text-slate-400 hover:text-white')}>Points</button>
                                                  <button onClick={() => setShowPareto(!showPareto)} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', showPareto ? 'bg-amber-500 text-white shadow' : 'text-slate-400 hover:text-white')}>Pareto</button>
                                              </div>
 

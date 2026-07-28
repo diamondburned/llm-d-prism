@@ -520,6 +520,12 @@ export function stageToEntry(stage) {
         well_lit_path: stage.well_lit_path || stage.wellLitPath || null,
         wellLitPath: stage.well_lit_path || stage.wellLitPath || null,
 
+        // Hoist key metrics to root for Chart compatibility
+        time_per_output_token: performance.tpotMean ?? null,
+        tpot: performance.tpotMean ?? null,
+        ntpot: performance.tpotMean ?? null,
+        itl: performance.itlMean ?? null,
+
         source: `brv02:${runId}`,
         source_info: {
             type: 'benchmark_report_v02',
