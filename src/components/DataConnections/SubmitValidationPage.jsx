@@ -96,6 +96,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
         brv02Runs,
         handleValidatedUpload: onCommit,
         loadSubmissions,
+        loadAllData,
         clearAllBrv02Runs,
         promoteStagedRunId,
         removeBrv02Run
@@ -1422,6 +1423,11 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
             // Refresh submissions list in main dashboard
             if (loadSubmissions) {
                 loadSubmissions(true);
+            }
+
+            // Force refetch database so newly submitted benchmarks in GCS are loaded immediately
+            if (loadAllData) {
+                await loadAllData(null, true);
             }
 
             // Close and reset
