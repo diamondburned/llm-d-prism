@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { defaultState } from '../config/defaultState';
 
 export const getSharedState = () => {
@@ -128,7 +128,18 @@ export const useDashboardState = () => {
         return initialState.selectedModels || new Set();
     });
 
+    const isInitialMountSelection = useRef(true);
+
     useEffect(() => {
+        if (isInitialMountSelection.current) {
+            isInitialMountSelection.current = false;
+            try {
+                const saved = localStorage.getItem('prism_selected_benchmarks');
+                if (saved === null && selectedBenchmarks.size === 0) return;
+            } catch (e) {
+                console.warn(e);
+            }
+        }
         try {
             localStorage.setItem('prism_selected_benchmarks', JSON.stringify(Array.from(selectedBenchmarks)));
         } catch (e) {

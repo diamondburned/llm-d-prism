@@ -194,11 +194,7 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
         }
     }, [isAuthenticated, onNavigate]);
 
-    React.useEffect(() => {
-        if (setSelectedBenchmarks) {
-            setSelectedBenchmarks(new Set());
-        }
-    }, [setSelectedBenchmarks]);
+
 
     React.useEffect(() => {
         const triggerStaged = localStorage.getItem('prism_activate_staged_filter');

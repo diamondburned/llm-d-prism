@@ -696,6 +696,12 @@ export const useDashboardData = (initialState, dashboardState) => {
 
                     setSelectedBenchmarks(prev => {
                         if (prev.size > 0) return prev;
+                        try {
+                            const savedSel = localStorage.getItem('prism_selected_benchmarks');
+                            if (savedSel !== null) return prev;
+                        } catch {
+                            // ignore
+                        }
                         // Default to qwen3-coder-next if present
                         const qwenKeys = Array.from(allKeys).filter(k => {
                             const parts = k.split('::');
