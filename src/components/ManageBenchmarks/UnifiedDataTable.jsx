@@ -208,7 +208,12 @@ export const UnifiedDataTable = (props) => {
 
 
     const [isDraggingSelection, setIsDraggingSelection] = useState(false);
-    const dragStartPagePos = React.useRef({ x: 0, y: 0 });
+    const clickedCheckboxEl = React.useRef(null);
+    const clickedCheckboxOffset = React.useRef({ x: 0, y: 0 });
+    const dragStartClientPos = React.useRef({ x: 0, y: 0 });
+    const initialScrollPos = React.useRef({ x: 0, y: 0 });
+    const scrollContainerRef = React.useRef(null);
+    const animFrameRef = React.useRef(null);
     const lastPointerPos = React.useRef({ x: 0, y: 0 });
     const [dragBox, setDragBox] = useState(null);
     const dragActionSelect = React.useRef(true);
@@ -484,8 +489,23 @@ export const UnifiedDataTable = (props) => {
         if (!isDraggingSelection) return;
 
         const updateDragSelection = () => {
-            const vStartX = dragStartPagePos.current.x - window.scrollX;
-            const vStartY = dragStartPagePos.current.y - window.scrollY;
+            let vStartX;
+            let vStartY;
+
+            if (clickedCheckboxEl.current && clickedCheckboxEl.current.isConnected) {
+                const cbRect = clickedCheckboxEl.current.getBoundingClientRect();
+                vStartX = cbRect.left + clickedCheckboxOffset.current.x;
+                vStartY = cbRect.top + clickedCheckboxOffset.current.y;
+            } else {
+                const container = scrollContainerRef.current;
+                const currentScrollX = container === window ? window.scrollX : container?.scrollLeft || 0;
+                const currentScrollY = container === window ? window.scrollY : container?.scrollTop || 0;
+                const deltaX = currentScrollX - initialScrollPos.current.x;
+                const deltaY = currentScrollY - initialScrollPos.current.y;
+                vStartX = dragStartClientPos.current.x - deltaX;
+                vStartY = dragStartClientPos.current.y - deltaY;
+            }
+
             const vCurrentX = lastPointerPos.current.x;
             const vCurrentY = lastPointerPos.current.y;
 
@@ -522,6 +542,50 @@ export const UnifiedDataTable = (props) => {
             setSelectedBenchmarks(newSelected);
         };
 
+        const EDGE_THRESHOLD = 80;
+        const MAX_SPEED = 25;
+
+        const autoScrollAndSelect = () => {
+            const container = scrollContainerRef.current;
+            let containerTop = 0;
+            let containerBottom = window.innerHeight;
+
+            if (container && container !== window) {
+                const containerRect = container.getBoundingClientRect();
+                containerTop = containerRect.top;
+                containerBottom = containerRect.bottom;
+            }
+
+            const currentY = lastPointerPos.current.y;
+            let scrollDeltaY = 0;
+
+            if (currentY > containerBottom - EDGE_THRESHOLD) {
+                const distance = currentY - (containerBottom - EDGE_THRESHOLD);
+                const intensity = Math.min(1, Math.max(0, distance / EDGE_THRESHOLD));
+                scrollDeltaY = intensity * MAX_SPEED;
+            } else if (currentY < containerTop + EDGE_THRESHOLD) {
+                const distance = (containerTop + EDGE_THRESHOLD) - currentY;
+                const intensity = Math.min(1, Math.max(0, distance / EDGE_THRESHOLD));
+                scrollDeltaY = -intensity * MAX_SPEED;
+            }
+
+            if (scrollDeltaY !== 0) {
+                if (!container || container === window) {
+                    window.scrollBy(0, scrollDeltaY);
+                    if (document.documentElement) {
+                        document.documentElement.scrollTop += scrollDeltaY;
+                    }
+                } else {
+                    container.scrollTop += scrollDeltaY;
+                }
+            }
+
+            updateDragSelection();
+            animFrameRef.current = requestAnimationFrame(autoScrollAndSelect);
+        };
+
+        animFrameRef.current = requestAnimationFrame(autoScrollAndSelect);
+
         const handlePointerMove = (e) => {
             lastPointerPos.current = { x: e.clientX, y: e.clientY };
             updateDragSelection();
@@ -534,20 +598,40 @@ export const UnifiedDataTable = (props) => {
         const handlePointerUp = () => {
             setIsDraggingSelection(false);
             setDragBox(null);
+            if (animFrameRef.current) {
+                cancelAnimationFrame(animFrameRef.current);
+            }
         };
 
         window.addEventListener('pointermove', handlePointerMove);
         window.addEventListener('pointerup', handlePointerUp);
         window.addEventListener('pointercancel', handlePointerUp);
-        window.addEventListener('scroll', handleScroll, { passive: true });
+        window.addEventListener('scroll', handleScroll, { capture: true, passive: true });
 
         return () => {
             window.removeEventListener('pointermove', handlePointerMove);
             window.removeEventListener('pointerup', handlePointerUp);
             window.removeEventListener('pointercancel', handlePointerUp);
-            window.removeEventListener('scroll', handleScroll);
+            window.removeEventListener('scroll', handleScroll, { capture: true });
+            if (animFrameRef.current) {
+                cancelAnimationFrame(animFrameRef.current);
+            }
         };
     }, [isDraggingSelection, setSelectedBenchmarks]);
+
+    const getScrollContainer = (el) => {
+        let current = el?.parentElement;
+        while (current && current !== document.body && current !== document.documentElement) {
+            const style = window.getComputedStyle(current);
+            const hasOverflow = style.overflowY === 'auto' || style.overflowY === 'scroll';
+            const canScroll = current.scrollHeight - current.clientHeight > 5;
+            if (hasOverflow && canScroll) {
+                return current;
+            }
+            current = current.parentElement;
+        }
+        return window;
+    };
 
     const handleCheckboxPointerDown = (e, key, isCurrentlySelected) => {
         // Only trigger on left mouse button or touch
@@ -556,8 +640,21 @@ export const UnifiedDataTable = (props) => {
         e.preventDefault();
         e.stopPropagation();
         
-        dragStartPagePos.current = { x: e.clientX + window.scrollX, y: e.clientY + window.scrollY };
+        const cbEl = e.currentTarget;
+        const cbRect = cbEl.getBoundingClientRect();
+
+        clickedCheckboxEl.current = cbEl;
+        clickedCheckboxOffset.current = { x: e.clientX - cbRect.left, y: e.clientY - cbRect.top };
+        dragStartClientPos.current = { x: e.clientX, y: e.clientY };
         lastPointerPos.current = { x: e.clientX, y: e.clientY };
+
+        const container = getScrollContainer(cbEl);
+        scrollContainerRef.current = container;
+        initialScrollPos.current = {
+            x: container === window ? window.scrollX : container.scrollLeft,
+            y: container === window ? window.scrollY : container.scrollTop
+        };
+
         setDragBox({
             startX: e.clientX,
             startY: e.clientY,
@@ -1411,7 +1508,7 @@ export const UnifiedDataTable = (props) => {
                 )}
                 </div>
             </div>
-            {dragBox && (
+            {dragBox && createPortal(
                 <div
                     style={{
                         position: 'fixed',
@@ -1420,12 +1517,14 @@ export const UnifiedDataTable = (props) => {
                         width: Math.abs(dragBox.currentX - dragBox.startX),
                         height: Math.abs(dragBox.currentY - dragBox.startY),
                         pointerEvents: 'none',
-                        zIndex: 9999,
-                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                        border: '1px solid rgba(59, 130, 246, 0.4)',
+                        zIndex: 99999,
+                        backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                        border: '1.5px solid rgba(59, 130, 246, 0.6)',
                         borderRadius: '2px',
+                        boxSizing: 'border-box'
                     }}
-                />
+                />,
+                document.body
             )}
             {rawYamlContent !== null && createPortal(
                 <Modal
