@@ -100,6 +100,7 @@ export const FilterPanel = ({
     searchTerm, setSearchTerm, kpiFilter, setKpiFilter,
     updateSubmissionStatus,
     bulkUpdateSubmissionStatus,
+    deleteSubmission,
     onOpenSubmitDialog,
     loadAllData,
     loadingConnections,
@@ -579,6 +580,7 @@ export const FilterPanel = ({
                 isLoadingSubmissions={isLoadingSubmissions}
                 updateSubmissionStatus={updateSubmissionStatus}
                 bulkUpdateSubmissionStatus={bulkUpdateSubmissionStatus}
+                deleteSubmission={deleteSubmission}
                 onOpenSubmitDialog={onOpenSubmitDialog}
                 isFiltered={hasFiltersToSave}
                 loadAllData={loadAllData}
@@ -593,7 +595,7 @@ export const FilterPanel = ({
         setBaselineBenchmarkKey, hideShowSelectedOnly, renameClearToUnselectAll, brv02Runs, brv02CustomLabels,
         setBrv02CustomLabels, removeBrv02Run, setShowDataPanel, searchTerm, setSearchTerm, kpiFilter,
         setKpiFilter, paretoKeys, submissionsMap, isLoadingSubmissions, updateSubmissionStatus,
-        bulkUpdateSubmissionStatus, onOpenSubmitDialog, hasFiltersToSave, loadAllData, loadingConnections,
+        bulkUpdateSubmissionStatus, deleteSubmission, onOpenSubmitDialog, hasFiltersToSave, loadAllData, loadingConnections,
         dashboardState, defaultSources
     ]);
 

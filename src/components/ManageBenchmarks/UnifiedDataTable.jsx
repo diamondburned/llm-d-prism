@@ -238,6 +238,7 @@ export const UnifiedDataTable = (props) => {
         isLoadingSubmissions = false,
         updateSubmissionStatus,
         bulkUpdateSubmissionStatus,
+        deleteSubmission,
         qualityMetrics,
         onOpenSubmitDialog,
         isFiltered = false,
@@ -1043,6 +1044,42 @@ export const UnifiedDataTable = (props) => {
         }
     };
 
+    const onlyRejectedSelected = React.useMemo(() => {
+        if (selectedBenchmarks.size === 0) return false;
+        return Array.from(selectedBenchmarks).every(key => {
+            const stat = modelStats.find(s => s.benchmarkKey === key);
+            const firstEntry = stat?.data?.[0];
+            if (!firstEntry) return false;
+            const src = firstEntry.source || '';
+            const runId = src.startsWith('brv02:') ? src.replace('brv02:', '') : firstEntry.run_id;
+            const sub = submissionsMap ? submissionsMap[runId] : null;
+            const status = sub?.status || firstEntry.source_info?.submission_state || 'staged';
+            return status === 'rejected';
+        });
+    }, [selectedBenchmarks, modelStats, submissionsMap]);
+
+    const handleBulkDeleteRejected = async () => {
+        if (selectedBenchmarks.size === 0) return;
+        if (!confirm(`Are you sure you want to permanently delete the ${selectedBenchmarks.size} selected rejected benchmarks from the Results Store? This action cannot be undone.`)) {
+            return;
+        }
+
+        const runIds = Array.from(selectedBenchmarks).map(key => {
+            const stat = modelStats.find(s => s.benchmarkKey === key);
+            const firstEntry = stat?.data?.[0];
+            const src = firstEntry?.source || '';
+            return src.startsWith('brv02:') ? src.replace('brv02:', '') : firstEntry?.run_id;
+        }).filter(Boolean);
+
+        if (deleteSubmission) {
+            for (let i = 0; i < runIds.length; i++) {
+                const isLast = i === runIds.length - 1;
+                await deleteSubmission(runIds[i], isLast);
+            }
+            clearSelected();
+        }
+    };
+
     // Computes metric-specific empty state messaging, icons, colors and actions
     const getEmptyStateConfig = () => {
         switch (kpiFilter) {
@@ -1326,6 +1363,17 @@ export const UnifiedDataTable = (props) => {
                             </>
                         )}
 
+                        {isAdmin && onlyRejectedSelected && (
+                            <Button
+                                variant="danger"
+                                size="sm"
+                                onClick={() => handleActionClick(handleBulkDeleteRejected)}
+                                disabled={isLoadingSubmissions || isLocalActionPending}
+                            >
+                                <Trash2 className="w-3.5 h-3.5" /> Delete ({selectedBenchmarks.size})
+                            </Button>
+                        )}
+
                         {/* Compare Selected Button */}
                         <button
                             onClick={() => sortedStats.length > 0 && setShowComparisonDrawer(true)}
@@ -1493,6 +1541,7 @@ export const UnifiedDataTable = (props) => {
                                             handleSubmitStagedRunForReview={handleSubmitStagedRunForReview}
                                             handleActionClick={handleActionClick}
                                             updateSubmissionStatus={updateSubmissionStatus}
+                                            deleteSubmission={deleteSubmission}
                                             toggleModelExpansion={toggleModelExpansion}
                                             handleCheckboxPointerDown={handleCheckboxPointerDown}
                                             brv02CustomLabels={brv02CustomLabels}
@@ -1744,6 +1793,7 @@ export const UnifiedDataTable = (props) => {
                                             handleSubmitStagedRunForReview={handleSubmitStagedRunForReview}
                                             handleActionClick={handleActionClick}
                                             updateSubmissionStatus={updateSubmissionStatus}
+                                            deleteSubmission={deleteSubmission}
                                             toggleModelExpansion={toggleModelExpansion}
                                             handleCheckboxPointerDown={handleCheckboxPointerDown}
                                             brv02CustomLabels={brv02CustomLabels}
@@ -1804,6 +1854,16 @@ export const UnifiedDataTable = (props) => {
                             </Button>
                         </>
                     )}
+                    {isAdmin && onlyRejectedSelected && (
+                        <Button
+                            variant="danger"
+                            size="sm"
+                            onClick={() => handleActionClick(handleBulkDeleteRejected)}
+                            disabled={isLoadingSubmissions || isLocalActionPending}
+                        >
+                            <Trash2 className="w-3.5 h-3.5" /> Delete
+                        </Button>
+                    )}
                     <button
                         id="bottom-compare-publish-btn"
                         onClick={() => setShowComparisonDrawer(true)}
@@ -1840,6 +1900,7 @@ const BenchmarkRow = React.memo(({
     handleSubmitStagedRunForReview,
     handleActionClick,
     updateSubmissionStatus,
+    deleteSubmission,
     toggleModelExpansion,
     handleCheckboxPointerDown,
     brv02CustomLabels,
@@ -2323,23 +2384,51 @@ const BenchmarkRow = React.memo(({
                                                                                                     </>
                                                                                                 );
                                                                                             }
-                                                                                            if (canResubmit && (status === 'rejected' || status === 'changes_requested')) {
+                                                                                            if (status === 'rejected' || status === 'changes_requested') {
+                                                                                                const showResubmit = canResubmit;
+                                                                                                const showDelete = isAdmin && status === 'rejected';
+
+                                                                                                if (!showResubmit && !showDelete) return null;
+
                                                                                                 return (
-                                                                                                    <button
-                                                                                                        onClick={(e) => {
-                                                                                                            e.stopPropagation();
-                                                                                                            handleActionClick(async () => {
-                                                                                                                if (updateSubmissionStatus) {
-                                                                                                                    await updateSubmissionStatus(runId, 'submitted_pending_processing', '', stat.model, stat.hardware);
-                                                                                                                }
-                                                                                                            });
-                                                                                                        }}
-                                                                                                        disabled={isLoadingSubmissions || isLocalActionPending}
-                                                                                                        title="Resubmit this run for automated verification after corrections"
-                                                                                                        className="px-2.5 py-1 rounded-xl border border-purple-500/25 bg-purple-500/10 hover:bg-purple-500/20 disabled:opacity-50 disabled:cursor-not-allowed text-purple-400 text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer select-none flex items-center gap-1"
-                                                                                                    >
-                                                                                                        <RotateCcw className="w-2.5 h-2.5" /> Resubmit
-                                                                                                    </button>
+                                                                                                    <div className="flex items-center gap-1.5">
+                                                                                                        {showResubmit && (
+                                                                                                            <button
+                                                                                                                onClick={(e) => {
+                                                                                                                    e.stopPropagation();
+                                                                                                                    handleActionClick(async () => {
+                                                                                                                        if (updateSubmissionStatus) {
+                                                                                                                            await updateSubmissionStatus(runId, 'submitted_pending_processing', '', stat.model, stat.hardware);
+                                                                                                                        }
+                                                                                                                    });
+                                                                                                                }}
+                                                                                                                disabled={isLoadingSubmissions || isLocalActionPending}
+                                                                                                                title="Resubmit this run for automated verification after corrections"
+                                                                                                                className="px-2.5 py-1 rounded-xl border border-purple-500/25 bg-purple-500/10 hover:bg-purple-500/20 disabled:opacity-50 disabled:cursor-not-allowed text-purple-400 text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer select-none flex items-center gap-1"
+                                                                                                            >
+                                                                                                                <RotateCcw className="w-2.5 h-2.5" /> Resubmit
+                                                                                                            </button>
+                                                                                                        )}
+                                                                                                        {showDelete && (
+                                                                                                            <button
+                                                                                                                onClick={(e) => {
+                                                                                                                    e.stopPropagation();
+                                                                                                                    handleActionClick(async () => {
+                                                                                                                        if (window.confirm(`Are you sure you want to permanently delete rejected benchmark ${runId} from the Results Store? This action cannot be undone.`)) {
+                                                                                                                            if (deleteSubmission) {
+                                                                                                                                await deleteSubmission(runId);
+                                                                                                                            }
+                                                                                                                        }
+                                                                                                                    });
+                                                                                                                }}
+                                                                                                                disabled={isLoadingSubmissions || isLocalActionPending}
+                                                                                                                title="Permanently delete this rejected benchmark from cloud storage"
+                                                                                                                className="px-2.5 py-1 rounded-xl border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed text-red-400 text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer select-none flex items-center gap-1"
+                                                                                                            >
+                                                                                                                <Trash2 className="w-2.5 h-2.5" /> Delete
+                                                                                                            </button>
+                                                                                                        )}
+                                                                                                    </div>
                                                                                                 );
                                                                                             }
                                                                                             return null;

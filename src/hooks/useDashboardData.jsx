@@ -2393,6 +2393,46 @@ export const useDashboardData = (initialState, dashboardState) => {
         }
     }, [loadSubmissions, addToast, user, accessToken]);
 
+    const deleteSubmission = useCallback(async (runId, shouldReload = true) => {
+        setIsLoadingSubmissions(true);
+        try {
+            const headers = {};
+            if (accessToken) {
+                headers['X-Prism-Github-Token'] = accessToken;
+            }
+
+            const res = await fetch(`/api/results/${runId}`, {
+                method: 'DELETE',
+                headers
+            });
+            if (!res.ok) {
+                const errorData = await res.json().catch(() => ({}));
+                throw new Error(errorData.error || `HTTP error! status: ${res.status}`);
+            }
+            const data = await res.json();
+            if (data.success) {
+                if (addToast) {
+                    addToast(data.message || `Rejected benchmark ${runId} deleted permanently.`, 'success');
+                }
+                if (shouldReload) {
+                    // Clear GCS IndexedDB cache and force-refetch data from GCS Results Store
+                    await CacheManager.clearAll();
+                    await loadSubmissions();
+                    if (loadAllData) {
+                        await loadAllData(null, true);
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('[Delete Submission Error]', err);
+            if (addToast) {
+                addToast(`Failed to delete benchmark run ${runId}: ${err.message}`, 'error');
+            }
+        } finally {
+            setIsLoadingSubmissions(false);
+        }
+    }, [loadSubmissions, loadAllData, addToast, accessToken]);
+
     const submissionsMap = useMemo(() => {
         const map = {};
         (submissions || []).forEach(sub => {
@@ -2458,6 +2498,6 @@ export const useDashboardData = (initialState, dashboardState) => {
         brv02CustomLabels, setBrv02CustomLabels,
         brv02BaselineRunId, setBrv02BaselineRunId,
         brv02SelectedStages, setBrv02SelectedStages,
-        submissions, isLoadingSubmissions, loadSubmissions, updateSubmissionStatus, bulkUpdateSubmissionStatus, submissionsMap
+        submissions, isLoadingSubmissions, loadSubmissions, updateSubmissionStatus, bulkUpdateSubmissionStatus, deleteSubmission, submissionsMap
     };
 };

@@ -108,7 +108,10 @@ Submits a benchmark result bundle to the active results store.
   and nested entry `run_id`s) are regenerated on the server to prevent ID
   collisions. The metadata is also enriched with the author's username and
   submission timestamp.
-- **Validation Failures:** If automated validation fails during processing, the endpoint returns `400 Bad Request` with error details and warnings. The submission is dropped completely and is NOT placed in the `rejected` queue or saved in cloud storage.
+- **Validation Failures:** If automated validation fails during processing, the
+  endpoint returns `400 Bad Request` with error details and warnings. The
+  submission is dropped completely and is NOT placed in the `rejected` queue or
+  saved in cloud storage.
 - **Response (201 Created):**
     ```json
     {
@@ -157,8 +160,31 @@ pending benchmark result submission.
     - **Contributor (Owner):** Can only transition state to
       `submitted_pending_processing` or `submitted_pending_review` to promote or
       resubmit their own benchmark. Any attempt to set state to `public` or
-      `rejected` returns `403 Forbidden`. Rejections are reserved exclusively for administrators.
+      `rejected` returns `403 Forbidden`. Rejections are reserved exclusively
+      for administrators.
     - **Other users:** `403 Forbidden`.
+
+### `DELETE /api/results/:runId`
+
+Permanently deletes a rejected benchmark result bundle from the GCS Results
+Store.
+
+- **Headers:** `X-Prism-Github-Token: <access_token>` (required)
+- **Path Validation:** `runId` must be a valid UUID regex format or it returns
+  `400 Bad Request`.
+- **Authorization Rules:**
+    - **Admin:** Allowed ONLY if the benchmark's current submission state is
+      `rejected`. Any attempt to delete benchmarks in non-rejected states
+      (`staged`, `submitted_pending_processing`, `submitted_pending_review`,
+      `public`, `promoted`) returns `403 Forbidden`.
+    - **Non-Admin Users / Guests:** `403 Forbidden`.
+- **Response (200 OK):**
+    ```json
+    {
+        "success": true,
+        "message": "Rejected benchmark <runId> successfully deleted."
+    }
+    ```
 
 ---
 

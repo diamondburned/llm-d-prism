@@ -1,0 +1,97 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+import { Request, Response } from 'express';
+import { validateGitHubToken } from '../../oauth.ts';
+import { readResultMetadata, deleteResult } from '../gcs.ts';
+
+export interface DeleteResultsResponse {
+    success: boolean;
+    message: string;
+}
+
+/**
+ * DELETE /api/results/:runId
+ *
+ * Permanently deletes a rejected benchmark result run bundle from the GCS Results Store.
+ *
+ * - **Headers:** `X-Prism-Github-Token: <access_token>` (required)
+ * - **Authorization Rules:**
+ *     - **Admin:** Full access, provided benchmark submission state is `rejected`.
+ *     - **Non-Admin Users / Guests:** `403 Forbidden`.
+ * - **Benchmark Checks:**
+ *     - `runId` must be a valid UUID.
+ *     - Benchmark must exist in the GCS Results Store.
+ *     - Benchmark state MUST be `rejected`. Deleting benchmarks in any other state returns `403 Forbidden`.
+ */
+export async function deleteResultsHandler(
+    req: Request<{ runId: string }, DeleteResultsResponse | { error: string; details?: unknown }>,
+    res: Response<DeleteResultsResponse | { error: string; details?: unknown }>
+) {
+    const { runId } = req.params;
+
+    // Validate UUID format of runId to prevent path traversal
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(runId)) {
+        return res.status(400).json({ error: 'Invalid runId format. Must be a UUID.' });
+    }
+
+    // 1. Authenticate user
+    const token = req.headers['x-prism-github-token'] as string | undefined;
+    if (!token) {
+        return res.status(401).json({ error: 'Authentication required. Missing session token.' });
+    }
+
+    let permission = 'none';
+
+    try {
+        const authResult = await validateGitHubToken(token);
+        permission = authResult.permission;
+    } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : String(error);
+        return res.status(401).json({ error: 'Invalid or expired session token.', details: msg });
+    }
+
+    // 2. IAM Check: Only administrators are allowed to delete benchmarks
+    if (permission !== 'admin') {
+        return res.status(403).json({ error: 'Access denied. Only administrators can delete rejected benchmarks.' });
+    }
+
+    try {
+        // 3. Fetch GCS metadata context to check submission status/state
+        const metadata = await readResultMetadata(runId);
+        if (!metadata) {
+            return res.status(404).json({ error: 'Result not found.' });
+        }
+
+        // 4. Benchmark Check: Only rejected benchmarks can be deleted off GCS
+        if (metadata.state !== 'rejected') {
+            return res.status(403).json({
+                error: 'Forbidden. Only rejected benchmarks can be deleted from the Results Store.'
+            });
+        }
+
+        // 5. Delete object from GCS Results Store
+        await deleteResult(runId);
+
+        return res.json({
+            success: true,
+            message: `Rejected benchmark ${runId} successfully deleted.`
+        });
+    } catch (error: unknown) {
+        console.error('[Results Delete API Error]', error);
+        const msg = error instanceof Error ? error.message : String(error);
+        return res.status(500).json({ error: 'Failed to delete benchmark result', details: msg });
+    }
+}
