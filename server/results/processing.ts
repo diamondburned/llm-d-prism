@@ -31,33 +31,39 @@ export interface ProcessSubmissionResult {
  * If validation passes, the item is promoted to `submitted_pending_review`.
  */
 export async function processSubmission(runId: string): Promise<ProcessSubmissionResult> {
-    const payload = await readResultPayload(runId);
-    
-    // Resolve contributor/author username
-    const username = payload.github_author?.username || 'Unknown';
+    try {
+        const payload = await readResultPayload(runId);
+        
+        // Resolve contributor/author username
+        const username = payload.github_author?.username || 'Unknown';
 
-    // Perform validation checks
-    const validation = validatePrismUploadStructure(payload, { isUpload: true });
+        // Perform validation checks
+        const validation = validatePrismUploadStructure(payload, { isUpload: true });
 
-    // If validation fails, drop the submission completely from GCS storage
-    if (!validation.isValid) {
-        await deleteResult(runId);
+        // If validation fails, drop the submission completely from GCS storage
+        if (!validation.isValid) {
+            await deleteResult(runId);
+            return {
+                success: false,
+                errors: validation.errors || [],
+                warnings: validation.warnings || []
+            };
+        }
+
+        const newState: PrismSubmissionState = 'submitted_pending_review';
+
+        // Write back the processed result with updated GCS custom metadata context state
+        await writeResult(runId, payload, newState, username);
+
         return {
-            success: false,
-            errors: validation.errors || [],
+            success: true,
+            state: newState,
+            errors: [],
             warnings: validation.warnings || []
         };
+    } catch (error: unknown) {
+        // Guarantee clean up of staged GCS artifact if unexpected processing error occurs
+        await deleteResult(runId).catch(() => {});
+        throw error;
     }
-
-    const newState: PrismSubmissionState = 'submitted_pending_review';
-
-    // Write back the processed result with updated GCS custom metadata context state
-    await writeResult(runId, payload, newState, username);
-
-    return {
-        success: true,
-        state: newState,
-        errors: [],
-        warnings: validation.warnings || []
-    };
 }
