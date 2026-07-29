@@ -2040,7 +2040,7 @@ const BenchmarkRow = React.memo(({
                                                 <div 
                                                     onClick={() => toggleModelExpansion(stat.benchmarkKey || stat.model)}
                                                     className={cn(
-                                                        'flex-1 flex items-center justify-between cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors gap-3',
+                                                        'flex-1 flex items-center justify-between cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors gap-3 overflow-hidden',
                                                         readOnly ? 'p-3.5 sm:p-4' : 'p-3'
                                                     )}
                                                 >
@@ -2270,10 +2270,10 @@ const BenchmarkRow = React.memo(({
                                                              return (
                                                                  <div className="flex-1 flex flex-col min-w-0">
                                                                      {/* Line 1: Model Title on left, Source Tag & Date on right */}
-                                                                     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 w-full">
-                                                                         <div className="flex items-center gap-2 min-w-0 flex-1">
+                                                                     <div className="flex items-center justify-between gap-x-4 gap-y-1 w-full min-w-0">
+                                                                         <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
                                                                                      <div className="flex items-center gap-1.5 min-w-0 flex-nowrap overflow-hidden">
-                                                                                         <span className="font-bold text-sm sm:text-base text-slate-800 dark:text-slate-100 truncate">
+                                                                                         <span className="font-bold text-sm sm:text-base text-slate-800 dark:text-slate-100 truncate block">
                                                                                              {isBrv02 
                                                                                                  ? (brv02CustomLabels[runId] || benchmarkData[0]?.runLabel || stat.model_name || stat.model || meta.model_name)
                                                                                                  : (stat.model_name || stat.model || meta.model_name)}
@@ -2288,7 +2288,7 @@ const BenchmarkRow = React.memo(({
                                                                                                      }
                                                                                                  }}
                                                                                                  title="Edit staged benchmark metadata"
-                                                                                                 className="p-1 text-slate-300 dark:text-slate-600 hover:text-cyan-400 transition-colors flex-shrink-0 cursor-pointer"
+                                                                                                 className="p-1 text-slate-300 dark:text-slate-600 hover:text-cyan-400 transition-colors flex-shrink-0 cursor-pointer whitespace-nowrap"
                                                                                              >
                                                                                                  <Pencil size={12} />
                                                                                              </button>
@@ -2307,7 +2307,7 @@ const BenchmarkRow = React.memo(({
                                                                                                     <div className="relative group/tooltip inline-block">
                                                                                                         <button
                                                                                                             disabled
-                                                                                                            className="px-2.5 py-1 rounded-xl border border-slate-800 bg-slate-900/40 text-slate-500 text-[9px] font-bold uppercase tracking-wider transition-colors cursor-not-allowed select-none flex items-center gap-1 opacity-60"
+                                                                                                            className="px-2.5 py-1 rounded-xl border border-slate-800 bg-slate-900/40 text-slate-500 text-[9px] font-bold uppercase tracking-wider transition-colors cursor-not-allowed select-none flex items-center gap-1 opacity-60 whitespace-nowrap"
                                                                                                         >
                                                                                                             <Send className="w-2.5 h-2.5" /> Submit for Review
                                                                                                         </button>
@@ -2326,7 +2326,7 @@ const BenchmarkRow = React.memo(({
                                                                                                         }}
                                                                                                         disabled={isLoadingSubmissions || isLocalActionPending}
                                                                                                         title="Submit this benchmark to staging GCS bucket for automated format checks"
-                                                                                                        className="px-2.5 py-1 rounded-xl border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 disabled:opacity-50 disabled:cursor-not-allowed text-purple-400 text-[9px] font-bold uppercase tracking-wider transition-colors cursor-pointer select-none flex items-center gap-1"
+                                                                                                        className="px-2.5 py-1 rounded-xl border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 disabled:opacity-50 disabled:cursor-not-allowed text-purple-400 text-[9px] font-bold uppercase tracking-wider transition-colors cursor-pointer select-none flex items-center gap-1 whitespace-nowrap"
                                                                                                     >
                                                                                                         <Send className="w-2.5 h-2.5" /> Submit for Review
                                                                                                     </button>
@@ -2345,7 +2345,7 @@ const BenchmarkRow = React.memo(({
                                                                                                         }}
                                                                                                         disabled={isLoadingSubmissions || isLocalActionPending}
                                                                                                         title="Promote benchmark to the admin review queue"
-                                                                                                        className="px-2.5 py-1 rounded-xl border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 disabled:opacity-50 disabled:cursor-not-allowed text-purple-400 text-[9px] font-bold uppercase tracking-wider transition-colors cursor-pointer select-none flex items-center gap-1"
+                                                                                                        className="px-2.5 py-1 rounded-xl border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 disabled:opacity-50 disabled:cursor-not-allowed text-purple-400 text-[9px] font-bold uppercase tracking-wider transition-colors cursor-pointer select-none flex items-center gap-1 whitespace-nowrap"
                                                                                                     >
                                                                                                         <Play className="w-2.5 h-2.5 fill-current" /> Promote to Review
                                                                                                     </button>
@@ -2365,7 +2365,7 @@ const BenchmarkRow = React.memo(({
                                                                                                             }}
                                                                                                             disabled={isLoadingSubmissions || isLocalActionPending}
                                                                                                             title="Approve this run and publish it to the global Results store"
-                                                                                                            className="px-2.5 py-1 rounded-xl border border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/10 disabled:opacity-50 disabled:cursor-not-allowed text-emerald-455 text-[9px] font-bold uppercase tracking-wider transition-colors cursor-pointer select-none flex items-center gap-1"
+                                                                                                            className="px-2.5 py-1 rounded-xl border border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/10 disabled:opacity-50 disabled:cursor-not-allowed text-emerald-455 text-[9px] font-bold uppercase tracking-wider transition-colors cursor-pointer select-none flex items-center gap-1 whitespace-nowrap"
                                                                                                         >
                                                                                                             <Check className="w-2.5 h-2.5 stroke-[3]" /> Approve
                                                                                                         </button>
@@ -2377,7 +2377,7 @@ const BenchmarkRow = React.memo(({
                                                                                                             }}
                                                                                                             disabled={isLoadingSubmissions || isLocalActionPending}
                                                                                                             title="Reject compliance or request changes with custom feedback"
-                                                                                                            className="px-2.5 py-1 rounded-xl border border-red-500/20 bg-red-500/5 hover:bg-red-500/10 disabled:opacity-50 disabled:cursor-not-allowed text-red-400 text-[9px] font-bold uppercase tracking-wider transition-colors cursor-pointer select-none flex items-center gap-1"
+                                                                                                            className="px-2.5 py-1 rounded-xl border border-red-500/20 bg-red-500/5 hover:bg-red-500/10 disabled:opacity-50 disabled:cursor-not-allowed text-red-400 text-[9px] font-bold uppercase tracking-wider transition-colors cursor-pointer select-none flex items-center gap-1 whitespace-nowrap"
                                                                                                         >
                                                                                                             <X className="w-2.5 h-2.5" /> Reject
                                                                                                         </button>
@@ -2404,7 +2404,7 @@ const BenchmarkRow = React.memo(({
                                                                                                                 }}
                                                                                                                 disabled={isLoadingSubmissions || isLocalActionPending}
                                                                                                                 title="Resubmit this run for automated verification after corrections"
-                                                                                                                className="px-2.5 py-1 rounded-xl border border-purple-500/25 bg-purple-500/10 hover:bg-purple-500/20 disabled:opacity-50 disabled:cursor-not-allowed text-purple-400 text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer select-none flex items-center gap-1"
+                                                                                                                className="px-2.5 py-1 rounded-xl border border-purple-500/25 bg-purple-500/10 hover:bg-purple-500/20 disabled:opacity-50 disabled:cursor-not-allowed text-purple-400 text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer select-none flex items-center gap-1 whitespace-nowrap"
                                                                                                             >
                                                                                                                 <RotateCcw className="w-2.5 h-2.5" /> Resubmit
                                                                                                             </button>
@@ -2423,7 +2423,7 @@ const BenchmarkRow = React.memo(({
                                                                                                                 }}
                                                                                                                 disabled={isLoadingSubmissions || isLocalActionPending}
                                                                                                                 title="Permanently delete this rejected benchmark from cloud storage"
-                                                                                                                className="px-2.5 py-1 rounded-xl border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed text-red-400 text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer select-none flex items-center gap-1"
+                                                                                                                className="px-2.5 py-1 rounded-xl border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed text-red-400 text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer select-none flex items-center gap-1 whitespace-nowrap"
                                                                                                             >
                                                                                                                 <Trash2 className="w-2.5 h-2.5" /> Delete
                                                                                                             </button>
@@ -2583,7 +2583,7 @@ const BenchmarkRow = React.memo(({
                                                                                     onClick={e => e.stopPropagation()}
                                                                                     className="mt-2 text-[11px] bg-red-500/10 text-red-300 border border-red-500/20 rounded-xl p-3 max-w-3xl italic leading-relaxed flex items-start gap-2 shadow-sm font-sans"
                                                                                 >
-                                                                                    <span className="font-extrabold uppercase text-[9px] not-italic tracking-wider bg-red-500/20 px-1.5 py-0.5 rounded text-red-450 shrink-0 mt-0.5">
+                                                                                    <span className="font-extrabold uppercase text-[9px] not-italic tracking-wider bg-red-500/20 px-1.5 py-0.5 rounded text-red-450 shrink-0 mt-0.5 whitespace-nowrap">
                                                                                         Changes Requested:
                                                                                     </span>
                                                                                     <span>"{sub.feedback}"</span>
@@ -2656,7 +2656,7 @@ const BenchmarkRow = React.memo(({
                                                                  {(() => {
                                                                      const details = getSubmissionStatusDetails(benchmarkData[0]?.source_info?.submission_state);
                                                                      return (
-                                                                         <span className={cn('px-1.5 py-0.5 rounded border text-[11px] font-bold', details.bg, details.text, details.border)}>
+                                                                         <span className={cn('px-1.5 py-0.5 rounded border text-[11px] font-bold whitespace-nowrap', details.bg, details.text, details.border)}>
                                                                              {details.label}
                                                                          </span>
                                                                      );
@@ -2755,7 +2755,7 @@ const BenchmarkRow = React.memo(({
                                                                                       className={cn(
                                                                                           'p-1 rounded transition-colors',
                                                                                           d.rawReport
-                                                                                              ? 'text-slate-400 hover:text-blue-500 dark:text-slate-500 dark:hover:text-blue-400 cursor-pointer'
+                                                                                              ? 'text-slate-400 hover:text-blue-500 dark:text-slate-500 dark:hover:text-blue-400 cursor-pointer whitespace-nowrap'
                                                                                               : 'text-slate-200 dark:text-slate-800 cursor-not-allowed opacity-50'
                                                                                       )}
                                                                                   >

@@ -49,7 +49,7 @@ export const Button = React.forwardRef(function Button(
             ref={ref}
             disabled={disabled || isLoading}
             className={cn(
-                'inline-flex items-center justify-center font-medium transition-colors',
+                'inline-flex items-center justify-center font-medium transition-colors whitespace-nowrap',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50',
                 'disabled:opacity-50 disabled:pointer-events-none',
                 VARIANTS[variant],
