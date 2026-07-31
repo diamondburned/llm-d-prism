@@ -82,44 +82,53 @@ Lists benchmark runs from the active Prism results store (defined in
     - `pageToken`: (Optional) Pagination token retrieved from the
       `nextPageToken` of a prior list response.
     - `status`: (Optional) Filter by submission status (`staged` |
-      `submitted_pending_processing` | `submitted_pending_review` | `public` |
-      `promoted` | `rejected`).
+      `submitted_pending_processing` | `unlisted` | `submitted_pending_review` |
+      `public` | `promoted` | `rejected`).
     - `own`: (Optional) Filter to retrieve only the logged-in user's submissions
       (`true` | `false`).
-- **Authorization Rules:**
-    - **Admin:** Can list all benchmarks in all statuses.
+- **Authorization & Default Visibility Rules:**
+    - **Admin:** Can list benchmarks in all statuses (including all
+      `submitted_pending_review` items in the review queue).
     - **Standard User/Guest:**
-        - Can list their own benchmarks in any status.
-        - Can only list approved (`public` or `promoted`) benchmarks of other
-          users.
-        - Pending or rejected benchmarks belonging to other users are filtered
-          out.
+        - Can list their own benchmarks in any status (including `unlisted` and
+          their own `submitted_pending_review` runs).
+        - Can list `public` or `promoted` benchmarks.
+        - Can list `unlisted` benchmarks when explicitly querying
+          `status=unlisted` (unlisted is not secret, but hidden by default from
+          general search calls).
+        - `submitted_pending_review` benchmarks belonging to _other_ users are
+          restricted to Admins only and are filtered out.
 
 ### `POST /api/results`
 
 Submits a benchmark result bundle to the active results store.
 
 - **Headers:** `X-Prism-Github-Token: <access_token>` (required)
+- **Query Parameters / Body Field:**
+    - `targetState`: (Optional) `"unlisted"` | `"submitted_pending_review"`
+      (defaults to `"submitted_pending_review"`).
+        - `"unlisted"`: Benchmarks skip human review and transition straight
+          from automated processing to `unlisted`. Useful for preliminary or
+          unverified data playgrounds.
+        - `"submitted_pending_review"`: Benchmarks pass automated processing and
+          are queued for Admin human review.
 - **Request Body:** A JSON object representing the benchmark run upload payload
   matching the `PrismResultPayload` schema.
 - **Authorization Rules:** Only allowlisted contributors (with role `user` or
   `admin`) can submit benchmark results.
-- **Server-Side ID Mutation:** All internal IDs (including the top-level `runId`
-  and nested entry `run_id`s) are regenerated on the server to prevent ID
-  collisions. The metadata is also enriched with the author's username and
-  submission timestamp.
+- **Server-Side ID Mutation:** All internal IDs (including top-level `runId` and
+  nested entry `run_id`s) are regenerated on the server to prevent ID
+  collisions.
 - **Validation Failures:** If automated validation fails during processing, the
-  endpoint returns `400 Bad Request` with error details and warnings. The
-  submission is dropped completely and is NOT placed in the `rejected` queue or
-  saved in cloud storage.
+  endpoint returns `400 Bad Request`.
 - **Response (201 Created):**
     ```json
     {
         "success": true,
         "runId": "<server_generated_run_id>",
         "oldRunId": "<client_supplied_run_id>",
-        "state": "submitted_pending_review",
-        "message": "Benchmark result successfully submitted and promoted to review."
+        "state": "unlisted" | "submitted_pending_review",
+        "message": "Benchmark result successfully processed and saved."
     }
     ```
 
@@ -129,21 +138,22 @@ Retrieves the complete payload of a single benchmark submission run bundle by
 its UUID.
 
 - **Headers:** `X-Prism-Github-Token: <access_token>` (optional)
-- **Path Validation:** `runId` must be a valid UUID regex format or it returns
-  `400 Bad Request` to prevent path traversal.
+- **Path Validation:** `runId` must be a valid UUID regex format.
 - **Authorization Rules:**
     - **Admin:** Full access to view any benchmark bundle.
     - **Standard User/Guest:**
         - Can view their own benchmark run bundle in any state.
-        - Can view other contributors' bundles only if its state is `public` or
-          `promoted`.
-        - Returns `403 Forbidden` (or `404 Not Found`) if the user lacks
-          permissions.
+        - Can view other contributors' bundles if state is `public`, `promoted`,
+          OR `unlisted` (unlisted runs are accessible via direct link/UUID
+          lookup).
+        - Returns `403 Forbidden` (or `404 Not Found`) for
+          `submitted_pending_processing`, `submitted_pending_review`, or
+          `rejected` items belonging to other users.
 
 ### `POST /api/results/:runId/status`
 
-Updates the review status and/or registers admin feedback for a staged or
-pending benchmark result submission.
+Updates the review status and/or registers admin feedback for a benchmark result
+submission.
 
 - **Headers:** `X-Prism-Github-Token: <access_token>` (required)
 - **Request Body:**
@@ -154,35 +164,44 @@ pending benchmark result submission.
         "reviewer": "<optional_username>"
     }
     ```
-- **Authorization Rules:**
-    - **Admin:** Full access. Can approve (`public` / `promoted`), reject
-      (`rejected`), or reset state.
-    - **Contributor (Owner):** Can only transition state to
-      `submitted_pending_processing` or `submitted_pending_review` to promote or
-      resubmit their own benchmark. Any attempt to set state to `public` or
-      `rejected` returns `403 Forbidden`. Rejections are reserved exclusively
-      for administrators.
+- **Authorization & State Machine Rules:**
+    - **Admin:** Can approve (`public` / `promoted`), reject (`rejected`), or
+      reset review queue state. Optional `feedback` and `reviewer` fields are
+      recorded in the review history. Admins do not manage or promote unlisted
+      benchmarks.
+    - **Submitting User (Owner):** Can promote their own benchmark from
+      `unlisted` $\rightarrow$ `submitted_pending_review` via a single-click
+      action ("Promote to Review").
+        - **Field Restrictions:** When promoting from `unlisted` $\rightarrow$
+          `submitted_pending_review`, `feedback` and `reviewer` fields are
+          **unused and forbidden**. Sending `feedback` or `reviewer` in the
+          request body returns `400 Bad Request`.
+        - Any attempt by non-admins to set state to `public` or `rejected`
+          returns `403 Forbidden`.
     - **Other users:** `403 Forbidden`.
 
 ### `DELETE /api/results/:runId`
 
-Permanently deletes a rejected benchmark result bundle from the GCS Results
-Store.
+Permanently deletes an unlisted or rejected benchmark result bundle from the GCS
+Results Store.
 
 - **Headers:** `X-Prism-Github-Token: <access_token>` (required)
 - **Path Validation:** `runId` must be a valid UUID regex format or it returns
   `400 Bad Request`.
 - **Authorization Rules:**
-    - **Admin:** Allowed ONLY if the benchmark's current submission state is
-      `rejected`. Any attempt to delete benchmarks in non-rejected states
-      (`staged`, `submitted_pending_processing`, `submitted_pending_review`,
-      `public`, `promoted`) returns `403 Forbidden`.
-    - **Non-Admin Users / Guests:** `403 Forbidden`.
+    - **Submitting User (Owner):** Can permanently delete their own benchmark if
+      its current state is `unlisted`. Attempts to delete items in non-unlisted
+      states return `403 Forbidden`.
+    - **Admin:** Can permanently delete any benchmark whose state is `unlisted`
+      or `rejected`. Any attempt to delete benchmarks in active public or review
+      states (`staged`, `submitted_pending_processing`,
+      `submitted_pending_review`, `public`, `promoted`) returns `403 Forbidden`.
+    - **Other users:** `403 Forbidden`.
 - **Response (200 OK):**
     ```json
     {
         "success": true,
-        "message": "Rejected benchmark <runId> successfully deleted."
+        "message": "Benchmark <runId> successfully deleted."
     }
     ```
 

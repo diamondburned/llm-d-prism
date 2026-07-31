@@ -156,11 +156,30 @@ environment:
         - NOW: necessary for proper attribution enforcement.
         - FUTURE: necessary for input sanitization in the future.
 - **`submitted_pending_review`** (Submitted, Pending Final Review):
-    - User review, if necessary.
-        - Eventually this stage will be skipped straight to the next one once
-          validation pipeline is robust enough.
+    - User review queue.
+    - **Visibility:** Only visible to **Admins** (who can view all benchmarks in
+      pending review) and the **submitting user/owner** (who can view their own
+      benchmarks under review).
     - See
       [\[External\] llm-d Results Store Submission Policy](https://docs.google.com/document/u/0/d/1EZI-VYXdM9V3KnoWkFIXmihrgO2t7YZZhgeMuIlZDpI/edit?resourcekey=0-xQu9xYrRcroMn5yogcb_xg).
+- **`unlisted`** (Unlisted):
+    - **Benchmark is stored in Prism Cloud backend** (GCS results store).
+    - **Skips human review:** Transitions straight from automated processing to
+      `unlisted` upon upload.
+    - **Not secret, but hidden by default:** Visible to everyone (no manual
+      review required), but hidden by default from general benchmark exploration
+      lists unless explicitly filtered (`status=unlisted`) or accessed via
+      direct share link.
+    - **Data Quality Playground:** Serves as a playground for bad, unverified,
+      or uncertain data. Verified/reviewed data is expected to be public;
+      unlisted data allows sharing unverified runs without cluttering the public
+      store.
+    - **Owner Promotion:** The submitting user (owner) can choose to promote
+      their `unlisted` benchmark to `submitted_pending_review`, placing it into
+      the review queue for public approval. Admins do not manage or promote
+      unlisted benchmarks.
+    - Distinct from `staged`: `staged` is stored locally in the browser
+      (IndexedDB), whereas `unlisted` lives in Prism's cloud storage backend.
 - **`public`** (Public):
     - All reviews done, benchmark now public in the sea of benchmarks.
     - **UNCLEAR:** Clean way to show potentially thousands of benchmarks, Manage
@@ -170,9 +189,14 @@ environment:
       benchmark results have been included in said well-lit path’s results.
     - Implies additional visibility from just sea of benchmarks.
 - **`rejected`** (Rejected):
-    - Explicitly rejected by an administrator during human review (`submitted_pending_review` -> `rejected`), with optional rejection reason attached.
+    - Explicitly rejected by an administrator during human review
+      (`submitted_pending_review` -> `rejected`), with optional rejection reason
+      attached.
     - Deleted off cloud when purged by admin.
-    - **Note:** Automated validation failures on upload do NOT transition items to `rejected`. Instead, invalid uploads are completely dropped/deleted from cloud storage, returning an HTTP 400 validation error to the submitter without populating the rejected queue.
+    - **Note:** Automated validation failures on upload do NOT transition items
+      to `rejected`. Instead, invalid uploads are completely dropped/deleted
+      from cloud storage, returning an HTTP 400 validation error to the
+      submitter without populating the rejected queue.
 
 ### 6.2 State Transitions
 
@@ -180,8 +204,10 @@ environment:
 stateDiagram-v2
     [*] --> staged : Local Upload
     staged --> submitted_pending_processing : Submit (Requires GitHub Auth)
-    submitted_pending_processing --> submitted_pending_review : Auto-Validation Pass
+    submitted_pending_processing --> unlisted : Auto-Validation Pass (Target: Unlisted)
+    submitted_pending_processing --> submitted_pending_review : Auto-Validation Pass (Target: Public Review)
     submitted_pending_processing --> [*] : Auto-Validation Fail (Dropped)
+    unlisted --> submitted_pending_review : Submitting User (Owner) Promotes to Review
     submitted_pending_review --> public : Admin Approved
     submitted_pending_review --> rejected : Admin Rejected
     public --> promoted : Selected for Well-Lit Path
@@ -191,7 +217,16 @@ stateDiagram-v2
     - `staged`: Open to all (no login required).
     - `submitted_pending_processing`: Requires GitHub OAuth. Only allowlisted
       users can submit.
-    - `submitted_pending_review` -> `public`: Requires Admin privileges.
+    - `unlisted`: Skips human review. Readable by everyone (not secret), but
+      hidden by default from public explore unless queried explicitly or
+      accessed via share link. For full design details, see
+      [unlisted-benchmarks-spec.md](../../changes/unlisted-benchmarks-spec.md).
+    - `unlisted` -> `submitted_pending_review`: Performed exclusively by the
+      **submitting user (owner)** when ready to submit for public review.
+    - `submitted_pending_review`: Visible only to **Admins** (all pending runs)
+      and the **submitting owner** (their own pending runs).
+    - `submitted_pending_review` -> `public` / `rejected`: Requires Admin
+      privileges.
 
 ### 6.3 Synchronous vs. Asynchronous Validation
 
@@ -202,14 +237,17 @@ early beta:
 1. **Synchronous Execution**: The backend web server runs the validation logic
    synchronously inside the request lifecycle immediately after the raw upload
    is staged in GCS.
-2. **Immediate Promotion**: If validation passes, the run is directly promoted
-   to `submitted_pending_review`. If validation fails, the item is completely
-   dropped/deleted from cloud storage and an HTTP 400 error is returned to
-   the client. The `rejected` queue is reserved exclusively for manual admin rejections.
+2. **Immediate Promotion / Unlisting**: If validation passes, the run is
+   promoted to either `unlisted` or `submitted_pending_review` depending on the
+   submitter's selected visibility mode (`targetState`). If validation fails,
+   the item is completely dropped/deleted from cloud storage and an HTTP 400
+   error is returned to the client. The `rejected` queue is reserved exclusively
+   for manual admin rejections.
 3. **Future Decoupling**: The processing wrapper is fully decoupled. In the
    future, the synchronous invocation can be removed in favor of an asynchronous
    background worker (e.g., GCS Object Eventarc trigger or Pub/Sub pull worker
-   calling the same processing library).
+   calling the same processing library). background worker (e.g., GCS Object
+   Eventarc trigger or Pub/Sub pull worker calling the same processing library).
 
 ---
 
@@ -258,16 +296,16 @@ to allow listing and filtering without reading the file contents.
 - **Maximum Contexts:** 50 keys per object.
 - **Custom Metadata Contexts:**
 
-| GCS Context Key    | Required | Base64url Encoded? (Prefix `e`) | Description                                                                    |
-| :----------------- | :------- | :------------------------------ | :----------------------------------------------------------------------------- |
-| `submission_state` | Yes      | **No**                          | The submission status (e.g. `public`, `rejected`, `submitted_pending_review`). |
-| `github_user`      | Yes      | **No**                          | The GitHub username of the contributor (for attribution).                      |
-| `run_id`           | Yes      | **No**                          | The unique run identifier (UUIDv4).                                            |
-| `hardware_name`    | No       | **Yes**                         | Normalized accelerator name (e.g. `TPU v6e`).                                  |
-| `model_name`       | No       | **Yes**                         | Normalized model name (e.g. `meta-llama/Llama-3-8B-Instruct`).                 |
-| `run_label`        | No       | **Yes**                         | Human-friendly run description label.                                          |
-| `feedback`         | No       | **Yes**                         | Feedback reason for rejection/changes requested.                               |
-| `well_lit_path`    | No       | **Yes**                         | Selected "Well-Lit Path" optimization classification.                          |
+| GCS Context Key    | Required | Base64url Encoded? (Prefix `e`) | Description                                                                                |
+| :----------------- | :------- | :------------------------------ | :----------------------------------------------------------------------------------------- |
+| `submission_state` | Yes      | **No**                          | The submission status (e.g. `public`, `unlisted`, `rejected`, `submitted_pending_review`). |
+| `github_user`      | Yes      | **No**                          | The GitHub username of the contributor (for attribution).                                  |
+| `run_id`           | Yes      | **No**                          | The unique run identifier (UUIDv4).                                                        |
+| `hardware_name`    | No       | **Yes**                         | Normalized accelerator name (e.g. `TPU v6e`).                                              |
+| `model_name`       | No       | **Yes**                         | Normalized model name (e.g. `meta-llama/Llama-3-8B-Instruct`).                             |
+| `run_label`        | No       | **Yes**                         | Human-friendly run description label.                                                      |
+| `feedback`         | No       | **Yes**                         | Feedback reason for rejection/changes requested.                                           |
+| `well_lit_path`    | No       | **Yes**                         | Selected "Well-Lit Path" optimization classification.                                      |
 
 ### 7.4 GCS Listing & Pagination Strategy (Logical Operator Workaround)
 
@@ -281,11 +319,14 @@ constraint while keeping GCS-side filtering fast and optimized:
    `contexts."submission_state"="public"`), letting the GCS server perform the
    filtering.
 2. **Client-Side Split-Listing Strategy:** To display a unified dashboard with
-   both the user's own benchmarks (staged/pending/processing/etc.) and public
-   approved benchmarks:
+   both the user's own benchmarks (staged/unlisted/pending/processing/etc.) and
+   public approved benchmarks:
     - The frontend client fires two separate listing requests to the backend
       with separate query params and pagination strings (e.g. one for `own=true`
       and another for `status=public` / `status=promoted`).
+    - Unlisted benchmarks belonging to other users are excluded from standard
+      public listing requests (`status=public`), but can be retrieved directly
+      by their UUID via `GET /api/results/:runId`.
     - The frontend displays the user's own benchmarks on top. It lists the
       current user's benchmarks until exhausted, then paginates/transitions to
       listing the public ones.

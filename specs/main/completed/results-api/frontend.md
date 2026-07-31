@@ -67,8 +67,11 @@ pipeline status:
   public runs, allowing advanced client-side filters (e.g., Model, Hardware, TP,
   Accelerator Count) to apply seamlessly. KPI cards at the top of the Results
   Store page allow users to quickly filter the table by submission state
-  (`Staged`, `Under Review` / `Processing`, `In Review`, `Approved` / `Public`,
-  `Action Required` / `Rejected`). The `Rejected` state is reserved for runs explicitly rejected by administrators during review; uploads failing automated validation are dropped directly without populating the rejected queue.
+  (`Staged`, `Unlisted`, `Under Review` / `Processing`, `In Review`, `Approved`
+  / `Public`, `Action Required` / `Rejected`). The `Rejected` state is reserved
+  for runs explicitly rejected by administrators during review; uploads failing
+  automated validation are dropped directly without populating the rejected
+  queue.
 
 ---
 
@@ -219,16 +222,20 @@ full-page wizard supporting two distinct intents (`stage-locally` or
     - Renders the **Developer Certificate of Origin (DCO) v1.1**.
     - Requires checking a checkbox to sign off and agree to public attribution
       and cloud storage.
+    - **Visibility Selection:** Allows selecting target visibility mode
+      (`Save as Unlisted` vs `Submit for Public Review`).
     - Allows comma-separated assignment of GitHub usernames as reviewers.
 4. **Submit & Confirm:**
-    - Shows a summary of valid runs, user attribution, and DCO confirmation.
+    - Shows a summary of valid runs, user attribution, selected visibility mode
+      (`unlisted` or `submitted_pending_review`), and DCO confirmation.
     - Displays a warning about pull-request style maintenance checks.
-    - Clicking **Submit to Review Queue** posts sequential runs to
-      `/api/results` via the client.
+    - Clicking **Submit** posts sequential runs to `/api/results` via the client
+      with the chosen `targetState`.
     - On completion, it re-keys staged run IDs to server-assigned UUIDs,
       triggers a success toast, sets the `submitted` status for the post-upload
-      guided actions dialog, and redirects to the Results Store with the
-      `my-submissions` KPI filter active.
+      guided actions dialog (providing direct share links for `unlisted` runs),
+      and redirects to the Results Store with the `my-submissions` KPI filter
+      active.
 
 ### 4.3 Post-Upload Guided Action Dialog
 
