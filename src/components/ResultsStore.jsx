@@ -20,6 +20,8 @@ import { INTEGRATIONS, getSourceTag, getBenchmarkKey, getBucket, getRatioType, g
 import { useGitHubAuth } from '../hooks/useGitHubAuth.js';
 import { Button, Modal, Spinner, Checkbox, Input } from './ui';
 import { cn } from '../utils/cn';
+import { decodeShareLink } from '../utils/shareLinkEncoder';
+import { parseReportV02, stageToEntry } from '../utils/benchmarkReportV02Parser';
 
 
 
@@ -86,6 +88,7 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
         handleAddAWSBucket,
         removeAWSBucket,
         toasts,
+        addToast,
         removeToast,
         brv02Runs,
         brv02CustomLabels,
@@ -209,6 +212,156 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
             onNavigate('submit-benchmarks', { intent: 'submit-review' });
         }
     }, [isAuthenticated, onNavigate]);
+
+    const hasProcessedShareLink = React.useRef(false);
+
+    React.useEffect(() => {
+        const processShareLink = async () => {
+            const params = new URLSearchParams(window.location.search);
+            const benchmarksParam = params.get('benchmarks');
+
+            if (benchmarksParam === null || hasProcessedShareLink.current) return;
+            hasProcessedShareLink.current = true;
+
+            if (benchmarksParam === '') {
+                params.delete('benchmarks');
+                const newUrl = `${window.location.pathname}${params.toString() ? '?' + params.toString() : ''}`;
+                window.history.replaceState(null, '', newUrl);
+                return;
+            }
+
+            let targetUuids = [];
+            try {
+                targetUuids = decodeShareLink(benchmarksParam);
+            } catch (e) {
+                console.warn('[ShareLink] Malformed share link parameter:', e.message);
+                if (dashboardData.addToast) {
+                    dashboardData.addToast('Invalid share link format', 'error');
+                }
+                params.delete('benchmarks');
+                const newUrl = `${window.location.pathname}${params.toString() ? '?' + params.toString() : ''}`;
+                window.history.replaceState(null, '', newUrl);
+                return;
+            }
+
+            if (targetUuids.length === 0) {
+                params.delete('benchmarks');
+                const newUrl = `${window.location.pathname}${params.toString() ? '?' + params.toString() : ''}`;
+                window.history.replaceState(null, '', newUrl);
+                return;
+            }
+
+            const keysToSelect = new Set();
+            const missingUuids = [];
+
+            targetUuids.forEach(uuid => {
+                const existing = (data || []).find(d => 
+                    d.run_id === uuid || 
+                    (d.source && d.source.endsWith(uuid)) ||
+                    (d.benchmarkKey && d.benchmarkKey.includes(uuid))
+                );
+                if (existing) {
+                    keysToSelect.add(getBenchmarkKey(existing));
+                } else {
+                    missingUuids.push(uuid);
+                }
+            });
+
+            let missingCount = 0;
+            let forbiddenCount = 0;
+
+            if (missingUuids.length > 0) {
+                const headers = {};
+                const token = localStorage.getItem('prism_github_token');
+                if (token) {
+                    headers['X-Prism-Github-Token'] = token;
+                }
+
+                await Promise.all(missingUuids.map(async (uuid) => {
+                    try {
+                        const res = await fetch(`/api/results/${uuid}`, { headers });
+                        if (res.status === 404) {
+                            missingCount++;
+                            return;
+                        }
+                        if (res.status === 403) {
+                            forbiddenCount++;
+                            return;
+                        }
+                        if (!res.ok) {
+                            missingCount++;
+                            return;
+                        }
+
+                        const jsonPayload = await res.json();
+                        if (jsonPayload && jsonPayload.entries && Array.isArray(jsonPayload.entries)) {
+                            const parsedEntries = [];
+                            for (const stageEntry of jsonPayload.entries) {
+                                if (stageEntry.raw_report) {
+                                    const parsedStage = parseReportV02(stageEntry.raw_report, stageEntry.filename);
+                                    if (parsedStage) {
+                                        parsedStage.runId = jsonPayload.runId;
+                                        parsedStage.runLabel = jsonPayload.runLabel;
+                                        parsedStage.github_author = jsonPayload.github_author;
+                                        parsedStage.submission_state = jsonPayload.submission_state || 'public';
+                                        parsedStage.submitted_at = jsonPayload.submitted_at;
+                                        parsedStage.well_lit_path = jsonPayload.well_lit_path || null;
+                                        parsedStage.wellLitPath = jsonPayload.well_lit_path || null;
+
+                                        const entry = stageToEntry(parsedStage);
+                                        entry.run_id = jsonPayload.runId;
+                                        entry.source = 'gcs:llm-d-benchmarks';
+                                        entry.source_info = {
+                                            type: 'benchmark_report_v02',
+                                            origin: 'gcs:llm-d-benchmarks',
+                                            submission_state: jsonPayload.submission_state || 'public',
+                                            file_identifier: jsonPayload.runId
+                                        };
+                                        parsedEntries.push(entry);
+                                    }
+                                }
+                            }
+
+                            if (parsedEntries.length > 0) {
+                                if (dashboardData.injectDynamicEntries) {
+                                    dashboardData.injectDynamicEntries(parsedEntries);
+                                }
+                                const key = getBenchmarkKey(parsedEntries[0]);
+                                keysToSelect.add(key);
+                            }
+                        }
+                    } catch (e) {
+                        console.error(`[ShareLink] Error fetching run ${uuid}:`, e);
+                        missingCount++;
+                    }
+                }));
+            }
+
+            if (missingCount > 0 && dashboardData.addToast) {
+                dashboardData.addToast(`${missingCount} shared benchmark${missingCount > 1 ? 's' : ''} could not be found or ${missingCount > 1 ? 'were' : 'was'} deleted`, 'error');
+            }
+
+            if (forbiddenCount > 0 && dashboardData.addToast) {
+                dashboardData.addToast(`${forbiddenCount} shared benchmark${forbiddenCount > 1 ? 's' : ''} could not be accessed`, 'error');
+            }
+
+            if (keysToSelect.size > 0) {
+                setSelectedBenchmarks(prev => new Set([...prev, ...keysToSelect]));
+                if (dashboardState.setShowComparisonDrawer) {
+                    dashboardState.setShowComparisonDrawer(true);
+                }
+                if (dashboardData.addToast) {
+                    dashboardData.addToast(`Loaded ${keysToSelect.size} shared benchmark${keysToSelect.size > 1 ? 's' : ''} into Compare view`, 'success');
+                }
+            }
+
+            params.delete('benchmarks');
+            const newUrl = `${window.location.pathname}${params.toString() ? '?' + params.toString() : ''}`;
+            window.history.replaceState(null, '', newUrl);
+        };
+
+        processShareLink();
+    }, [data, dashboardData, dashboardState, setSelectedBenchmarks]);
 
 
 
@@ -821,7 +974,9 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
                         showDataPanel,
                         setShowDataPanel,
                         loadAllData,
-                        dashboardState
+                        dashboardState,
+                        addToast,
+                        dashboardData
                     }}
                 />
             </main>
@@ -847,7 +1002,9 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
         showDataPanel,
         setShowDataPanel,
         loadAllData,
-        dashboardState
+        dashboardState,
+        addToast,
+        dashboardData
     ]);
 
     return (

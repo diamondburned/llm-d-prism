@@ -2463,12 +2463,24 @@ export const useDashboardData = (initialState, dashboardState) => {
         return map;
     }, [submissions]);
 
+    const injectDynamicEntries = useCallback((newEntries) => {
+        if (!newEntries || newEntries.length === 0) return;
+        setData(prev => {
+            const existingKeys = new Set(prev.map(d => `${d.run_id || d.source}:${d.workload?.input_tokens || d.isl || 0}x${d.workload?.output_tokens || d.osl || 0}`));
+            const filteredNew = newEntries.filter(e => {
+                const k = `${e.run_id || e.source}:${e.workload?.input_tokens || e.isl || 0}x${e.workload?.output_tokens || e.osl || 0}`;
+                return !existingKeys.has(k);
+            });
+            return [...prev, ...filteredNew];
+        });
+    }, []);
+
     useEffect(() => {
         loadSubmissions();
     }, [loadSubmissions]);
 
     return {
-        data, setData,
+        data, setData, injectDynamicEntries,
         loading, setLoading,
         isRestoringConnections,
         gcsProgressStats,

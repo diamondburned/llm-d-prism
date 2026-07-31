@@ -111,6 +111,7 @@ export const useDashboardState = () => {
     // Panels
     const [showDataPanel, setShowDataPanel] = useState(false);
     const [showFilterPanel, setShowFilterPanel] = useState(true);
+    const [showComparisonDrawer, setShowComparisonDrawer] = useState(false);
     const [isInspectorOpen, setIsInspectorOpen] = useState(false);
     const [qualityInspectOpen, setQualityInspectOpen] = useState(false);
 
@@ -321,6 +322,7 @@ export const useDashboardState = () => {
         // Panels
         showDataPanel, setShowDataPanel,
         showFilterPanel, setShowFilterPanel,
+        showComparisonDrawer, setShowComparisonDrawer,
         isInspectorOpen, setIsInspectorOpen,
         qualityInspectOpen, setQualityInspectOpen,
 

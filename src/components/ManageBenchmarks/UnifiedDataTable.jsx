@@ -14,7 +14,7 @@
 
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { RotateCcw, ChevronDown, ChevronUp, Star, Pin, CheckSquare, Square, Check, Pencil, Trash2, Code2, Copy, X, Database, Eye, ShieldCheck, AlertCircle, TrendingUp, AlertTriangle, Search, FileText, FileClock, Sliders, Activity, Send, Play, Loader } from 'lucide-react';
+import { RotateCcw, ChevronDown, ChevronUp, Star, Pin, CheckSquare, Square, Check, Pencil, Trash2, Code2, Copy, X, Database, Eye, EyeOff, ShieldCheck, AlertCircle, TrendingUp, AlertTriangle, Search, FileText, FileClock, Sliders, Activity, Send, Play, Loader } from 'lucide-react';
 import { RunComparisonChart } from '../Dashboard/RunComparisonChart';
 import { ThroughputCostChart } from '../Dashboard/ThroughputCostChart';
 import { Button, Badge, StatusChip, Modal, Textarea } from '../ui';
@@ -23,6 +23,7 @@ import { getSourceTag, getSourceType, getSourceTypeStyle, formatOriginLabel, get
 import yaml from 'js-yaml';
 import { useGitHubAuth } from '../../hooks/useGitHubAuth';
 import { validateBenchmark } from '../../utils/benchmarkValidator';
+import { encodeShareLink, isValidUuid } from '../../utils/shareLinkEncoder';
 import { v4 as uuidv4 } from 'uuid';
 
 const getCleanModelName = (name) => {
@@ -202,6 +203,15 @@ export const UnifiedDataTable = (props) => {
 
     const actionPendingRef = React.useRef(false);
     const [isLocalActionPending, setIsLocalActionPending] = React.useState(false);
+    const [showToast, setShowToast] = useState(false);
+    const [toastMessage, setToastMessage] = useState('');
+
+    React.useEffect(() => {
+        if (showToast) {
+            const timer = setTimeout(() => setShowToast(false), 2500);
+            return () => clearTimeout(timer);
+        }
+    }, [showToast]);
 
     const handleActionClick = React.useCallback(async (actionFn) => {
         if (actionPendingRef.current) return;
@@ -291,9 +301,100 @@ export const UnifiedDataTable = (props) => {
         return stagedList;
     }, [brv02Runs, selectedBenchmarks]);
 
+    const [hiddenBenchmarkKeys, setHiddenBenchmarkKeys] = React.useState(new Set());
+
+    React.useEffect(() => {
+        if (!showComparisonDrawer) {
+            setHiddenBenchmarkKeys(new Set());
+        }
+    }, [showComparisonDrawer]);
+
+    const handleToggleGraphVisibility = React.useCallback((key) => {
+        setHiddenBenchmarkKeys(prev => {
+            const next = new Set(prev);
+            if (next.has(key)) {
+                next.delete(key);
+            } else {
+                next.add(key);
+            }
+            return next;
+        });
+    }, []);
+
+    const allSelectedKeys = React.useMemo(() => {
+        return (modelStats || [])
+            .filter(s => selectedBenchmarks.has(s.benchmarkKey))
+            .map(s => s.benchmarkKey);
+    }, [modelStats, selectedBenchmarks]);
+
+    const handleSoloOrInvertGraphVisibility = React.useCallback((key) => {
+        setHiddenBenchmarkKeys(prev => {
+            const isOnlyThisVisible = !prev.has(key) && allSelectedKeys.every(k => k === key || prev.has(k));
+            if (isOnlyThisVisible) {
+                return new Set([key]);
+            } else {
+                const otherKeys = allSelectedKeys.filter(k => k !== key);
+                return new Set(otherKeys);
+            }
+        });
+    }, [allSelectedKeys]);
+
     const drawerFilteredData = React.useMemo(() => {
         return (filteredBySource || []).filter(d => selectedBenchmarks.has(getBenchmarkKey(d)));
     }, [filteredBySource, selectedBenchmarks]);
+
+    const drawerChartFilteredData = React.useMemo(() => {
+        return (filteredBySource || []).filter(d => {
+            const key = getBenchmarkKey(d);
+            return selectedBenchmarks.has(key) && !hiddenBenchmarkKeys.has(key);
+        });
+    }, [filteredBySource, selectedBenchmarks, hiddenBenchmarkKeys]);
+
+    const { canShare, shareableUuids, shareForbiddenReason } = React.useMemo(() => {
+        if (!selectedBenchmarks || selectedBenchmarks.size === 0) {
+            return { canShare: false, shareableUuids: [], shareForbiddenReason: null };
+        }
+
+        const selectedStatsList = (modelStats || []).filter(stat => selectedBenchmarks.has(stat.benchmarkKey));
+
+        if (selectedStatsList.length === 0 || selectedStatsList.length !== selectedBenchmarks.size) {
+            return {
+                canShare: false,
+                shareableUuids: [],
+                shareForbiddenReason: "Sharing is forbidden: Selection contains invalid or unknown runs."
+            };
+        }
+
+        const uuids = [];
+        for (const stat of selectedStatsList) {
+            const firstEntry = stat.data?.[0];
+            const sourceStr = firstEntry?.source || '';
+            const runId = firstEntry?.run_id || (sourceStr.startsWith('brv02:') ? sourceStr.replace('brv02:', '') : null);
+
+            if (!runId || !isValidUuid(runId)) {
+                return {
+                    canShare: false,
+                    shareableUuids: [],
+                    shareForbiddenReason: "Sharing is forbidden: Selection contains unsubmitted or local staged runs without public UUIDs."
+                };
+            }
+            uuids.push(runId);
+        }
+
+        return {
+            canShare: true,
+            shareableUuids: uuids,
+            shareForbiddenReason: null
+        };
+    }, [selectedBenchmarks, modelStats]);
+
+    const handleCopyShareLink = React.useCallback(() => {
+        if (!canShare || shareableUuids.length === 0) return;
+        const shareLink = encodeShareLink(shareableUuids);
+        navigator.clipboard.writeText(shareLink);
+        setToastMessage("Copied link to clipboard!");
+        setShowToast(true);
+    }, [canShare, shareableUuids]);
 
     const buildBundleForRun = React.useCallback((run) => {
         const stageFiles = run.stages.map(stage => {
@@ -1696,7 +1797,7 @@ export const UnifiedDataTable = (props) => {
                 )}>
                         <div className="absolute top-0 right-0 w-80 h-80 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
                         
-                        <div className="flex items-center justify-between pb-4 mb-6 border-b border-slate-805 flex-shrink-0">
+                        <div className="flex items-center justify-between pb-4 mb-6 border-b border-slate-900 flex-shrink-0">
                             <div className="flex flex-col gap-1">
                                 <div className="flex items-center gap-2">
                                     <span className="text-xs sm:text-sm font-bold uppercase tracking-wider text-cyan-400">
@@ -1743,7 +1844,7 @@ export const UnifiedDataTable = (props) => {
                                     qualityMetrics={qualityMetrics}
                                     allModels={modelStats.map(m => m.model)}
                                     selectedModels={selectedModels}
-                                    filteredData={drawerFilteredData}
+                                    filteredData={drawerChartFilteredData}
                                     getBenchmarkKey={getBenchmarkKey}
                                     theme="dark"
                                     isZoomEnabled={drawerIsZoomEnabled}
@@ -1757,7 +1858,7 @@ export const UnifiedDataTable = (props) => {
                                     chartColorMode={drawerChartColorMode}
                                     setChartColorMode={setDrawerChartColorMode}
                                     metricAvailability={drawerMetricAvailability}
-                                    filteredBySource={drawerFilteredData}
+                                    filteredBySource={drawerChartFilteredData}
                                     xAxisMax={drawerXAxisMax}
                                     setXAxisMax={setDrawerXAxisMax}
                                     isLogScaleX={drawerIsLogScaleX}
@@ -1768,86 +1869,109 @@ export const UnifiedDataTable = (props) => {
                                 />
                             </div>
 
-                            {/* Section 2: Active Submissions Actions */}
-                            <div className="space-y-4">
-
-                                {selectedStagedRuns.length > 0 && (
-                                    <div className="flex justify-end pt-1 select-none">
-                                        {user?.permission === 'none' ? (
-                                            <div className="relative group/tooltip inline-block">
-                                                <button
-                                                    disabled
-                                                    className="px-4 py-2 bg-slate-800 text-slate-500 text-xs font-bold uppercase tracking-wider rounded-xl border border-slate-700/50 cursor-not-allowed flex items-center gap-1.5 opacity-60"
-                                                >
-                                                    <Send size={12} />
-                                                    Publish Selected ({selectedStagedRuns.length})
-                                                </button>
-                                                <div className="absolute right-0 bottom-full mb-2 px-3 py-2 bg-slate-900 border border-slate-800 text-slate-350 text-xs font-medium rounded-xl opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all duration-200 shadow-2xl z-[9999] w-64 pointer-events-none leading-relaxed text-center normal-case tracking-normal animate-in fade-in slide-in-from-bottom-2 duration-150">
-                                                    You are not in the Results Store closed-beta. Check back later once the feature is released.
-                                                </div>
+                            <div className="space-y-4 pt-2 pb-6">
+                                <div className="flex items-center justify-between border-b border-slate-900 pb-2 select-none">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs font-black uppercase tracking-wider text-cyan-400/90">
+                                            Selected Benchmark Runs
+                                        </span>
+                                        <span className="text-[10px] text-slate-500">
+                                            ({modelStats.filter(s => selectedBenchmarks.has(s.benchmarkKey)).length})
+                                        </span>
+                                    </div>
+                                    <div className="relative group/share-link">
+                                        <Button
+                                            variant="secondary"
+                                            size="sm"
+                                            onClick={handleCopyShareLink}
+                                            disabled={!canShare}
+                                            className={cn("gap-1.5", !canShare && "opacity-50 cursor-not-allowed")}
+                                        >
+                                            <Copy size={12} />
+                                            <span>Share Link</span>
+                                        </Button>
+                                        {!canShare && shareForbiddenReason && (
+                                            <div className="absolute right-0 bottom-full mb-2 px-3 py-2 bg-slate-900 border border-slate-800 text-slate-350 text-xs font-medium rounded-xl opacity-0 invisible group-hover/share-link:opacity-100 group-hover/share-link:visible transition-all duration-200 shadow-2xl z-[9999] w-64 pointer-events-none leading-relaxed text-center normal-case tracking-normal animate-in fade-in slide-in-from-bottom-2 duration-150">
+                                                {shareForbiddenReason}
                                             </div>
-                                        ) : (
-                                            <button
-                                                id="drawer-publish-selected-btn"
-                                                onClick={handlePublishSelected}
-                                                className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-700 hover:from-cyan-500 hover:to-blue-600 text-white text-xs font-bold uppercase tracking-wider rounded-xl shadow-[0_0_12px_rgba(6,182,212,0.15)] transition-all hover:scale-[1.02] cursor-pointer flex items-center gap-1.5"
-                                            >
-                                                <Send size={12} />
-                                                Publish Selected ({selectedStagedRuns.length})
-                                            </button>
                                         )}
                                     </div>
-                                )}
-
-                                <div className="flex items-center justify-between border-b border-slate-900 pb-2 select-none">
-                                    <span className="text-xs font-black uppercase tracking-wider text-cyan-400/90">
-                                        Run Verification & Promotion Pipeline
-                                    </span>
-                                    <span className="text-[10px] text-slate-500">
-                                        {modelStats.filter(s => selectedBenchmarks.has(s.benchmarkKey)).length} Selected Runs
-                                    </span>
                                 </div>
                                 
                                 <div className="grid grid-cols-1 gap-3.5">
-                                    {modelStats.filter(s => selectedBenchmarks.has(s.benchmarkKey)).map(stat => (
-                                        <BenchmarkRow
-                                            key={stat.benchmarkKey || stat.model}
-                                            stat={stat}
-                                            isSelected={true}
-                                            isExpanded={expandedModels.has(stat.benchmarkKey || stat.model)}
-                                            isBaseline={stat.benchmarkKey === baselineBenchmarkKey}
-                                            user={user}
-                                            isAdmin={isAdmin}
-                                            submissionsMap={submissionsMap}
-                                            brv02Runs={brv02Runs}
-                                            visibleSpecs={visibleSpecs}
-                                            isLoadingSubmissions={isLoadingSubmissions}
-                                            isLocalActionPending={isLocalActionPending}
-                                            rejectingRunId={rejectingRunId}
-                                            rejectionFeedback={rejectionFeedback}
-                                            setRejectingRunId={setRejectingRunId}
-                                            setRejectionFeedback={setRejectionFeedback}
-                                            setViewingPayloadRun={setViewingPayloadRun}
-                                            setRawYamlContent={setRawYamlContent}
-                                            setRawYamlTitle={setRawYamlTitle}
-                                            handleSubmitStagedRunForReview={handleSubmitStagedRunForReview}
-                                            handleActionClick={handleActionClick}
-                                            updateSubmissionStatus={updateSubmissionStatus}
-                                            deleteSubmission={deleteSubmission}
-                                            toggleModelExpansion={toggleModelExpansion}
-                                            handleCheckboxPointerDown={handleCheckboxPointerDown}
-                                            brv02CustomLabels={brv02CustomLabels}
-                                            handleEditStagedRun={handleEditStagedRun}
-                                            defaultSources={defaultSources}
-                                            readOnly={true}
-                                        />
-                                    ))}
+                                    {modelStats.filter(s => selectedBenchmarks.has(s.benchmarkKey)).map(stat => {
+                                        const isOnlyThisVisible = !hiddenBenchmarkKeys.has(stat.benchmarkKey) &&
+                                            allSelectedKeys.length > 1 &&
+                                            allSelectedKeys.every(k => k === stat.benchmarkKey || hiddenBenchmarkKeys.has(k));
+                                        return (
+                                            <BenchmarkRow
+                                                key={stat.benchmarkKey || stat.model}
+                                                stat={stat}
+                                                isSelected={true}
+                                                isExpanded={expandedModels.has(stat.benchmarkKey || stat.model)}
+                                                isBaseline={stat.benchmarkKey === baselineBenchmarkKey}
+                                                user={user}
+                                                isAdmin={isAdmin}
+                                                submissionsMap={submissionsMap}
+                                                brv02Runs={brv02Runs}
+                                                visibleSpecs={visibleSpecs}
+                                                isLoadingSubmissions={isLoadingSubmissions}
+                                                isLocalActionPending={isLocalActionPending}
+                                                rejectingRunId={rejectingRunId}
+                                                rejectionFeedback={rejectionFeedback}
+                                                setRejectingRunId={setRejectingRunId}
+                                                setRejectionFeedback={setRejectionFeedback}
+                                                setViewingPayloadRun={setViewingPayloadRun}
+                                                setRawYamlContent={setRawYamlContent}
+                                                setRawYamlTitle={setRawYamlTitle}
+                                                handleSubmitStagedRunForReview={handleSubmitStagedRunForReview}
+                                                handleActionClick={handleActionClick}
+                                                updateSubmissionStatus={updateSubmissionStatus}
+                                                deleteSubmission={deleteSubmission}
+                                                toggleModelExpansion={toggleModelExpansion}
+                                                handleCheckboxPointerDown={handleCheckboxPointerDown}
+                                                brv02CustomLabels={brv02CustomLabels}
+                                                handleEditStagedRun={handleEditStagedRun}
+                                                defaultSources={defaultSources}
+                                                readOnly={true}
+                                                isHiddenOnGraph={hiddenBenchmarkKeys.has(stat.benchmarkKey)}
+                                                isOnlyThisVisibleOnGraph={isOnlyThisVisible}
+                                                onToggleGraphVisibility={handleToggleGraphVisibility}
+                                                onSoloOrInvertGraphVisibility={handleSoloOrInvertGraphVisibility}
+                                            />
+                                        );
+                                    })}
                                 </div>
                             </div>
                         </div>
 
                         {/* Fixed Footer */}
-                        <div className="pt-4 mt-6 border-t border-slate-900 flex items-center justify-end gap-3 flex-shrink-0 select-none">
+                        <div className="pt-4 border-t border-slate-900 flex items-center justify-end gap-3 flex-shrink-0 select-none">
+                            {selectedStagedRuns.length > 0 && (
+                                user?.permission === 'none' ? (
+                                    <div className="relative group/tooltip inline-block">
+                                        <button
+                                            disabled
+                                            className="px-4 py-2 bg-slate-800 text-slate-500 text-xs font-bold uppercase tracking-wider rounded-xl border border-slate-700/50 cursor-not-allowed flex items-center gap-1.5 opacity-60"
+                                        >
+                                            <Send size={12} />
+                                            Publish Selected ({selectedStagedRuns.length})
+                                        </button>
+                                        <div className="absolute right-0 bottom-full mb-2 px-3 py-2 bg-slate-900 border border-slate-800 text-slate-350 text-xs font-medium rounded-xl opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all duration-200 shadow-2xl z-[9999] w-64 pointer-events-none leading-relaxed text-center normal-case tracking-normal animate-in fade-in slide-in-from-bottom-2 duration-150">
+                                            You are not in the Results Store closed-beta. Check back later once the feature is released.
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <button
+                                        id="drawer-publish-selected-btn"
+                                        onClick={handlePublishSelected}
+                                        className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-700 hover:from-cyan-500 hover:to-blue-600 text-white text-xs font-bold uppercase tracking-wider rounded-xl shadow-[0_0_12px_rgba(6,182,212,0.15)] transition-all hover:scale-[1.02] cursor-pointer flex items-center gap-1.5"
+                                    >
+                                        <Send size={12} />
+                                        Publish Selected ({selectedStagedRuns.length})
+                                    </button>
+                                )
+                            )}
                             <Button
                                 type="button"
                                 variant="secondary"
@@ -1858,6 +1982,13 @@ export const UnifiedDataTable = (props) => {
                                 Close
                             </Button>
                         </div>
+                </div>,
+                document.body
+            )}
+            {showToast && createPortal(
+                <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[10000] bg-cyan-950/90 border border-cyan-500/40 text-cyan-200 px-4 py-2 rounded-xl text-xs font-semibold shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-bottom-2 duration-200 flex items-center gap-2">
+                    <Check size={14} className="text-cyan-400" />
+                    <span>{toastMessage}</span>
                 </div>,
                 document.body
             )}
@@ -1947,6 +2078,10 @@ const BenchmarkRow = React.memo(({
     handleEditStagedRun,
     defaultSources,
     readOnly = false,
+    isHiddenOnGraph = false,
+    isOnlyThisVisibleOnGraph = false,
+    onToggleGraphVisibility,
+    onSoloOrInvertGraphVisibility,
 }) => {
     const benchmarkData = stat.data || [];
     const meta = benchmarkData[0]?.metadata || {};
@@ -2041,10 +2176,29 @@ const BenchmarkRow = React.memo(({
 
 
                                     return (
-                                        <div 
-                                            key={stat.benchmarkKey || stat.model}
-                                            className={cn(
-                                                'flex flex-col bg-white dark:bg-slate-900 border rounded-lg transition-colors duration-150 shadow-sm relative',
+                                        <div className="flex items-center gap-3 w-full group/benchmark-row">
+                                            {readOnly && onToggleGraphVisibility && (
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        onToggleGraphVisibility(stat.benchmarkKey);
+                                                    }}
+                                                    className={cn(
+                                                        "p-2.5 rounded-xl border transition-all cursor-pointer flex-shrink-0 select-none shadow-sm",
+                                                        !isHiddenOnGraph
+                                                            ? "bg-cyan-500/10 hover:bg-cyan-500/20 border-cyan-500/30 text-cyan-400"
+                                                            : "bg-slate-900/60 hover:bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-400 opacity-60"
+                                                    )}
+                                                    title={!isHiddenOnGraph ? "Hide line from graph plot" : "Show line on graph plot"}
+                                                >
+                                                    {!isHiddenOnGraph ? <Eye size={16} /> : <EyeOff size={16} />}
+                                                </button>
+                                            )}
+                                            <div 
+                                                key={stat.benchmarkKey || stat.model}
+                                                className={cn(
+                                                    'flex-1 flex flex-col bg-white dark:bg-slate-900 border rounded-lg transition-colors duration-150 shadow-sm relative',
                                                 cardBorderClass,
                                                 cardBgClass,
                                                 isBaseline && 'ring-2 ring-cyan-400/50'
@@ -2334,6 +2488,24 @@ const BenchmarkRow = React.memo(({
                                                                                              </button>
                                                                                          )}
                                                                                      </div>
+                                                                                       {onSoloOrInvertGraphVisibility && (
+                                                                                           <button
+                                                                                               type="button"
+                                                                                               onClick={(e) => {
+                                                                                                   e.stopPropagation();
+                                                                                                   onSoloOrInvertGraphVisibility(stat.benchmarkKey);
+                                                                                               }}
+                                                                                               className={cn(
+                                                                                                   "opacity-0 group-hover/benchmark-row:opacity-100 transition-opacity duration-150 text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md border select-none cursor-pointer flex-shrink-0 ml-1.5 shadow-sm",
+                                                                                                   isOnlyThisVisibleOnGraph
+                                                                                                       ? "bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/30 text-amber-400 hover:text-amber-300"
+                                                                                                       : "bg-cyan-500/10 hover:bg-cyan-500/20 border-cyan-500/30 text-cyan-400 hover:text-cyan-300"
+                                                                                               )}
+                                                                                               title={isOnlyThisVisibleOnGraph ? "Show all other selected benchmarks on graph" : "Show only this benchmark on graph"}
+                                                                                           >
+                                                                                               {isOnlyThisVisibleOnGraph ? "Invert" : "Solo"}
+                                                                                           </button>
+                                                                                       )}
 
                                                                             {isBrv02 && !readOnly && (
                                                                                 <div className="flex flex-col items-end gap-1.5 relative">
@@ -2854,11 +3026,11 @@ const BenchmarkRow = React.memo(({
                                                                           </tr>
                                                                       ))}
                                                               </tbody>
-                                                          </table>
-                                                      </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    );
-
+                                                           </table>
+                                                       </div>
+                                                   </div>
+                                               )}
+                                           </div>
+                                       </div>
+                                   );
 });
