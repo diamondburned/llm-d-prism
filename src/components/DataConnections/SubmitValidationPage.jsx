@@ -126,6 +126,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
     const [dcoSigned, setDcoSigned] = useState(false);
     const [selectedReviewers, setSelectedReviewers] = useState([]);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [targetVisibility, setTargetVisibility] = useState('submitted_pending_review');
     const [comparingBundleId, setComparingBundleId] = useState(null);
 
     const [localModelFilter, setLocalModelFilter] = useState('all');
@@ -1327,7 +1328,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
         }
     };
 
-    const handleSubmit = async () => {
+    const handleSubmit = async (targetState = 'submitted_pending_review') => {
         const validBundles = stagedFiles.filter(b => !b.isSkipped && b.validation.format && b.validation.errors.length === 0);
         if (validBundles.length === 0) return;
         
@@ -1395,7 +1396,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                     throw new Error(errorMsg);
                 }
 
-                const res = await fetch('/api/results', {
+                const res = await fetch(`/api/results?targetState=${encodeURIComponent(targetState)}`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1418,22 +1419,29 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                 }
             }
 
-            if (addToast) addToast("Benchmark submissions submitted successfully for review!", "success");
+            if (addToast) {
+                addToast(
+                    targetState === 'unlisted'
+                        ? "Benchmark saved as unlisted!"
+                        : "Benchmark submissions submitted successfully for review!",
+                    "success"
+                );
+            }
             
             // Refresh submissions list in main dashboard
             if (loadSubmissions) {
-                loadSubmissions(true);
+                await loadSubmissions(true);
             }
 
-            // Force refetch database so newly submitted benchmarks in GCS are loaded immediately
+            // Refetch full database in the background without blocking navigation
             if (loadAllData) {
-                await loadAllData(null, true);
+                loadAllData(null, true).catch(err => console.error("Error refreshing background data:", err));
             }
 
             // Close and reset
             resetWizard();
             localStorage.setItem('prism_activate_my_submissions_filter', 'true');
-            localStorage.setItem('prism_show_post_upload_dialog', 'submitted');
+            localStorage.setItem('prism_show_post_upload_dialog', targetState === 'unlisted' ? 'unlisted' : 'submitted');
             if (onNavigate) {
                 onNavigate('results-store');
             } else if (onNavigateBack) {
@@ -1631,6 +1639,65 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                         <Check size={13} className="text-emerald-500" /> Signed and Verified
                                     </span>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Visibility Selection Section */}
+                    <div className="bg-slate-950/40 rounded-2xl border border-slate-900/80 p-5 space-y-3 shadow-inner">
+                        <div>
+                            <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">Benchmark Visibility</h4>
+                            <p className="text-[11px] text-slate-400 mt-0.5">Select the visibility and publishing workflow for this submission.</p>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                            <div 
+                                onClick={() => setTargetVisibility('submitted_pending_review')}
+                                className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
+                                    targetVisibility === 'submitted_pending_review'
+                                    ? 'bg-emerald-500/10 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.1)]'
+                                    : 'bg-slate-900/40 border-slate-800/80 hover:border-slate-700'
+                                }`}
+                            >
+                                <div className="flex items-center justify-between mb-1">
+                                    <span className="text-xs font-bold text-emerald-400">
+                                        Public Review
+                                    </span>
+                                    <input 
+                                        type="radio" 
+                                        name="visibility" 
+                                        checked={targetVisibility === 'submitted_pending_review'} 
+                                        onChange={() => setTargetVisibility('submitted_pending_review')}
+                                        className="accent-emerald-500 cursor-pointer"
+                                    />
+                                </div>
+                                <p className="text-[10px] text-slate-400 leading-normal">
+                                    Submits to the maintainer review queue for formal verification and publishing on the global grid.
+                                </p>
+                            </div>
+
+                            <div 
+                                onClick={() => setTargetVisibility('unlisted')}
+                                className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
+                                    targetVisibility === 'unlisted'
+                                    ? 'bg-cyan-500/10 border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.1)]'
+                                    : 'bg-slate-900/40 border-slate-800/80 hover:border-slate-700'
+                                }`}
+                            >
+                                <div className="flex items-center justify-between mb-1">
+                                    <span className="text-xs font-bold text-cyan-400">
+                                        Unlisted
+                                    </span>
+                                    <input 
+                                        type="radio" 
+                                        name="visibility" 
+                                        checked={targetVisibility === 'unlisted'} 
+                                        onChange={() => setTargetVisibility('unlisted')}
+                                        className="accent-cyan-500 cursor-pointer"
+                                    />
+                                </div>
+                                <p className="text-[10px] text-slate-400 leading-normal">
+                                    Experimental runs that haven't been reviewed yet.
+                                </p>
                             </div>
                         </div>
                     </div>
@@ -3040,15 +3107,24 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                     </span>
                                 )}
                                 <button 
-                                    onClick={handleSubmit}
+                                    onClick={() => handleSubmit(targetVisibility)}
                                     disabled={isSubmitting || user?.permission === 'none'}
                                     className={`px-5 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all ${
                                         isSubmitting || user?.permission === 'none'
                                         ? 'bg-slate-900/40 text-slate-500 border border-slate-900/50 cursor-not-allowed opacity-50 shadow-none'
+                                        : targetVisibility === 'unlisted'
+                                        ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white shadow-md hover:shadow-cyan-500/10 cursor-pointer border border-cyan-500/20'
                                         : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-md hover:shadow-emerald-500/10 cursor-pointer border border-emerald-500/20'
                                     }`}
                                 >
-                                    {isSubmitting ? <Spinner size="xs" className="text-white dark:text-white" /> : <Check size={14} />} Submit to Review Queue
+                                    {isSubmitting ? (
+                                        <Spinner size="xs" className="text-white dark:text-white" />
+                                    ) : targetVisibility === 'unlisted' ? (
+                                        <UploadCloud size={14} />
+                                    ) : (
+                                        <Check size={14} />
+                                    )}
+                                    {targetVisibility === 'unlisted' ? 'Save as Unlisted' : 'Submit for Public Review'}
                                 </button>
                             </div>
                         )}

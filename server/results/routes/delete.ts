@@ -53,41 +53,47 @@ export async function deleteResultsHandler(
         return res.status(401).json({ error: 'Authentication required. Missing session token.' });
     }
 
+    let username = '';
     let permission = 'none';
 
     try {
         const authResult = await validateGitHubToken(token);
+        username = authResult.username;
         permission = authResult.permission;
     } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : String(error);
         return res.status(401).json({ error: 'Invalid or expired session token.', details: msg });
     }
 
-    // 2. IAM Check: Only administrators are allowed to delete benchmarks
-    if (permission !== 'admin') {
-        return res.status(403).json({ error: 'Access denied. Only administrators can delete rejected benchmarks.' });
-    }
-
     try {
-        // 3. Fetch GCS metadata context to check submission status/state
+        // 2. Fetch GCS metadata context to check submission status/state & author
         const metadata = await readResultMetadata(runId);
         if (!metadata) {
             return res.status(404).json({ error: 'Result not found.' });
         }
 
-        // 4. Benchmark Check: Only rejected benchmarks can be deleted off GCS
-        if (metadata.state !== 'rejected') {
+        const { user: itemUser, state: itemState } = metadata;
+        const isOwner = !!(username && itemUser.toLowerCase() === username.toLowerCase());
+
+        let allowed = false;
+        if (isOwner && itemState === 'unlisted') {
+            allowed = true;
+        } else if (permission === 'admin' && (itemState === 'unlisted' || itemState === 'rejected')) {
+            allowed = true;
+        }
+
+        if (!allowed) {
             return res.status(403).json({
-                error: 'Forbidden. Only rejected benchmarks can be deleted from the Results Store.'
+                error: 'Forbidden. Benchmark can only be deleted if it is unlisted (by owner or admin) or rejected (by admin).'
             });
         }
 
-        // 5. Delete object from GCS Results Store
+        // 3. Delete object from GCS Results Store
         await deleteResult(runId);
 
         return res.json({
             success: true,
-            message: `Rejected benchmark ${runId} successfully deleted.`
+            message: `Benchmark ${runId} successfully deleted.`
         });
     } catch (error: unknown) {
         console.error('[Results Delete API Error]', error);

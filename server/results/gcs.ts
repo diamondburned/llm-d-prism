@@ -89,21 +89,27 @@ export async function listResults(options: ListResultsOptions): Promise<ListResu
     // eslint-disable-next-line no-unused-vars
     const filters: ((state: PrismSubmissionState, user: string) => boolean)[] = [];
 
-    // 1. Permission check (non-admins can only see their own results or public/promoted results)
+    // 1. Permission check (non-admins can see public/promoted, explicit status=unlisted, or their own results)
     if (permission !== 'admin') {
         filters.push((state, user) => {
             const isApproved = state === 'public' || state === 'promoted';
+            const isExplicitUnlisted = state === 'unlisted' && statusFilter === 'unlisted';
             const isOwn = !!(username && user.toLowerCase() === username.toLowerCase());
-            return isApproved || isOwn;
+            return isApproved || isExplicitUnlisted || isOwn;
         });
     }
 
-    // 2. Status Filter
+    // 2. Default Grid Filtering (general list queries without status or own filter exclude unlisted)
+    if (!statusFilter && !ownFilter) {
+        filters.push((state) => state !== 'unlisted');
+    }
+
+    // 3. Status Filter
     if (statusFilter) {
         filters.push((state) => state === statusFilter);
     }
 
-    // 3. Ownership Filter
+    // 4. Ownership Filter
     if (ownFilter) {
         filters.push((_, user) => !!(username && user.toLowerCase() === username.toLowerCase()));
     }

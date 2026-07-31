@@ -2254,20 +2254,26 @@ export const useDashboardData = (initialState, dashboardState) => {
     const loadSubmissions = useCallback(async (isManual = false) => {
         setIsLoadingSubmissions(true);
         try {
-            const params = new URLSearchParams();
-            params.set('own', 'true');
-            params.set('limit', '50');
-
             const headers = {};
             if (accessToken) {
                 headers['X-Prism-Github-Token'] = accessToken;
             }
 
-            const res = await fetch(`/api/results?${params.toString()}`, { headers });
-            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-            const listData = await res.json();
+            // Fetch user's own submissions as well as global unlisted submissions
+            const [resOwn, resUnlisted] = await Promise.all([
+                fetch('/api/results?own=true&limit=50', { headers }).catch(() => null),
+                fetch('/api/results?status=unlisted&limit=50', { headers }).catch(() => null)
+            ]);
+
+            const ownData = resOwn && resOwn.ok ? await resOwn.json() : { items: [] };
+            const unlistedData = resUnlisted && resUnlisted.ok ? await resUnlisted.json() : { items: [] };
+
+            const itemsMap = new Map();
+            (ownData.items || []).forEach(item => itemsMap.set(item.runId, item));
+            (unlistedData.items || []).forEach(item => itemsMap.set(item.runId, item));
+            const listDataItems = Array.from(itemsMap.values());
             
-            const serverSubmissions = (listData.items || []).map(item => ({
+            const serverSubmissions = listDataItems.map(item => ({
                 id: item.runId,
                 runId: item.runId,
                 model: item.model_name || "Custom Model",
@@ -2326,14 +2332,14 @@ export const useDashboardData = (initialState, dashboardState) => {
                 headers['X-Prism-Github-Token'] = accessToken;
             }
 
+            const reqBody = status === 'submitted_pending_review' 
+                ? { status }
+                : { status, feedback, reviewer };
+
             const res = await fetch(`/api/results/${runId}/status`, {
                 method: 'POST',
                 headers,
-                body: JSON.stringify({
-                    status,
-                    feedback,
-                    reviewer
-                })
+                body: JSON.stringify(reqBody)
             });
             if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
             const data = await res.json();

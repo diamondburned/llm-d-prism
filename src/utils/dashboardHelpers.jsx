@@ -357,6 +357,13 @@ export const getSubmissionStatusDetails = (state) => {
                 text: 'text-amber-700 dark:text-amber-400',
                 border: 'border-amber-200 dark:border-amber-900/50'
             };
+        case 'unlisted':
+            return {
+                label: 'Unlisted',
+                bg: 'bg-cyan-50 dark:bg-cyan-950/20',
+                text: 'text-cyan-700 dark:text-cyan-400',
+                border: 'border-cyan-200 dark:border-cyan-900/50'
+            };
         case 'submitted_pending_review':
             return {
                 label: 'Pending Review',

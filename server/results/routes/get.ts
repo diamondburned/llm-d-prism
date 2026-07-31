@@ -71,7 +71,7 @@ export async function getResultsHandler(req: Request, res: Response<ResultsGetRe
         if (permission === 'admin') {
             allowed = true;
         } else {
-            if (itemState === 'public' || itemState === 'promoted') {
+            if (itemState === 'public' || itemState === 'promoted' || itemState === 'unlisted') {
                 allowed = true;
             } else if (username && itemUser.toLowerCase() === username.toLowerCase()) {
                 allowed = true;

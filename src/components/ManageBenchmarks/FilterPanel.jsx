@@ -62,6 +62,7 @@ const getKpiFilterLabel = (filter) => {
     switch (filter) {
         case 'my-submissions': return 'My Benchmarks';
         case 'staged': return 'Locally Staged';
+        case 'unlisted': return 'Unlisted';
         case 'processing': return 'Processing';
         case 'in_review': return 'Under Review';
         case 'approved': return 'Published';
@@ -98,6 +99,7 @@ export const FilterPanel = ({
     isLoadingSubmissions = false,
     loadSubmissions,
     searchTerm, setSearchTerm, kpiFilter, setKpiFilter,
+    includeUnlisted = false, setIncludeUnlisted,
     updateSubmissionStatus,
     bulkUpdateSubmissionStatus,
     deleteSubmission,
@@ -419,6 +421,7 @@ export const FilterPanel = ({
 
     const statusCounts = React.useMemo(() => {
         let staged = 0;
+        let unlisted = 0;
         let processing = 0;
         let inReview = 0;
         let approved = 0;
@@ -439,6 +442,7 @@ export const FilterPanel = ({
                 const status = sub?.status || firstEntry.source_info?.submission_state || 'staged';
                 
                 if (status === 'staged') staged++;
+                else if (status === 'unlisted') unlisted++;
                 else if (status === 'submitted_pending_processing' || status === 'processing') processing++;
                 else if (status === 'submitted_pending_review' || status === 'in_review') inReview++;
                 else if (status === 'public' || status === 'promoted' || status === 'approved') approved++;
@@ -446,7 +450,7 @@ export const FilterPanel = ({
             }
         });
 
-        return { staged, processing, inReview, approved, rejected };
+        return { staged, unlisted, processing, inReview, approved, rejected };
     }, [modelStats, submissionsMap, user]);
 
     const allRuns = React.useMemo(() => {
@@ -575,6 +579,7 @@ export const FilterPanel = ({
                 setSearchTerm={setSearchTerm}
                 kpiFilter={kpiFilter}
                 setKpiFilter={setKpiFilter}
+                includeUnlisted={includeUnlisted}
                 paretoKeys={paretoKeys}
                 submissionsMap={submissionsMap}
                 isLoadingSubmissions={isLoadingSubmissions}
@@ -594,7 +599,7 @@ export const FilterPanel = ({
         setActiveFilters, expandedModels, toggleBenchmark, toggleModelExpansion, baselineBenchmarkKey,
         setBaselineBenchmarkKey, hideShowSelectedOnly, renameClearToUnselectAll, brv02Runs, brv02CustomLabels,
         setBrv02CustomLabels, removeBrv02Run, setShowDataPanel, searchTerm, setSearchTerm, kpiFilter,
-        setKpiFilter, paretoKeys, submissionsMap, isLoadingSubmissions, updateSubmissionStatus,
+        setKpiFilter, includeUnlisted, paretoKeys, submissionsMap, isLoadingSubmissions, updateSubmissionStatus,
         bulkUpdateSubmissionStatus, deleteSubmission, onOpenSubmitDialog, hasFiltersToSave, loadAllData, loadingConnections,
         dashboardState, defaultSources
     ]);
@@ -681,7 +686,7 @@ export const FilterPanel = ({
                                     const isMySubmissionsActive = kpiFilter === 'my-submissions' || ['staged', 'processing', 'in_review', 'approved', 'action'].includes(kpiFilter);
                                     
                                     if (isMySubmissionsActive) {
-                                        const { staged, processing, inReview, approved, rejected } = statusCounts;
+                                        const { staged, unlisted, processing, inReview, approved, rejected } = statusCounts;
                                         
                                         return (
                                             <div className="flex-1 flex flex-col justify-between bg-slate-900/40 border border-slate-900/80 px-3 py-2 rounded-xl">
@@ -704,6 +709,25 @@ export const FilterPanel = ({
                                                         <div className="flex flex-col items-start leading-none text-left">
                                                             <span className="text-[8px] font-bold uppercase text-slate-400/90 tracking-wider">Staged</span>
                                                             <span className={cn('text-xs md:text-sm font-extrabold mt-0.5 transition-colors duration-200', kpiFilter === 'staged' ? 'text-amber-400 font-black' : 'text-slate-200')}>{staged}</span>
+                                                        </div>
+                                                    </button>
+
+                                                    <ArrowRight className="w-3 h-3 text-slate-800 shrink-0" />
+
+                                                    {/* Step 1b: Unlisted */}
+                                                    <button 
+                                                        onClick={() => setKpiFilter(kpiFilter === 'unlisted' ? 'my-submissions' : 'unlisted')}
+                                                        className={cn(
+                                                            'relative flex-1 flex items-center pl-3 pr-2 py-1 rounded-md border transition-all duration-300 cursor-pointer overflow-hidden',
+                                                            kpiFilter === 'unlisted'
+                                                            ? 'bg-cyan-500/5 border-cyan-500/35 shadow-[0_0_12px_rgba(6,182,212,0.08)] -translate-y-0.5'
+                                                            : 'bg-slate-900/25 border-transparent hover:border-slate-800/60 hover:bg-slate-900/40 hover:-translate-y-0.5'
+                                                        )}
+                                                    >
+                                                        <div className={cn('absolute left-0 top-1 bottom-1 w-0.5 rounded-r transition-all duration-300', kpiFilter === 'unlisted' ? 'bg-cyan-400 h-6' : 'bg-cyan-500/55')} />
+                                                        <div className="flex flex-col items-start leading-none text-left">
+                                                            <span className="text-[8px] font-bold uppercase text-slate-400/90 tracking-wider">Unlisted</span>
+                                                            <span className={cn('text-xs md:text-sm font-extrabold mt-0.5 transition-colors duration-200', kpiFilter === 'unlisted' ? 'text-cyan-400 font-black' : 'text-slate-200')}>{unlisted}</span>
                                                         </div>
                                                     </button>
 
@@ -790,46 +814,86 @@ export const FilterPanel = ({
                                     } else {
                                         // Public Store Selected
                                         return (
-                                            <div className="flex-1 flex flex-row items-center justify-between bg-slate-900/40 border border-slate-900/80 px-4 py-2 rounded-xl select-none">
-                                                <div className="flex flex-col justify-center">
-                                                    <span className="text-[10px] font-bold text-slate-400/95 uppercase tracking-wider leading-none">Public Store Analytics</span>
-                                                    <span className="text-[10px] text-slate-500 mt-1.5 leading-none">Submission activity (last 15 days)</span>
-                                                </div>
-                                                
-                                                <div className="flex items-center gap-4">
-                                                    {sparklinePath ? (
-                                                        <div className="flex flex-col items-end">
-                                                            <svg width="140" height="24" className="overflow-visible">
-                                                                <path
-                                                                    d={sparklinePath}
-                                                                    fill="none"
-                                                                    stroke="#06b6d4"
-                                                                    strokeWidth="1.5"
-                                                                    strokeLinecap="round"
-                                                                    strokeLinejoin="round"
-                                                                />
-                                                                <path
-                                                                    d={`${sparklinePath} L 140 24 L 0 24 Z`}
-                                                                    fill="url(#sparkline-grad)"
-                                                                    stroke="none"
-                                                                />
-                                                                <defs>
-                                                                    <linearGradient id="sparkline-grad" x1="0" y1="0" x2="0" y2="1">
-                                                                        <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.15" />
-                                                                        <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.0" />
-                                                                    </linearGradient>
-                                                                </defs>
-                                                            </svg>
-                                                        </div>
-                                                    ) : (
-                                                        <span className="text-[10px] text-slate-600">No recent activity</span>
-                                                    )}
+                                            <div className="flex-1 flex flex-row items-stretch gap-3 select-none">
+                                                {/* Pane 1: Public Store Analytics */}
+                                                <div className="flex-1 flex flex-row items-center justify-between bg-slate-900/40 border border-slate-900/80 px-4 py-2 rounded-xl">
+                                                    <div className="flex flex-col justify-center">
+                                                        <span className="text-[10px] font-bold text-slate-400/95 uppercase tracking-wider leading-none">Public Store Analytics</span>
+                                                        <span className="text-[10px] text-slate-500 mt-1.5 leading-none">Submission activity (last 15 days)</span>
+                                                    </div>
                                                     
-                                                    <div className="flex flex-col items-end border-l border-slate-800/80 pl-4 h-9 justify-center">
-                                                        <span className="text-[8px] font-bold text-slate-500 uppercase tracking-wider leading-none">Total Runs</span>
-                                                        <span className="text-base font-black text-cyan-400 mt-1 leading-none">{totalCount}</span>
+                                                    <div className="flex items-center gap-4">
+                                                        {sparklinePath ? (
+                                                            <div className="flex flex-col items-end">
+                                                                <svg width="140" height="24" className="overflow-visible">
+                                                                    <path
+                                                                        d={sparklinePath}
+                                                                        fill="none"
+                                                                        stroke="#06b6d4"
+                                                                        strokeWidth="1.5"
+                                                                        strokeLinecap="round"
+                                                                        strokeLinejoin="round"
+                                                                    />
+                                                                    <path
+                                                                        d={`${sparklinePath} L 140 24 L 0 24 Z`}
+                                                                        fill="url(#sparkline-grad)"
+                                                                        stroke="none"
+                                                                    />
+                                                                    <defs>
+                                                                        <linearGradient id="sparkline-grad" x1="0" y1="0" x2="0" y2="1">
+                                                                            <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.15" />
+                                                                            <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.0" />
+                                                                        </linearGradient>
+                                                                    </defs>
+                                                                </svg>
+                                                            </div>
+                                                        ) : (
+                                                            <span className="text-[10px] text-slate-600">No recent activity</span>
+                                                        )}
+                                                        
+                                                        <div className="flex flex-col items-end border-l border-slate-800/80 pl-4 h-9 justify-center">
+                                                            <span className="text-[8px] font-bold text-slate-500 uppercase tracking-wider leading-none">Total Runs</span>
+                                                            <span className="text-base font-black text-cyan-400 mt-1 leading-none">{totalCount}</span>
+                                                        </div>
                                                     </div>
                                                 </div>
+
+                                                {/* Pane 2: Standalone Unlisted Pane */}
+                                                <button
+                                                    onClick={() => setIncludeUnlisted ? setIncludeUnlisted(prev => !prev) : null}
+                                                    className={cn(
+                                                        "flex flex-col justify-between px-4 py-3 rounded-xl border text-left transition-all duration-300 cursor-pointer select-none min-w-[195px]",
+                                                        includeUnlisted
+                                                        ? "bg-slate-900 border-cyan-500/50 shadow-[0_0_12px_rgba(6,182,212,0.15)]"
+                                                        : "bg-slate-900/40 border-slate-900/80 hover:border-slate-800/80 hover:bg-slate-800/40"
+                                                    )}
+                                                    title="Toggle unlisted benchmarks inclusion"
+                                                >
+                                                    <div className="flex flex-col justify-center">
+                                                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400/95 leading-none">
+                                                            Show Unlisted
+                                                        </span>
+                                                        <span className="text-[10px] text-slate-500 mt-1.5 leading-none">
+                                                            Experimental runs not reviewed yet
+                                                        </span>
+                                                    </div>
+                                                    
+                                                    <div className="pt-2 flex items-center justify-between border-t border-slate-800/60 mt-2.5">
+                                                        <span className={cn("text-[9px] font-bold uppercase tracking-wider", includeUnlisted ? "text-cyan-400" : "text-slate-500")}>
+                                                            {includeUnlisted ? "Included" : "Hidden"}
+                                                        </span>
+                                                        
+                                                        <div className={cn(
+                                                            "w-7 h-4 rounded-full p-0.5 transition-colors duration-200 ease-in-out flex items-center",
+                                                            includeUnlisted ? "bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.4)]" : "bg-slate-800 border border-slate-700/60"
+                                                        )}>
+                                                            <div className={cn(
+                                                                "w-3 h-3 rounded-full shadow-md transform transition-transform duration-200 ease-in-out",
+                                                                includeUnlisted ? "translate-x-3 bg-slate-950" : "translate-x-0 bg-slate-400"
+                                                            )} />
+                                                        </div>
+                                                    </div>
+                                                </button>
                                             </div>
                                         );
                                     }

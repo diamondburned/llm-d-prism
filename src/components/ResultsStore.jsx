@@ -144,6 +144,15 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
     const [activeTab, setActiveTab] = React.useState('all'); // 'all' or 'submissions'
     const [searchTerm, setSearchTerm] = React.useState('');
 
+    const [includeUnlisted, setIncludeUnlisted] = React.useState(() => {
+        try {
+            const params = new URLSearchParams(window.location.search);
+            return params.get('includeUnlisted') === '1' || params.get('includeUnlisted') === 'true';
+        } catch {
+            return false;
+        }
+    });
+
     const [kpiFilter, setKpiFilter] = React.useState(() => {
         try {
             const params = new URLSearchParams(window.location.search);
@@ -171,7 +180,7 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
         const params = new URLSearchParams(window.location.search);
         if (kpiFilter) {
             params.set('kpiFilter', kpiFilter);
-            if (['my-submissions', 'staged', 'processing', 'in_review', 'approved', 'action'].includes(kpiFilter)) {
+            if (['my-submissions', 'staged', 'unlisted', 'processing', 'in_review', 'approved', 'action'].includes(kpiFilter)) {
                 params.set('own', 'true');
             } else {
                 params.delete('own');
@@ -180,12 +189,18 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
             params.delete('kpiFilter');
             params.delete('own');
         }
+
+        if (includeUnlisted) {
+            params.set('includeUnlisted', '1');
+        } else {
+            params.delete('includeUnlisted');
+        }
         
         const newUrl = `${window.location.pathname}?${params.toString()}`;
         if (window.location.search !== `?${params.toString()}`) {
             window.history.replaceState(null, '', newUrl);
         }
-    }, [kpiFilter]);
+    }, [kpiFilter, includeUnlisted]);
 
     React.useEffect(() => {
         const showSubmitFlow = sessionStorage.getItem('prism_show_submit_dialog_after_login');
@@ -793,6 +808,7 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
                         renameClearToUnselectAll: true,
                         brv02Runs, brv02CustomLabels, setBrv02CustomLabels, removeBrv02Run,
                         searchTerm, setSearchTerm, kpiFilter, setKpiFilter,
+                        includeUnlisted, setIncludeUnlisted,
                         submissionsMap,
                         isLoadingSubmissions,
                         updateSubmissionStatus,
@@ -818,6 +834,7 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
         baselineBenchmarkKey, setBaselineBenchmarkKey,
         brv02Runs, brv02CustomLabels, setBrv02CustomLabels, removeBrv02Run,
         searchTerm, setSearchTerm, kpiFilter, setKpiFilter,
+        includeUnlisted,
         submissionsMap,
         isLoadingSubmissions,
         updateSubmissionStatus,
@@ -1194,16 +1211,26 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
                             'w-10 h-10 rounded-2xl flex items-center justify-center shadow-lg',
                             postUploadType === 'staged'
                                 ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400 shadow-amber-500/5'
+                                : postUploadType === 'unlisted'
+                                ? 'bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 shadow-cyan-500/5'
                                 : 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 shadow-emerald-500/5'
                         )}>
-                            {postUploadType === 'staged' ? <UploadCloud size={20} /> : <CheckCircle size={20} />}
+                            {postUploadType === 'staged' ? <UploadCloud size={20} /> : postUploadType === 'unlisted' ? <UploadCloud size={20} /> : <CheckCircle size={20} />}
                         </div>
                         <div>
                             <div className="text-lg font-bold text-white tracking-wide">
-                                {postUploadType === 'staged' ? 'Runs Staged Successfully!' : 'Benchmark Submitted for Review!'}
+                                {postUploadType === 'staged'
+                                    ? 'Runs Staged Successfully!'
+                                    : postUploadType === 'unlisted'
+                                    ? 'Benchmark Saved as Unlisted!'
+                                    : 'Benchmark Submitted for Review!'}
                             </div>
                             <span className="text-[10px] text-slate-500 font-normal">
-                                {postUploadType === 'staged' ? 'LOCAL SESSION STAGING' : 'SUBMISSION QUEUED'}
+                                {postUploadType === 'staged'
+                                    ? 'LOCAL SESSION STAGING'
+                                    : postUploadType === 'unlisted'
+                                    ? 'UNLISTED BENCHMARK'
+                                    : 'SUBMISSION QUEUED'}
                             </span>
                         </div>
                     </div>
@@ -1230,6 +1257,8 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
                                 'px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer text-white shadow-md',
                                 postUploadType === 'staged'
                                     ? 'bg-amber-600 hover:bg-amber-500 shadow-amber-500/10'
+                                    : postUploadType === 'unlisted'
+                                    ? 'bg-cyan-600 hover:bg-cyan-500 shadow-cyan-500/10'
                                     : 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-500/10'
                             )}
                         >
@@ -1244,6 +1273,8 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
                         'absolute top-0 inset-x-0 h-1.5 bg-gradient-to-r',
                         postUploadType === 'staged'
                             ? 'from-amber-500 via-orange-400 to-yellow-500'
+                            : postUploadType === 'unlisted'
+                            ? 'from-cyan-500 via-blue-400 to-indigo-500'
                             : 'from-emerald-500 via-cyan-400 to-blue-500'
                     )} />
 
@@ -1251,6 +1282,8 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
                     <p className="text-xs text-slate-300 leading-relaxed pt-1">
                         {postUploadType === 'staged'
                             ? "Your benchmark files have been validated and staged locally in your browser session. They are currently visible only to you and ready for analysis."
+                            : postUploadType === 'unlisted'
+                            ? "Your benchmark run has been processed and saved as unlisted. It is accessible directly via URL link and visible in your personal submissions dashboard, but omitted from default explore listings."
                             : "Your runs have been successfully posted to the validation server and are currently in the maintainer review queue. A public preview is available in your catalog."
                         }
                     </p>
@@ -1287,6 +1320,27 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
                                         <span className="text-xs font-bold text-slate-200">Publish Globally</span>
                                         <span className="text-[11px] text-slate-400 mt-0.5 leading-normal">
                                             When you're ready to share the benchmarks, select them in the table and click <span className="text-cyan-400 font-medium">Compare & Publish</span> in the action bar or bottom dock to submit them for review.
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : postUploadType === 'unlisted' ? (
+                            <div className="space-y-3.5">
+                                <div className="flex items-start gap-2.5">
+                                    <span className="w-5 h-5 rounded-md bg-cyan-500/15 border border-cyan-500/30 text-cyan-400 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">1</span>
+                                    <div className="flex flex-col">
+                                        <span className="text-xs font-bold text-slate-200">Direct Link Sharing</span>
+                                        <span className="text-[11px] text-slate-400 mt-0.5 leading-normal">
+                                            Unlisted benchmarks can be shared directly with colleagues or collaborators via their direct run URL.
+                                        </span>
+                                    </div>
+                                </div>
+                                <div className="flex items-start gap-2.5">
+                                    <span className="w-5 h-5 rounded-md bg-cyan-500/15 border border-cyan-500/30 text-cyan-400 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">2</span>
+                                    <div className="flex flex-col">
+                                        <span className="text-xs font-bold text-slate-200">Promote Whenever Ready</span>
+                                        <span className="text-[11px] text-slate-400 mt-0.5 leading-normal">
+                                            When you are ready to publish this benchmark publicly, click <span className="text-purple-400 font-medium">Promote to Review</span> on the benchmark row in your submissions dashboard.
                                         </span>
                                     </div>
                                 </div>

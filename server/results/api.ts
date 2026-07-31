@@ -37,6 +37,7 @@ export const PrismStageEntrySchema = z.object({
 export const PrismSubmissionStateSchema = z.enum([
     'staged',
     'submitted_pending_processing',
+    'unlisted',
     'submitted_pending_review',
     'public',
     'promoted',

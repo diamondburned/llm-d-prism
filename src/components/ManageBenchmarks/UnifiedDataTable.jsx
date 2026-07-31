@@ -46,6 +46,14 @@ const getCardStatusAccent = (isBrv02, runId, submissionsMap, gcsStatus = null) =
             accentBar: <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-amber-500 z-10" />
         };
     }
+
+    if (status === 'unlisted') {
+        return {
+            borderClass: 'border-cyan-500/30 dark:border-cyan-500/20 hover:border-cyan-400/50',
+            bgClass: 'bg-cyan-500/[0.02]',
+            accentBar: <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-cyan-500 z-10" />
+        };
+    }
     
     if (status === 'submitted_pending_processing' || status === 'submitted_pending_review' || status === 'in_review') {
         return {
@@ -82,6 +90,7 @@ const getKpiFilterLabel = (filter) => {
         case 'my-submissions': return 'My Benchmarks';
         case 'verified': return 'Production Ready';
         case 'staged': return 'Locally Staged';
+        case 'unlisted': return 'Unlisted';
         case 'processing': return 'Processing';
         case 'in_review': return 'Under Review';
         case 'approved': return 'Published';
@@ -94,7 +103,7 @@ const getKpiFilterLabel = (filter) => {
 };
 
 export const UnifiedDataTable = (props) => {
-    const { dashboardState } = props;
+    const { dashboardState, includeUnlisted = false } = props;
     const { user } = useGitHubAuth();
     const isAdmin = user?.permission === 'admin';
         const [rawYamlContent, setRawYamlContent] = useState(null);
@@ -725,6 +734,23 @@ export const UnifiedDataTable = (props) => {
             stats = stats.filter(stat => selectedBenchmarks.has(stat.benchmarkKey));
         }
 
+        // Default Public Store view (kpiFilter === null)
+        if (kpiFilter === null) {
+            if (!includeUnlisted) {
+                stats = stats.filter(stat => {
+                    const firstEntry = stat.data?.[0];
+                    if (!firstEntry) return true;
+                    const src = firstEntry.source || '';
+                    const isBrv02 = src.startsWith('brv02:') || firstEntry.source_info?.type === 'benchmark_report_v02';
+                    if (!isBrv02) return true;
+                    const runId = src.startsWith('brv02:') ? src.replace('brv02:', '') : firstEntry.run_id;
+                    const sub = runId && submissionsMap ? submissionsMap[runId] : null;
+                    const status = sub?.status || firstEntry.source_info?.submission_state;
+                    return status !== 'unlisted';
+                });
+            }
+        }
+
         // Apply KPI Filter
         if (kpiFilter === 'my-submissions') {
             stats = stats.filter(stat => {
@@ -753,6 +779,20 @@ export const UnifiedDataTable = (props) => {
                 const sub = runId && submissionsMap ? submissionsMap[runId] : null;
                 const status = sub?.status || firstEntry.source_info?.submission_state || 'staged';
                 return isMine && status === 'staged';
+            });
+        } else if (kpiFilter === 'unlisted') {
+            // Filter inside My Benchmarks: filter user's submissions strictly for unlisted status
+            stats = stats.filter(stat => {
+                const firstEntry = stat.data?.[0];
+                if (!firstEntry) return false;
+                const src = firstEntry.source || '';
+                const isBrv02 = src.startsWith('brv02:') || firstEntry.source_info?.type === 'benchmark_report_v02';
+                if (!isBrv02) return false;
+                const isMine = src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username);
+                const runId = src.startsWith('brv02:') ? src.replace('brv02:', '') : firstEntry.run_id;
+                const sub = runId && submissionsMap ? submissionsMap[runId] : null;
+                const status = sub?.status || firstEntry.source_info?.submission_state || 'staged';
+                return isMine && status === 'unlisted';
             });
         } else if (kpiFilter === 'processing') {
             stats = stats.filter(stat => {
@@ -843,7 +883,7 @@ export const UnifiedDataTable = (props) => {
         }
 
         return stats;
-    }, [modelStats, showSelectedOnly, selectedBenchmarks, kpiFilter, searchTerm, paretoKeys, baselineBenchmarkKey, submissionsMap, user]);
+    }, [modelStats, showSelectedOnly, selectedBenchmarks, kpiFilter, includeUnlisted, searchTerm, paretoKeys, baselineBenchmarkKey, submissionsMap, user]);
 
     const sortedStats = React.useMemo(() => {
         return [...filteredStats].sort((a, b) => {
@@ -2330,6 +2370,55 @@ const BenchmarkRow = React.memo(({
                                                                                                     >
                                                                                                         <Send className="w-2.5 h-2.5" /> Submit for Review
                                                                                                     </button>
+                                                                                                );
+                                                                                            }
+                                                                                            if (status === 'unlisted') {
+                                                                                                const authorUsername = sub?.github_author?.username || benchmarkData[0]?.github_author?.username || benchmarkData[0]?.source_info?.github_user;
+                                                                                                const isOwner = !!(user?.username && authorUsername && authorUsername.toLowerCase() === user.username.toLowerCase());
+                                                                                                const canPromote = isOwner;
+                                                                                                const canDelete = isOwner || isAdmin;
+
+                                                                                                if (!canPromote && !canDelete) return null;
+
+                                                                                                return (
+                                                                                                    <div className="flex items-center gap-1.5">
+                                                                                                        {canPromote && (
+                                                                                                            <button
+                                                                                                                onClick={(e) => {
+                                                                                                                    e.stopPropagation();
+                                                                                                                    handleActionClick(async () => {
+                                                                                                                        if (updateSubmissionStatus) {
+                                                                                                                            await updateSubmissionStatus(runId, 'submitted_pending_review', '', stat.model, stat.hardware);
+                                                                                                                        }
+                                                                                                                    });
+                                                                                                                }}
+                                                                                                                disabled={isLoadingSubmissions || isLocalActionPending}
+                                                                                                                title="Promote unlisted benchmark to the admin review queue"
+                                                                                                                className="px-2.5 py-1 rounded-xl border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 disabled:opacity-50 disabled:cursor-not-allowed text-purple-400 text-[9px] font-bold uppercase tracking-wider transition-colors cursor-pointer select-none flex items-center gap-1 whitespace-nowrap"
+                                                                                                            >
+                                                                                                                <Play className="w-2.5 h-2.5 fill-current" /> Promote to Review
+                                                                                                            </button>
+                                                                                                        )}
+                                                                                                        {canDelete && (
+                                                                                                            <button
+                                                                                                                onClick={(e) => {
+                                                                                                                    e.stopPropagation();
+                                                                                                                    handleActionClick(async () => {
+                                                                                                                        if (window.confirm(`Are you sure you want to permanently delete unlisted benchmark ${runId} from the Results Store? This action cannot be undone.`)) {
+                                                                                                                            if (deleteSubmission) {
+                                                                                                                                await deleteSubmission(runId);
+                                                                                                                            }
+                                                                                                                        }
+                                                                                                                    });
+                                                                                                                }}
+                                                                                                                disabled={isLoadingSubmissions || isLocalActionPending}
+                                                                                                                title="Permanently delete this unlisted benchmark off GCS storage"
+                                                                                                                className="px-2.5 py-1 rounded-xl border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed text-red-400 text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer select-none flex items-center gap-1 whitespace-nowrap"
+                                                                                                            >
+                                                                                                                <Trash2 className="w-2.5 h-2.5" /> Delete
+                                                                                                            </button>
+                                                                                                        )}
+                                                                                                    </div>
                                                                                                 );
                                                                                             }
                                                                                             if (canResubmit && status === 'submitted_pending_processing') {

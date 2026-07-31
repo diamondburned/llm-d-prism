@@ -30,7 +30,10 @@ export interface ProcessSubmissionResult {
  * If validation fails, the item is dropped completely (deleted from GCS storage).
  * If validation passes, the item is promoted to `submitted_pending_review`.
  */
-export async function processSubmission(runId: string): Promise<ProcessSubmissionResult> {
+export async function processSubmission(
+    runId: string,
+    targetState: PrismSubmissionState = 'submitted_pending_review'
+): Promise<ProcessSubmissionResult> {
     try {
         const payload = await readResultPayload(runId);
         
@@ -50,7 +53,7 @@ export async function processSubmission(runId: string): Promise<ProcessSubmissio
             };
         }
 
-        const newState: PrismSubmissionState = 'submitted_pending_review';
+        const newState: PrismSubmissionState = targetState;
 
         // Write back the processed result with updated GCS custom metadata context state
         await writeResult(runId, payload, newState, username);

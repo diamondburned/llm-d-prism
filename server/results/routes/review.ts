@@ -85,26 +85,39 @@ export async function reviewResultsHandler(
             return res.status(404).json({ error: 'Result not found' });
         }
 
-        const { user: itemUser } = metadata;
+        const { user: itemUser, state: currentState } = metadata;
 
         // 3. Permission and authorization checks
-        let allowed = false;
-        if (permission === 'admin') {
-            allowed = true;
+        if (currentState === 'unlisted') {
+            if (status !== 'submitted_pending_review') {
+                return res.status(403).json({ error: 'Forbidden. Unlisted benchmarks can only be promoted to submitted_pending_review.' });
+            }
+            const isOwner = username && itemUser.toLowerCase() === username.toLowerCase();
+            if (!isOwner) {
+                return res.status(403).json({ error: 'Forbidden. Only the owner of an unlisted benchmark can promote it.' });
+            }
+            if (feedback !== undefined || reviewer !== undefined) {
+                return res.status(400).json({ error: 'Feedback and reviewer fields are forbidden when promoting from unlisted to submitted_pending_review.' });
+            }
         } else {
-            // Check if the current user is the owner/author of the submission
-            if (username && itemUser.toLowerCase() === username.toLowerCase()) {
-                // Owners can only transition their own runs to 'submitted_pending_processing' or 'submitted_pending_review' (resubmission/promotion)
-                if (status === 'submitted_pending_processing' || status === 'submitted_pending_review') {
-                    allowed = true;
-                } else {
-                    return res.status(403).json({ error: 'Forbidden. Non-admin users cannot approve, reject, or promote benchmarks of other status values.' });
+            let allowed = false;
+            if (permission === 'admin') {
+                allowed = true;
+            } else {
+                // Check if the current user is the owner/author of the submission
+                if (username && itemUser.toLowerCase() === username.toLowerCase()) {
+                    // Owners can only transition their own runs to 'submitted_pending_processing' or 'submitted_pending_review' (resubmission/promotion)
+                    if (status === 'submitted_pending_processing' || status === 'submitted_pending_review') {
+                        allowed = true;
+                    } else {
+                        return res.status(403).json({ error: 'Forbidden. Non-admin users cannot approve, reject, or promote benchmarks of other status values.' });
+                    }
                 }
             }
-        }
 
-        if (!allowed) {
-            return res.status(403).json({ error: 'Access denied. You do not have permissions to modify this result.' });
+            if (!allowed) {
+                return res.status(403).json({ error: 'Access denied. You do not have permissions to modify this result.' });
+            }
         }
 
         // 4. Fetch actual file content from GCS to edit the fields

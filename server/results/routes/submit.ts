@@ -82,6 +82,10 @@ export async function submitResultsHandler(
     }
 
     // 4. Enrich payload with author & time metadata
+    // Determine target visibility state ('unlisted' vs default 'submitted_pending_review')
+    const rawTargetState = (req.query.targetState as string) || (uploadData as any).targetState;
+    const targetState: PrismSubmissionState = rawTargetState === 'unlisted' ? 'unlisted' : 'submitted_pending_review';
+
     uploadData.github_author = { username };
     uploadData.submitted_at = new Date().toISOString();
 
@@ -91,7 +95,7 @@ export async function submitResultsHandler(
         await writeResult(serverRunId, uploadData, initialState, username);
 
         // 5. Run automated validation and promotion processing synchronously for now
-        const processingResult = await processSubmission(serverRunId);
+        const processingResult = await processSubmission(serverRunId, targetState);
 
         if (!processingResult.success) {
             return res.status(400).json({
@@ -101,12 +105,16 @@ export async function submitResultsHandler(
             });
         }
 
+        const successMessage = processingResult.state === 'unlisted'
+            ? 'Benchmark result successfully processed and saved as unlisted.'
+            : 'Benchmark result successfully submitted and promoted to review.';
+
         res.status(201).json({
             success: true,
             runId: serverRunId,
             oldRunId: clientRunId,
             state: processingResult.state,
-            message: 'Benchmark result successfully submitted and promoted to review.'
+            message: successMessage
         });
 
     } catch (error: any) {
