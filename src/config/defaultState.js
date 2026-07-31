@@ -28,7 +28,7 @@ export const defaultState = {
     sources: new Set([]),
     buckets: [],
     giqProjects: [],
-    xAxisMax: 1590,
+    xAxisMax: Infinity,
     showPerChip: false,
     showSelectedOnly: true,
     showPareto: false,

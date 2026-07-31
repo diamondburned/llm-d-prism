@@ -107,7 +107,9 @@ export const FilterPanel = ({
     loadAllData,
     loadingConnections,
     dashboardState,
-    defaultSources
+    defaultSources,
+    addToast,
+    dashboardData
 }) => {
     const [isAdvancedExpanded, setIsAdvancedExpanded] = useState(false);
     const { user } = useGitHubAuth();
@@ -591,6 +593,8 @@ export const FilterPanel = ({
                 loadAllData={loadAllData}
                 loadingConnections={loadingConnections}
                 dashboardState={dashboardState}
+                addToast={addToast}
+                dashboardData={dashboardData}
             />
         );
     }, [
@@ -601,7 +605,7 @@ export const FilterPanel = ({
         setBrv02CustomLabels, removeBrv02Run, setShowDataPanel, searchTerm, setSearchTerm, kpiFilter,
         setKpiFilter, includeUnlisted, paretoKeys, submissionsMap, isLoadingSubmissions, updateSubmissionStatus,
         bulkUpdateSubmissionStatus, deleteSubmission, onOpenSubmitDialog, hasFiltersToSave, loadAllData, loadingConnections,
-        dashboardState, defaultSources
+        dashboardState, defaultSources, addToast, dashboardData
     ]);
 
     if (!showFilterPanel) return null;
