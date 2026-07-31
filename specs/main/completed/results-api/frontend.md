@@ -246,3 +246,69 @@ returning from a successful wizard session:
   Inspect curves, add manifests, or Publish).
 - **Submission Queued:** Explains how to track the status of queued runs in the
   review pipeline.
+
+---
+
+## 5. Multi-Benchmark Compact Share Links & Comparison Activation
+
+### 5.1 Overview & URL Parameter Format
+
+Users can select multiple benchmark runs in the Results Store table
+(`UnifiedDataTable.jsx`) and generate a shareable link. When a recipient opens
+the share link, Prism automatically loads and selects the benchmark runs and
+opens the Compare sidebar drawer (`setShowComparisonDrawer(true)`).
+
+The share link uses the following query parameter format:
+
+```
+/?view=results-store&benchmarks=<Base64String>
+```
+
+### 5.2 Visibility Restriction & Link Generation Validation Rules
+
+To prevent sharing browser-local data or restricted review queue items:
+
+1. **Allowed Submission States:** Benchmark runs MUST have a status of `public`
+   or `unlisted`.
+2. **Forbidden Submission States:** Benchmark runs in `staged` (IndexedDB),
+   `submitted_pending_processing`, `submitted_pending_review` (admin queue), or
+   `rejected` states **cannot** be shared via URL.
+3. **Enforcement:**
+    - When multiple benchmarks are selected, the client validates that every
+      selected benchmark is either `public` or `unlisted`.
+    - If any selected benchmark is in a forbidden state, link generation is
+      **forbidden**. The **Share Selected** button is disabled with an
+      explanatory tooltip, or an error notification is presented to the
+      submitter.
+
+### 5.3 Compact Binary Base64 Encoding & Decoding Scheme
+
+To prevent bloated URL strings when sharing multiple benchmarks:
+
+1. **Encoding (Generation):**
+    - Each selected benchmark UUID string (36 characters) is converted to its
+      16-byte binary representation (`Uint8Array`).
+    - The 16-byte arrays for all `N` selected benchmarks are concatenated into a
+      single byte array (`16 * N` bytes).
+    - The concatenated byte array is Base64 encoded.
+2. **Decoding (Consumption):**
+    - Upon reading `?view=results-store&benchmarks=<Base64String>`, the Base64
+      string is decoded into a byte array.
+    - The array length is validated (`bytes.length > 0` and
+      `bytes.length % 16 === 0`).
+    - The byte array is sliced into 16-byte chunks, and each chunk is formatted
+      back into standard UUID string format
+      (`xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`).
+
+### 5.4 Automated Navigation & Compare Sidebar Activation
+
+When navigating to a valid benchmark share URL:
+
+1. **Data Resolving:** Prism extracts the list of target UUIDs and checks
+   in-memory and cached runs. Any missing benchmark (e.g. `unlisted` runs hidden
+   from default grid lists) is fetched via `GET /api/results/:runId`.
+2. **Selection Hydration:** Prism populates `selectedBenchmarks` with the
+   decoded UUID keys.
+3. **Compare Activation:** Prism automatically opens the Compare drawer
+   (`setShowComparisonDrawer(true)`), rendering side-by-side performance curves
+   and telemetry charts immediately.
