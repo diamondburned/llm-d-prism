@@ -237,12 +237,13 @@ export const UnifiedDataTable = (props) => {
     const [dragBox, setDragBox] = useState(null);
     const dragActionSelect = React.useRef(true);
     const initialSelection = React.useRef(new Set());
+    const lastSelectedKeyRef = React.useRef(null);
 
     const {
         defaultSources = new Set(['llm-d-benchmarks', 'llm-d-benchmarks-staging']),
         modelStats, selectedModels, filteredBySource, showSelectedOnly: propShowSelectedOnly, setShowSelectedOnly,
         selectedBenchmarks, setSelectedBenchmarks, setActiveFilters, expandedModels,
-        toggleBenchmark, toggleModelExpansion,
+        _toggleBenchmark, toggleModelExpansion,
         baselineBenchmarkKey, setBaselineBenchmarkKey,
         hideShowSelectedOnly = false,
         renameClearToUnselectAll = false,
@@ -583,6 +584,7 @@ export const UnifiedDataTable = (props) => {
                 }
             }
         });
+        lastSelectedKeyRef.current = null;
         setSelectedBenchmarks(new Set());
     };
 
@@ -773,22 +775,50 @@ export const UnifiedDataTable = (props) => {
             currentY: e.clientY
         });
 
+        const isShift = e.shiftKey;
+
+        // Shift + Click Range Selection (relative to last selected item)
+        if (isShift && lastSelectedKeyRef.current) {
+            const lastIdx = visibleStatsList.findIndex(s => s.benchmarkKey === lastSelectedKeyRef.current);
+            const targetIdx = visibleStatsList.findIndex(s => s.benchmarkKey === key);
+
+            if (lastIdx !== -1 && targetIdx !== -1) {
+                const startIdx = Math.min(lastIdx, targetIdx);
+                const endIdx = Math.max(lastIdx, targetIdx);
+                const rangeKeys = visibleStatsList.slice(startIdx, endIdx + 1).map(s => s.benchmarkKey);
+
+                const willSelect = !isCurrentlySelected;
+                const newSelected = new Set(selectedBenchmarks);
+                if (willSelect) {
+                    rangeKeys.forEach(k => newSelected.add(k));
+                } else {
+                    rangeKeys.forEach(k => newSelected.delete(k));
+                }
+
+                lastSelectedKeyRef.current = key;
+                initialSelection.current = new Set(newSelected);
+                dragActionSelect.current = willSelect;
+                setSelectedBenchmarks(newSelected);
+                setIsDraggingSelection(true);
+                return;
+            }
+        }
+
+        // Single click (or Shift + Click when no previous item exists)
         const willSelect = !isCurrentlySelected;
         dragActionSelect.current = willSelect;
-        
-        // Take a snapshot of the selection BEFORE this click so that the
-        // pointermove loop can cleanly apply additions/deletions onto it.
-        initialSelection.current = new Set(selectedBenchmarks);
-        
+        lastSelectedKeyRef.current = key;
+
+        let newSelected = new Set(selectedBenchmarks);
+        if (willSelect) {
+            newSelected.add(key);
+        } else {
+            newSelected.delete(key);
+        }
+
+        initialSelection.current = new Set(newSelected);
+        setSelectedBenchmarks(newSelected);
         setIsDraggingSelection(true);
-        
-        // Immediately toggle the one we pressed on
-        setSelectedBenchmarks(prev => {
-            const newSelected = new Set(prev);
-            if (willSelect) newSelected.add(key);
-            else newSelected.delete(key);
-            return newSelected;
-        });
     };
 
 
@@ -801,6 +831,7 @@ export const UnifiedDataTable = (props) => {
     };
 
     const clearFilters = () => {
+        lastSelectedKeyRef.current = null;
         setActiveFilters({
             models: new Set(), hardware: new Set(), machines: new Set(), precisions: new Set(),
             tp: new Set(), isl: new Set(), osl: new Set(), ratio: new Set(),
@@ -814,6 +845,7 @@ export const UnifiedDataTable = (props) => {
     };
 
     const toggleGroup = (stats, isAllSelected) => {
+        lastSelectedKeyRef.current = null;
         setSelectedBenchmarks(prev => {
             const next = new Set(prev);
             stats.forEach(s => {
@@ -1102,17 +1134,24 @@ export const UnifiedDataTable = (props) => {
         return grouped;
     }, [sortedStats, groupBy]);
 
+    const visibleStatsList = React.useMemo(() => {
+        return Object.values(groupedStats).flat();
+    }, [groupedStats]);
+
     const selectAllVisible = () => {
         const allVisible = new Set(sortedStats.map(s => s.benchmarkKey));
+        lastSelectedKeyRef.current = null;
         setSelectedBenchmarks(allVisible);
     };
 
     const invertSelected = () => {
         const inverted = new Set(sortedStats.map(s => s.benchmarkKey).filter(k => !selectedBenchmarks.has(k)));
+        lastSelectedKeyRef.current = null;
         setSelectedBenchmarks(inverted);
     };
 
     const clearSelected = () => {
+        lastSelectedKeyRef.current = null;
         setSelectedBenchmarks(new Set());
     };
 

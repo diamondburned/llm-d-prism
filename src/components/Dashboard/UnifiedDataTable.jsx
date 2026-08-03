@@ -24,10 +24,50 @@ export const UnifiedDataTable = (props) => {
     const {
         modelStats, selectedModels, filteredBySource, showSelectedOnly, setShowSelectedOnly,
         selectedBenchmarks, setSelectedBenchmarks, setActiveFilters, expandedModels,
-        toggleBenchmark, toggleModelExpansion,
+        _toggleBenchmark, toggleModelExpansion,
         baselineBenchmarkKey, setBaselineBenchmarkKey,
         brv02CustomLabels
     } = props;
+
+    const lastSelectedKeyRef = React.useRef(null);
+
+    const handleRowClick = (e, key) => {
+        const isShift = e.shiftKey;
+        const visibleStats = modelStats.filter(stat => !showSelectedOnly || selectedBenchmarks.has(stat.benchmarkKey));
+        const isCurrentlySelected = selectedBenchmarks.has(key);
+
+        if (isShift && lastSelectedKeyRef.current) {
+            const lastIdx = visibleStats.findIndex(s => s.benchmarkKey === lastSelectedKeyRef.current);
+            const targetIdx = visibleStats.findIndex(s => s.benchmarkKey === key);
+
+            if (lastIdx !== -1 && targetIdx !== -1) {
+                const startIdx = Math.min(lastIdx, targetIdx);
+                const endIdx = Math.max(lastIdx, targetIdx);
+                const rangeKeys = visibleStats.slice(startIdx, endIdx + 1).map(s => s.benchmarkKey);
+
+                const willSelect = !isCurrentlySelected;
+                const newSelected = new Set(selectedBenchmarks);
+                if (willSelect) {
+                    rangeKeys.forEach(k => newSelected.add(k));
+                } else {
+                    rangeKeys.forEach(k => newSelected.delete(k));
+                }
+                lastSelectedKeyRef.current = key;
+                setSelectedBenchmarks(newSelected);
+                return;
+            }
+        }
+
+        lastSelectedKeyRef.current = key;
+        const willSelect = !isCurrentlySelected;
+        const newSelected = new Set(selectedBenchmarks);
+        if (willSelect) {
+            newSelected.add(key);
+        } else {
+            newSelected.delete(key);
+        }
+        setSelectedBenchmarks(newSelected);
+    };
 
     const getRunIdFromKey = (key) => {
         if (!key) return null;
@@ -174,7 +214,7 @@ export const UnifiedDataTable = (props) => {
                                            )}
                                            onClick={(e) => {
                                                // Prevent toggling if clicking specific action buttons if any
-                                               toggleBenchmark(stat.benchmarkKey);
+                                               handleRowClick(e, stat.benchmarkKey);
                                            }}
                                        >
                                            <td className="px-3 py-2 text-center">

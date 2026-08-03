@@ -312,3 +312,56 @@ When navigating to a valid benchmark share URL:
 3. **Compare Activation:** Prism automatically opens the Compare drawer
    (`setShowComparisonDrawer(true)`), rendering side-by-side performance curves
    and telemetry charts immediately.
+
+---
+
+## 6. Shortcuts UX & Table Selection Interactions
+
+Prism's Results Store supports desktop-class mouse and keyboard interaction
+shortcuts for rapid batch selecting, inspecting, and managing benchmark runs in
+the data grid:
+
+### 6.1 Range Selection (`Shift + Click`)
+
+- **Mechanism:** Holding `Shift` while clicking a benchmark row checkbox
+  performs a range selection between the last selected benchmark row
+  (`lastSelectedKeyRef`) and the clicked target row (inclusive).
+- **Behavior:**
+    - Any click or `Shift + Click` updates `lastSelectedKeyRef` to the target
+      row so that subsequent `Shift + Click` actions operate relative to the
+      most recently clicked row.
+    - If the target benchmark is unselected, all benchmark runs in the range
+      between the last selected row and the target row are added to
+      `selectedBenchmarks`.
+    - If the target benchmark is selected, all benchmark runs in the range
+      between the last selected row and the target row are removed from
+      `selectedBenchmarks`.
+
+### 6.2 Drag Selection Rubberbanding (Marquee / Box Select)
+
+- **Pattern Name & Guidance:** Implements the "rubberbanding" (or box select /
+  marquee selection) pattern (citing
+  [What's the name of the pattern where you draw a rectangle to select items?](https://ux.stackexchange.com/questions/114092/whats-the-name-of-the-pattern-where-you-draw-a-rectangle-to-select-items)).
+- **Trigger:** Initiated by pressing down on a benchmark row checkbox
+  (`.benchmark-checkbox-area`) and dragging the pointer across the grid.
+- **Visual Feedback:** Renders a semi-transparent blue selection box overlay
+  fixed to document space (`rgba(59, 130, 246, 0.15)` with `1.5px` border).
+- **Geometric Intersection:** Computes 2D bounding box intersections between the
+  drag box and `.benchmark-checkbox-area` elements in real time, dynamically
+  adding or removing overlapping benchmarks from `selectedBenchmarks`.
+- **Autoscroll:** Automatically scrolls the container viewport when dragging
+  within 80px of top or bottom view edges.
+
+### 6.3 Additional Table Interaction Shortcuts
+
+- **Select All Visible:** Selects all benchmark runs currently matching active
+  search and facet filters.
+- **Invert Selection:** Toggles the selection state for all visible benchmark
+  runs.
+- **Unselect All / Clear:** Deselects all benchmark runs and resets selection
+  state.
+- **Baseline Pin (`📌`):** Sets or unsets a benchmark run as the reference
+  baseline for calculating percentage deltas in comparison mode.
+- **Graph Visibility (`👁️` / `EyeOff`):** Toggles line rendering for an
+  individual run in the comparison chart drawer without removing it from the
+  selection set.
