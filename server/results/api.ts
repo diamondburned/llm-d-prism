@@ -51,20 +51,25 @@ export const PrismSubmissionStateSchema = z.enum([
 export const PrismResultPayloadSchema = z.object({
     /** Unique identifier for the run. Generated as a unique UUIDv4 on staging. Example: "3f8c8b73-049e-4e4b-bb66-e8e08d6d63c3" */
     runId: z.string().uuid(),
-    /** Human-readable label representing the run. Usually defaults to parent folder name. Example: "gemma-4-9b-it" */
-    runLabel: z.string(),
+    /** Human-readable label representing the run. Example: "gemma-4-9b-it" */
+    runLabel: z.string().min(1, "Missing benchmark run name."),
     /** Standardized, canonical name of the target model being evaluated. Example: "meta-llama/Llama-3-8B-Instruct" */
     model_name: z.string()
-        .min(1, "Model name cannot be empty")
+        .min(1, "Missing model name.")
         .refine(val => val !== 'Unknown', { message: "Model name cannot be 'Unknown'" }),
     /** Hardware metadata container. Rejects "Unknown" or "Unknown Hardware" on final upload. */
     hardware: z.object({
         /** Normalized name of the accelerator hardware. Example: "H100" or "TPU v6e" */
         hardware_name: z.string()
-            .min(1, "Hardware name cannot be empty")
-            .refine(val => val !== 'Unknown' && val !== 'Unknown Hardware', { message: "Hardware name cannot be 'Unknown' or 'Unknown Hardware'" }),
+            .min(1, "Missing hardware specification.")
+            .refine(val => val !== 'Unknown' && val !== 'Unknown Hardware', { message: "Hardware specification cannot be 'Unknown'" }),
         /** Total count of accelerator chips used. Example: 8 */
-        accelerator_count: z.number().nullable().optional(),
+        accelerator_count: z.preprocess(
+            (val) => (val === null || val === undefined || val === '' ? null : Number(val)),
+            z.custom<number>((val) => typeof val === 'number' && !isNaN(val) && val >= 1, {
+                message: "Missing accelerator chip count."
+            })
+        ),
     }),
     /** Target upload and parsing schema format. Must be exactly "brv02". */
     format: z.literal("brv02"),

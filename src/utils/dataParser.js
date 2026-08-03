@@ -96,7 +96,7 @@ const parseNum = (val, label, diagnostics) => {
 // Helper for normalizing model names
 // e.g. "openai/gpt-oss-120b" -> "gpt-oss-120b"
 export const normalizeModelName = (name) => {
-    if (!name) return 'unknown';
+    if (!name || name === 'Unknown' || name === 'Unknown Model') return '';
     
     if (typeof name !== 'string') {
         name = name.name || name.model_name || name.model || String(name);
@@ -114,11 +114,12 @@ export const normalizeModelName = (name) => {
     // 3. Normalize precision suffixes (e.g. -bf16) that cause duplicates
     clean = clean.replace(/-(?:bf16|fp16|int8|fp8|fp4)$/i, '');
 
-    return clean.toLowerCase();
+    const result = clean.toLowerCase();
+    return result === 'unknown' ? '' : result;
 };
 
 export const normalizeHardware = (hw) => {
-    if (!hw) return 'Unknown';
+    if (!hw || hw === 'Unknown' || hw === 'Unknown Hardware') return '';
     let s = String(hw).toLowerCase();
 
     // Specific Mappings (Priority)
@@ -143,18 +144,18 @@ export const normalizeHardware = (hw) => {
     s = s.replace('-slice', '').replace('-podslice', '');
 
     // Return uppercased remaining string (e.g. "b200" -> "B200")
-    if (s !== 'unknown') {
+    if (s !== 'unknown' && s !== '') {
         return s.toUpperCase();
     }
 
-    return 'Unknown';
+    return '';
 };
 
 export const normalizeServingStack = (ss) => {
-    if (!ss) return 'Unknown';
+    if (!ss || ss === 'Unknown') return '';
     const s = String(ss).toLowerCase();
     if (s.includes('llm-d')) return 'llm-d';
-    return ss;
+    return s === 'unknown' ? '' : ss;
 };
 
 

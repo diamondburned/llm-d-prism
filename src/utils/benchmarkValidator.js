@@ -95,7 +95,7 @@ export function validateBenchmark(fileContent, filename) {
     } else if (result.format === "inference-perf") {
         try {
             const parsed = parsedData;
-            const modelName = parsed.model || "Unknown Model";
+            const modelName = parsed.model || "";
             const throughput = parsed.throughput || parsed.metrics?.throughput || 0;
             
             let latencyVal = 0;
@@ -163,47 +163,50 @@ export function validatePrismUploadStructure(uploadData, options = {}) {
                 const fieldPath = issue.path.join('.');
                 const message = issue.message;
 
-                const isHardwareNameIssue = fieldPath === 'hardware.hardware_name';
-                const isModelNameIssue = fieldPath === 'model_name';
-
-                if (isHardwareNameIssue && !isUpload) {
-                    const formattedMsg = "Missing or unknown root hardware.hardware_name in upload structure";
-                    warnings.push(formattedMsg);
-                    fieldErrors[fieldPath] = { message: formattedMsg, severity: 'warning' };
-                } else {
-                    let formattedMsg = message;
-                    if (isModelNameIssue) {
-                        formattedMsg = "Missing root model_name in upload structure";
-                    } else if (isHardwareNameIssue) {
-                        formattedMsg = "Missing or unknown root hardware.hardware_name in upload structure";
-                    } else {
-                        formattedMsg = `${fieldPath}: ${message}`;
-                    }
-                    errors.push(formattedMsg);
-                    fieldErrors[fieldPath] = { message: formattedMsg, severity: 'error' };
-                }
+                errors.push(message);
+                fieldErrors[fieldPath] = { message, severity: 'error' };
             }
         }
     } else {
         // Manual validation for format !== 'brv02' (inference-perf)
         if (!format || format !== 'inference-perf') {
-            errors.push(`Format must be 'brv02' or 'inference-perf' in upload structure, found '${format || 'unknown'}'`);
+            errors.push(`Format must be 'brv02' or 'inference-perf', found '${format || 'unknown'}'`);
         }
-        if (!model_name) {
-            const msg = "Missing root model_name in upload structure";
+        if (!uploadData.runLabel || !uploadData.runLabel.trim()) {
+            const msg = "Missing benchmark run name.";
+            errors.push(msg);
+            fieldErrors['runLabel'] = { message: msg, severity: 'error' };
+        }
+        if (!model_name || !model_name.trim()) {
+            const msg = "Missing model name.";
             errors.push(msg);
             fieldErrors['model_name'] = { message: msg, severity: 'error' };
         }
-        if (!hardware || !hardware.hardware_name || hardware.hardware_name === 'Unknown' || hardware.hardware_name === 'Unknown Hardware') {
-            const msg = "Missing or unknown root hardware.hardware_name in upload structure";
-            if (isUpload) {
-                errors.push(msg);
-                fieldErrors['hardware.hardware_name'] = { message: msg, severity: 'error' };
-            } else {
-                warnings.push(msg);
-                fieldErrors['hardware.hardware_name'] = { message: msg, severity: 'warning' };
-            }
+        if (!hardware || !hardware.hardware_name || !hardware.hardware_name.trim() || hardware.hardware_name === 'Unknown' || hardware.hardware_name === 'Unknown Hardware') {
+            const msg = "Missing hardware specification.";
+            errors.push(msg);
+            fieldErrors['hardware.hardware_name'] = { message: msg, severity: 'error' };
         }
+        if (!hardware || hardware.accelerator_count === null || hardware.accelerator_count === undefined || hardware.accelerator_count <= 0) {
+            const msg = "Missing accelerator chip count.";
+            errors.push(msg);
+            fieldErrors['hardware.accelerator_count'] = { message: msg, severity: 'error' };
+        }
+    }
+
+    // Check optional manifests and evidence for warnings
+    const hasManifests = (uploadData.manifests && Object.keys(uploadData.manifests).length > 0) || (options.attachedManifests && options.attachedManifests.length > 0);
+    if (!hasManifests) {
+        const msg = "Missing attached manifests & configs specification.";
+        warnings.push(msg);
+        fieldErrors['manifests'] = { message: msg, severity: 'warning' };
+    }
+
+    const hasEvidence = (uploadData.evidence && Object.keys(uploadData.evidence).length > 0) || (options.attachedEvidence && options.attachedEvidence.length > 0);
+    if (!hasEvidence) {
+        const msg = "Missing evidence logs & verifications specification.";
+        warnings.push(msg);
+        fieldErrors['evidence'] = { message: msg, severity: 'warning' };
     }
 
     if (!entries || !Array.isArray(entries) || entries.length === 0) {
@@ -243,8 +246,8 @@ export function validatePrismUploadStructure(uploadData, options = {}) {
                     stageIndex = stageMatch ? parseInt(stageMatch[1], 10) : 0;
 
                     normalizedEntry = {
-                        model_name: parsed.model || "Unknown Model",
-                        hardware: parsed.hardware || parsed.accelerator || "Unknown",
+                        model_name: parsed.model || "",
+                        hardware: parsed.hardware || parsed.accelerator || "",
                         throughput,
                         latency: latencyVal
                     };
@@ -274,7 +277,7 @@ export function validatePrismUploadStructure(uploadData, options = {}) {
 
             // 2. Verify hardware matches root $.hardware.hardware_name
             const rootHw = hardware ? hardware.hardware_name : '';
-            if (normalizeHardware(normalizedEntry.hardware) !== normalizeHardware(rootHw) && normalizedEntry.hardware !== 'Unknown') {
+            if (normalizeHardware(normalizedEntry.hardware) !== normalizeHardware(rootHw) && normalizedEntry.hardware !== '' && normalizedEntry.hardware !== 'Unknown') {
                 const msg = `Stage ${stageIndex} (${entry.filename}) has mismatching hardware: expected '${rootHw}', but found '${normalizedEntry.hardware}'`;
                 if (isUpload) {
                     errors.push(msg);

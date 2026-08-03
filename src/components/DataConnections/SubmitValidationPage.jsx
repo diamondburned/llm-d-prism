@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, UploadCloud, CheckCircle, AlertCircle, FileText, ChevronLeft, ChevronRight, ChevronDown, Trash2, Upload, ShieldAlert, Check, ArrowRight, ArrowLeft, GitCompare, Zap, Cpu, Pencil } from 'lucide-react';
+import { X, UploadCloud, CheckCircle, AlertCircle, AlertOctagon, AlertTriangle, FileText, ChevronLeft, ChevronRight, ChevronDown, Trash2, Upload, ShieldAlert, Check, ArrowRight, ArrowLeft, GitCompare, Zap, Cpu, Pencil } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Scatter } from 'recharts';
 import { validateBenchmark, validatePrismUploadStructure } from '../../utils/benchmarkValidator';
@@ -32,9 +32,9 @@ const checkStageMetrics = (entry, format) => {
             normalized = {
                 throughput,
                 latency: latencyVal,
-                model_name: parsed?.model || "Unknown",
-                hardware: parsed?.hardware || parsed?.accelerator || "Unknown",
-                inference_tool: parsed?.inference_tool || parsed?.backend || "Unknown"
+                model_name: (parsed?.model && parsed.model !== 'Unknown' && parsed.model !== 'Unknown Model') ? parsed.model : "",
+                hardware: (parsed?.hardware || parsed?.accelerator) && (parsed.hardware || parsed.accelerator) !== 'Unknown' && (parsed.hardware || parsed.accelerator) !== 'Unknown Hardware' ? (parsed.hardware || parsed.accelerator) : "",
+                inference_tool: (parsed?.inference_tool || parsed?.backend) && (parsed.inference_tool || parsed.backend) !== 'Unknown' ? (parsed.inference_tool || parsed.backend) : ""
             };
         } catch (e) {
             // failed
@@ -160,6 +160,21 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
 
 
 
+    const clearInferredField = (bundleId, inferredKey) => {
+        setStagedFiles(prev => prev.map(b => {
+            if (b.id === bundleId && b.payload && b.payload[inferredKey]) {
+                return {
+                    ...b,
+                    payload: {
+                        ...b.payload,
+                        [inferredKey]: false
+                    }
+                };
+            }
+            return b;
+        }));
+    };
+
     const updateSingleField = (bundleId, key, value) => {
         setStagedFiles(prev => prev.map(b => {
             if (b.id === bundleId) {
@@ -190,7 +205,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                 const uploadValidation = validatePrismUploadStructure(updatedPayload, { isUpload: false });
                 const updatedValidation = {
                     ...b.validation,
-                    hasHardware: updatedPayload.hardware?.hardware_name && updatedPayload.hardware.hardware_name !== 'Unknown' && updatedPayload.hardware.hardware_name !== 'Unknown Hardware',
+                    hasHardware: !!updatedPayload.hardware?.hardware_name && updatedPayload.hardware.hardware_name.trim() !== '' && updatedPayload.hardware.hardware_name !== 'Unknown' && updatedPayload.hardware.hardware_name !== 'Unknown Hardware',
                     errors: uploadValidation.errors,
                     warnings: uploadValidation.warnings,
                     fieldErrors: uploadValidation.fieldErrors
@@ -591,6 +606,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                         id: uuidv4(),
                         dirKey,
                         name: dirKey.split('/').pop(),
+                        isDirUpload: true,
                         files: []
                     };
                 }
@@ -651,11 +667,10 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                 const parsedStage = parseReportV02(item.content, item.file.name);
                 if (!parsedStage) {
                     const tempId = uuidv4();
-                    const baseName = item.file.name.replace(/\.(ya?ml|json)$/i, '');
                     brv02StandaloneGroups.push({
                         id: tempId,
                         dirKey: `staged-${tempId}`,
-                        name: baseName,
+                        name: '',
                         files: [item.file],
                         parsedStages: [{ file: item.file, content: item.content, validation: item.validation }]
                     });
@@ -681,11 +696,10 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                     targetGroup.parsedStages.push({ file: item.file, content: item.content, validation: item.validation });
                 } else {
                     const tempId = uuidv4();
-                    const baseName = item.file.name.replace(/\.(ya?ml|json)$/i, '');
                     brv02StandaloneGroups.push({
                         id: tempId,
                         dirKey: parsedStage.runUid || `staged-${tempId}`,
-                        name: parsedStage.runLabel || baseName,
+                        name: parsedStage.runLabel || '',
                         runUid: parsedStage.runUid,
                         loadMetadata: parsedStage.loadMetadata,
                         files: [item.file],
@@ -910,10 +924,9 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                 }
             }
 
-            let resolvedModel = 'Unknown';
-            let resolvedHw = 'Unknown';
+            let resolvedModel = '';
+            let resolvedHw = '';
             let resolvedCount = null;
-
 
             let hardwareInferred = false;
             let acceleratorCountInferred = false;
@@ -921,15 +934,14 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
 
             if (firstParsedStage) {
                 if (firstParsedStage.isInferencePerf) {
-                    resolvedModel = firstParsedStage.model_name;
-                    resolvedHw = firstParsedStage.hardware;
+                    resolvedModel = (firstParsedStage.model_name && firstParsedStage.model_name !== 'Unknown' && firstParsedStage.model_name !== 'Unknown Model') ? firstParsedStage.model_name : '';
+                    resolvedHw = (firstParsedStage.hardware && firstParsedStage.hardware !== 'Unknown' && firstParsedStage.hardware !== 'Unknown Hardware') ? firstParsedStage.hardware : '';
                     resolvedCount = firstParsedStage.accelerator_count || 1;
                 } else {
                     const normalized = stageToEntry(firstParsedStage);
-                    resolvedModel = normalized.model_name;
-                    resolvedHw = normalized.hardware;
+                    resolvedModel = normalized.model_name || '';
+                    resolvedHw = normalized.hardware || '';
                     resolvedCount = firstParsedStage.scenario?.acceleratorCount;
-
 
                     const rawHw = firstParsedStage.scenario?.hardware;
                     if (!rawHw || rawHw === 'Unknown' || rawHw === 'TPU' || rawHw === 'GPU') {
@@ -957,6 +969,25 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                 }
             }
 
+            // Order of preference: run label > directory name (if dir upload) > model name
+            let runLabelFromStage = '';
+            if (firstParsedStage) {
+                if (firstParsedStage.validation?.format === 'brv02') {
+                    const stageParsed = parseReportV02(firstParsedStage.content, firstParsedStage.file.name);
+                    runLabelFromStage = stageParsed?.runLabel || firstParsedStage.runLabel || '';
+                } else {
+                    runLabelFromStage = firstParsedStage.runLabel || '';
+                }
+            }
+
+            const runLabelFromDir = group.isDirUpload ? (group.name || '') : '';
+            const runLabelFromModel = resolvedModel || '';
+
+            const groupName = (runLabelFromStage && runLabelFromStage.trim())
+                || (runLabelFromDir && runLabelFromDir.trim())
+                || (runLabelFromModel && runLabelFromModel.trim())
+                || '';
+
             const payloadEntries = [];
             for (const sf of parsedStages) {
                 let runUid = 'unknown-uid';
@@ -976,7 +1007,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
 
                 payloadEntries.push({
                     run_id: uuidv4(),
-                    run_description: group.name || 'Unnamed Run',
+                    run_description: groupName,
                     run_uid: runUid,
                     filename: sf.file.name,
                     raw_report: rawReportObj || {},
@@ -1015,33 +1046,33 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                         ['vllm', 'tgi', 'tensorrt', 'tensorrt_llm', 'sglang', 'ollama'].includes(String(c.standardized?.tool || '').toLowerCase())
                     );
                     if (inferenceEngine) {
-                        initialInferenceTool = inferenceEngine.standardized?.tool || "";
-                        initialInferenceToolVersion = inferenceEngine.standardized?.tool_version || "";
+                        initialInferenceTool = (inferenceEngine.standardized?.tool && inferenceEngine.standardized.tool !== 'unknown') ? inferenceEngine.standardized.tool : "";
+                        initialInferenceToolVersion = (inferenceEngine.standardized?.tool_version && inferenceEngine.standardized.tool_version !== 'unknown') ? inferenceEngine.standardized.tool_version : "";
                     } else if (rawReport?.scenario?.load?.standardized?.tool) {
-                        initialInferenceTool = rawReport.scenario.load.standardized.tool || "";
-                        initialInferenceToolVersion = rawReport.scenario.load.standardized.tool_version || "";
+                        initialInferenceTool = (rawReport.scenario.load.standardized.tool && rawReport.scenario.load.standardized.tool !== 'unknown') ? rawReport.scenario.load.standardized.tool : "";
+                        initialInferenceToolVersion = (rawReport.scenario.load.standardized.tool_version && rawReport.scenario.load.standardized.tool_version !== 'unknown') ? rawReport.scenario.load.standardized.tool_version : "";
                     }
                 }
 
                 const loadTool = rawReport?.scenario?.load?.standardized?.tool;
-                const loadVer = rawReport?.scenario?.load?.standardized?.tool_version || "unknown";
+                const loadVer = rawReport?.scenario?.load?.standardized?.tool_version;
                 if (loadTool && loadTool !== 'unknown' && loadTool.toLowerCase() !== initialInferenceTool.toLowerCase()) {
-                    initialOtherTools[loadTool] = loadVer;
+                    initialOtherTools[loadTool] = loadVer && loadVer !== 'unknown' ? loadVer : '';
                 }
 
                 stack.forEach(c => {
                     if (c === inferenceEngine) return;
                     const tool = c.standardized?.tool;
-                    const version = c.standardized?.tool_version || "unknown";
+                    const version = c.standardized?.tool_version;
                     if (tool && tool !== 'unknown' && tool !== 'service' && tool.toLowerCase() !== initialInferenceTool.toLowerCase()) {
-                        initialOtherTools[tool] = version;
+                        initialOtherTools[tool] = version && version !== 'unknown' ? version : '';
                     }
                 });
             }
 
             const payload = {
                 runId: group.id,
-                runLabel: group.name,
+                runLabel: groupName,
                 model_name: resolvedModel,
                 hardware: {
                     hardware_name: resolvedHw,
@@ -1063,13 +1094,6 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                 acceleratorCountInferred
             };
 
-            if (!resolvedModel || resolvedModel === 'Unknown' || resolvedModel === 'Unknown Model') {
-                bundleErrors.push("Unknown model name.");
-            }
-            if (!resolvedHw || resolvedHw === 'Unknown' || resolvedHw === 'Unknown Hardware') {
-                bundleWarnings.push("Unknown hardware specification.");
-            }
-
             const uploadValidation = validatePrismUploadStructure(payload, { isUpload: false });
             if (!uploadValidation.isValid) {
                 bundleErrors.push(...uploadValidation.errors);
@@ -1084,7 +1108,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
             if (configParsed && configParsed.kustomize?.acceleratorBackend) {
                 hasHardware = true;
             }
-            if (!resolvedHw || resolvedHw === 'Unknown' || resolvedHw === 'Unknown Hardware') {
+            if (!resolvedHw || !resolvedHw.trim()) {
                 hasHardware = false;
             }
 
@@ -1100,7 +1124,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
             newStagedBundles.push({
                 id: group.id,
                 dirKey: group.dirKey,
-                name: group.name,
+                name: groupName,
                 stageFiles: parsedStages,
                 metadataFiles: {
                     run_metadata: runMetadataFile ? { file: runMetadataFile, content: (group.preParsedStages && group.standaloneMetadata && group.standaloneMetadata.length > 0) ? group.standaloneMetadata[0].content : await runMetadataFile.text(), parsed: runMetadata } : null,
@@ -1302,7 +1326,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
     };
 
     const handleStageLocally = async () => {
-        const validBundles = stagedFiles.filter(b => !b.isSkipped && b.validation.format);
+        const validBundles = stagedFiles.filter(b => !b.isSkipped && b.validation.format && b.validation.errors.length === 0);
         localStorage.setItem('prism_active_staged_bundles', JSON.stringify(validBundles));
         await onCommit(validBundles);
         
@@ -1886,7 +1910,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
     };
 
     const validCount = stagedFiles.filter(f => !f.isSkipped && f.validation.format && f.validation.errors.length === 0).length;
-    const formatCount = stagedFiles.filter(f => !f.isSkipped && f.validation.format).length;
+    const _formatCount = stagedFiles.filter(f => !f.isSkipped && f.validation.format).length;
 
     return (
         <div className="h-screen bg-[#02050b] text-slate-100 flex flex-col font-sans antialiased relative overflow-hidden pt-0 pl-28">
@@ -2227,73 +2251,33 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                     const otherToolsStr = otherTools.length > 0 ? otherTools.join(', ') : 'generic/unknown';
 
                                     return (
-                                        <Panel key={bundle.id} padding="none" className="rounded-lg overflow-hidden shadow-none">
+                                        <Panel key={bundle.id} padding="none" className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden shadow-none">
                                             <div 
                                                 className="flex items-center justify-between p-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/50"
                                                 onClick={() => toggleExpand(bundle.id)}
                                             >
                                                 <div className="flex items-center gap-3">
                                                     {(!bundle.validation.format || bundle.validation.errors.length > 0) && (
-                                                        <AlertCircle size={18} className="text-red-500 shrink-0" />
+                                                        <AlertOctagon size={18} className="text-red-500 shrink-0" />
                                                     )}
                                                     <div className="flex flex-col">
-                                                        <span className="text-sm font-bold text-slate-800 dark:text-slate-200 select-all">{bundle.payload.model_name || 'Unknown Model'}</span>
+                                                        <span className="text-sm font-bold text-slate-800 dark:text-slate-200 select-all">{bundle.payload.model_name || <span className="text-red-400 italic font-normal">Missing</span>}</span>
                                                         <span className="text-xs text-slate-500 dark:text-slate-400 select-all font-mono opacity-80 mt-0.5">{bundle.dirKey}</span>
                                                         
-                                                        <div className="flex flex-wrap items-center gap-2 mt-2">
-                                                            {/* Format Check Tag */}
-                                                            {bundle.validation.format && bundle.validation.errors.filter(e => !e.toLowerCase().includes('model') && !e.toLowerCase().includes('hardware') && !e.toLowerCase().includes('attribution')).length === 0 ? (
-                                                                <Badge tone="success" className="gap-1 normal-case tracking-normal animate-in fade-in zoom-in-95 duration-150">
-                                                                    <Check size={10} className="shrink-0 text-emerald-500" /> Format: {bundle.validation.format || 'brv02'}
-                                                                </Badge>
-                                                            ) : (
-                                                                <Badge tone="danger" className="gap-1 normal-case tracking-normal animate-in fade-in zoom-in-95 duration-150">
-                                                                    <X size={10} className="shrink-0 text-red-500" /> Format: Invalid
-                                                                </Badge>
-                                                            )}
-
-                                                            {/* Inferred Warning Tag */}
-                                                            {(bundle.payload.modelNameInferred || bundle.payload.hardwareInferred || bundle.payload.acceleratorCountInferred) && (
-                                                                <Badge tone="warning" className="gap-1 normal-case tracking-normal font-extrabold animate-pulse" title="This run has fields guessed from folder names or configuration. Click to expand and verify them.">
-                                                                    ⚠️ Verification Required
-                                                                </Badge>
-                                                            )}
-
-                                                            {/* Hardware Check Tag */}
-                                                            {bundle.validation.hasHardware && bundle.payload.hardware?.hardware_name && bundle.payload.hardware.hardware_name !== 'Unknown' && bundle.payload.hardware.hardware_name !== 'Unknown Hardware' ? (
-                                                                <Badge tone="success" className="gap-1 normal-case tracking-normal animate-in fade-in zoom-in-95 duration-150">
-                                                                    <Check size={10} className="shrink-0 text-emerald-500" /> Hardware: {bundle.payload.hardware?.hardware_name}
-                                                                </Badge>
-                                                            ) : (
-                                                                <Badge tone="warning" className="gap-1 normal-case tracking-normal animate-in fade-in zoom-in-95 duration-150">
-                                                                    <X size={10} className="shrink-0 text-amber-500" /> Hardware: {bundle.payload.hardware?.hardware_name || 'Unknown'} (Optional)
-                                                                </Badge>
-                                                            )}
-
-                                                            {/* Attribution Check Tag */}
-                                                            {bundle.payload.attribution ? (
-                                                                <Badge tone="success" className="gap-1 normal-case tracking-normal animate-in fade-in zoom-in-95 duration-150">
-                                                                    <Check size={10} className="shrink-0 text-emerald-500" /> Attribution: {bundle.payload.attribution.author || 'Author'} ({bundle.payload.attribution.organization || 'Org'})
-                                                                </Badge>
-                                                            ) : (
-                                                                <Badge tone="warning" className="gap-1 normal-case tracking-normal animate-in fade-in zoom-in-95 duration-150">
-                                                                    <X size={10} className="shrink-0 text-amber-500" /> Attribution: Missing (Optional)
-                                                                </Badge>
-                                                            )}
-
-                                                            {(() => {
-                                                                const similarRuns = getSimilarBenchmarks(bundle);
-                                                                if (wizardStep !== 2 || similarRuns.length === 0) return null;
-                                                                return (
+                                                        {wizardStep === 2 && (() => {
+                                                            const similarRuns = getSimilarBenchmarks(bundle);
+                                                            if (similarRuns.length === 0) return null;
+                                                            return (
+                                                                <div className="flex flex-wrap items-center gap-2 mt-2">
                                                                     <span className="inline-flex items-center gap-1.5 text-[10px] font-extrabold bg-cyan-50 dark:bg-cyan-950/30 text-cyan-700 dark:text-cyan-400 px-2.5 py-0.5 rounded border border-cyan-200 dark:border-cyan-900/50 hover:bg-cyan-100 dark:hover:bg-cyan-900/70 cursor-pointer select-none transition-colors shadow-sm animate-in fade-in zoom-in-95 duration-150"
                                                                           onClick={(e) => { e.stopPropagation(); if (!bundle.isExpanded) toggleExpand(bundle.id); }}
                                                                           title="Click to view similar public benchmarks and sync configurations"
                                                                     >
                                                                         🔍 {similarRuns.length} similar public runs
                                                                     </span>
-                                                                );
-                                                            })()}
-                                                        </div>
+                                                                </div>
+                                                            );
+                                                        })()}
                                                     </div>
                                                 </div>
                                                 <div className="flex items-center gap-4">
@@ -2322,27 +2306,20 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
 
                                                         if (activeErrors.length === 0 && activeWarnings.length === 0) return null;
 
-                                                        const hasErrors = activeErrors.length > 0;
-                                                        
                                                         return (
-                                                            <div className={cn(
-                                                                'mb-3 p-3 rounded-lg border text-xs',
-                                                                hasErrors
-                                                                    ? 'bg-red-50 dark:bg-red-900/25 border-red-200 dark:border-red-900/50 text-red-750 dark:text-red-300'
-                                                                    : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800/80 text-amber-700 dark:text-amber-300'
-                                                            )}>
-                                                                {hasErrors && (
-                                                                    <div className={activeWarnings.length > 0 ? "mb-2" : ""}>
-                                                                        <h4 className="font-semibold mb-1 flex items-center gap-1 text-red-750 dark:text-red-300"><ShieldAlert size={14}/> Errors:</h4>
-                                                                        <ul className="list-disc pl-5 space-y-1 font-semibold">
+                                                            <div className="space-y-3 mb-3">
+                                                                {activeErrors.length > 0 && (
+                                                                    <div className="p-3 rounded-lg border text-xs bg-red-50 dark:bg-red-900/25 border-red-200 dark:border-red-900/50 text-red-750 dark:text-red-300">
+                                                                        <h4 className="font-semibold mb-1 flex items-center gap-1.5 text-red-750 dark:text-red-300"><AlertOctagon size={14} className="shrink-0 text-red-500"/> Errors:</h4>
+                                                                        <ul className="list-disc pl-5 space-y-1 text-red-750 dark:text-red-300">
                                                                             {activeErrors.map((e, i) => <li key={i}>{e}</li>)}
                                                                         </ul>
                                                                     </div>
                                                                 )}
                                                                 {activeWarnings.length > 0 && (
-                                                                    <div>
-                                                                        <h4 className="font-semibold mb-1 flex items-center gap-1 text-amber-750 dark:text-amber-300"><AlertCircle size={14}/> Warnings:</h4>
-                                                                        <ul className="list-disc pl-5 space-y-1">
+                                                                    <div className="p-3 rounded-lg border text-xs bg-amber-50 dark:bg-amber-900/25 border-amber-200 dark:border-amber-900/50 text-amber-750 dark:text-amber-300">
+                                                                        <h4 className="font-semibold mb-1 flex items-center gap-1.5 text-amber-750 dark:text-amber-300"><AlertTriangle size={14} className="shrink-0 text-amber-500"/> Warnings:</h4>
+                                                                        <ul className="list-disc pl-5 space-y-1 text-amber-750 dark:text-amber-300">
                                                                             {activeWarnings.map((w, i) => <li key={i}>{w}</li>)}
                                                                         </ul>
                                                                     </div>
@@ -2358,10 +2335,6 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                           <table className="w-full text-left text-xs border-collapse">
                                                               <tbody className="divide-y divide-slate-800/35">
                                                                   <tr className="hover:bg-slate-900/20">
-                                                                      <td className="px-3.5 py-2.5 font-semibold text-slate-400 border-r border-slate-800/45 bg-slate-950/30" style={{ width: '220px', minWidth: '220px' }}>Run Directory</td>
-                                                                      <td className="px-3.5 py-2.5 font-mono text-slate-455 select-all">{bundle.dirKey}</td>
-                                                                  </tr>
-                                                                  <tr className="hover:bg-slate-900/20">
                                                                       <td className="px-3.5 py-2.5 font-semibold text-slate-400 border-r border-slate-800/45 bg-slate-950/30" style={{ width: '220px', minWidth: '220px' }}>
                                                                           <span>Benchmark Name</span>
                                                                       </td>
@@ -2373,14 +2346,14 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                                                       value={bundle.name || bundle.payload?.runLabel || ''} 
                                                                                       onChange={(e) => updateSingleField(bundle.id, 'runLabel', e.target.value)}
                                                                                       className={`w-full bg-slate-900/20 border rounded-lg pl-3 pr-8 py-1.5 text-slate-200 font-semibold focus:ring-0 focus:outline-none transition-all text-xs ${getFieldClassName('runLabel', false)}`}
-                                                                                      placeholder="e.g. My custom run name"
+                                                                                      placeholder="My custom run name"
                                                                                   />
                                                                                   <div className="absolute right-2.5 flex items-center gap-2 pointer-events-none select-none">
                                                                                       <Pencil size={10} className="text-slate-650 group-focus-within:text-cyan-400 transition-colors" />
                                                                                   </div>
                                                                               </div>
                                                                           ) : (
-                                                                              <span className="text-slate-300 font-semibold select-all text-xs px-1 py-0.5">{bundle.name || bundle.payload?.runLabel || 'N/A'}</span>
+                                                                              <span className="text-slate-300 font-semibold select-all text-xs">{bundle.name || bundle.payload?.runLabel || <span className="text-red-400 italic font-normal">Missing</span>}</span>
                                                                           )}
                                                                       </td>
                                                                   </tr>
@@ -2399,7 +2372,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                                                           'w-full bg-slate-900/20 border rounded-lg pl-3 pr-28 py-1.5 text-slate-200 font-semibold focus:ring-0 focus:outline-none transition-all text-xs',
                                                                                           getFieldClassName('model_name', bundle.payload.modelNameInferred)
                                                                                       )}
-                                                                                      placeholder="e.g. google/gemma-4-31b-it"
+                                                                                      placeholder="google/gemma-4-31b-it"
                                                                                   />
                                                                                   <div className="absolute right-2.5 flex items-center gap-2 pointer-events-none select-none">
                                                                                       {bundle.payload.modelNameInferred && (
@@ -2414,7 +2387,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                                               </div>
                                                                           ) : (
                                                                               <div className="flex items-center gap-2 text-xs">
-                                                                                  <span className="text-slate-300 font-semibold select-all px-1 py-0.5">{bundle.payload.model_name || 'N/A'}</span>
+                                                                                  <span className="text-slate-300 font-semibold select-all">{bundle.payload.model_name || <span className="text-red-400 italic font-normal">Missing</span>}</span>
                                                                                   {bundle.payload.modelNameInferred && (
                                                                                       <Badge tone="warning" size="xs" className="text-[8px] font-extrabold"
                                                                                           title="Inferred field"
@@ -2441,7 +2414,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                                                           'w-full bg-slate-900/20 border rounded-lg pl-3 pr-28 py-1.5 text-slate-200 font-semibold focus:ring-0 focus:outline-none transition-all text-xs',
                                                                                           getFieldClassName('hardware.hardware_name', bundle.payload.hardwareInferred)
                                                                                       )}
-                                                                                      placeholder="e.g. H100, TPU v6e"
+                                                                                      placeholder="H100, TPU v6e"
                                                                                   />
                                                                                   <div className="absolute right-2.5 flex items-center gap-2 pointer-events-none select-none">
                                                                                       {bundle.payload.hardwareInferred && (
@@ -2456,7 +2429,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                                               </div>
                                                                           ) : (
                                                                               <div className="flex items-center gap-2 text-xs">
-                                                                                  <span className="text-slate-300 font-semibold select-all px-1 py-0.5">{bundle.payload.hardware?.hardware_name || 'N/A'}</span>
+                                                                                  <span className="text-slate-300 font-semibold select-all">{bundle.payload.hardware?.hardware_name || <span className="text-red-400 italic font-normal">Missing</span>}</span>
                                                                                   {bundle.payload.hardwareInferred && (
                                                                                       <Badge tone="warning" size="xs" className="text-[8px] font-extrabold"
                                                                                           title="Inferred field"
@@ -2479,11 +2452,13 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                                                       type="number" 
                                                                                       value={bundle.payload.hardware?.accelerator_count ?? ''} 
                                                                                       onChange={(e) => updateSingleField(bundle.id, 'accelerator_count', e.target.value)}
+                                                                                       onFocus={() => clearInferredField(bundle.id, 'acceleratorCountInferred')}
+                                                                                       onClick={() => clearInferredField(bundle.id, 'acceleratorCountInferred')}
                                                                                       className={cn(
                                                                                           'w-full bg-slate-900/20 border rounded-lg pl-3 pr-28 py-1.5 text-slate-200 font-mono focus:ring-0 focus:outline-none transition-all text-xs',
                                                                                           getFieldClassName('hardware.accelerator_count', bundle.payload.acceleratorCountInferred)
                                                                                       )}
-                                                                                      placeholder="e.g. 8"
+                                                                                      placeholder="8"
                                                                                   />
                                                                                   <div className="absolute right-2.5 flex items-center gap-2 pointer-events-none select-none">
                                                                                       {bundle.payload.acceleratorCountInferred && (
@@ -2498,7 +2473,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                                               </div>
                                                                           ) : (
                                                                               <div className="flex items-center gap-2 text-xs">
-                                                                                  <span className="text-slate-300 font-semibold select-all font-mono px-1 py-0.5">{bundle.payload.hardware?.accelerator_count ?? 'N/A'}</span>
+                                                                                  <span className="text-slate-300 font-semibold select-all font-mono">{bundle.payload.hardware?.accelerator_count !== null && bundle.payload.hardware?.accelerator_count !== undefined ? bundle.payload.hardware.accelerator_count : <span className="text-red-400 italic font-normal font-sans">Missing</span>}</span>
                                                                                   {bundle.payload.acceleratorCountInferred && (
                                                                                       <Badge tone="warning" size="xs" className="text-[8px] font-extrabold"
                                                                                           title="Inferred field"
@@ -2525,14 +2500,14 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                                                      value={bundle.payload.inference_tool || ''} 
                                                                                      onChange={(e) => updateSingleField(bundle.id, 'inference_tool', e.target.value)}
                                                                                      className={`w-1/2 bg-slate-900/20 border rounded-lg px-3 py-1.5 text-slate-200 font-semibold focus:ring-0 focus:outline-none placeholder-slate-750 transition-all text-xs ${getFieldClassName('inference_tool', false)}`}
-                                                                                     placeholder="Tool e.g. vLLM"
+                                                                                     placeholder="vLLM"
                                                                                  />
                                                                                  <input 
                                                                                      type="text" 
                                                                                      value={bundle.payload.inference_tool_version || ''} 
                                                                                      onChange={(e) => updateSingleField(bundle.id, 'inference_tool_version', e.target.value)}
                                                                                      className={`w-1/2 bg-slate-900/20 border rounded-lg px-3 py-1.5 text-slate-400 focus:ring-0 focus:outline-none placeholder-slate-750 transition-all font-mono text-xs ${getFieldClassName('inference_tool_version', false)}`}
-                                                                                     placeholder="Version e.g. 0.4.2"
+                                                                                     placeholder="0.4.2"
                                                                                  />
                                                                              </div>
                                                                              <div className="flex items-center gap-2 shrink-0 select-none">
@@ -2540,10 +2515,10 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                                              </div>
                                                                          </div>
                                                                      ) : (
-                                                                         <span className="text-slate-300 font-semibold select-all text-xs px-1 py-0.5">
+                                                                         <span className="text-slate-300 font-semibold select-all text-xs">
                                                                              {bundle.payload.inference_tool 
                                                                                  ? `${bundle.payload.inference_tool}${bundle.payload.inference_tool_version ? ` (${bundle.payload.inference_tool_version})` : ''}` 
-                                                                                 : 'N/A'}
+                                                                                 : <span className="text-amber-400 italic font-normal">Missing</span>}
                                                                          </span>
                                                                      )}
                                                                      </td>
@@ -2594,13 +2569,13 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                                               
                                                                               {/* Simple inline Drag-and-drop or File input area */}
                                                                               {wizardStep === 1 && (bundle.attachedManifests || []).length === 0 && Object.keys(bundle.payload.manifests || {}).length === 0 && (
-                                                                                  <span className="text-slate-500 italic select-none">No configuration files attached.</span>
+                                                                                  <span className="text-amber-400 italic font-normal select-none">Missing (Optional)</span>
                                                                               )}
                                                                               
                                                                               {/* Simple inline Drag-and-drop or File input area */}
                                                                               {wizardStep === 2 && (
                                                                                   <div className="space-y-2 max-w-xl">
-                                                                                      <div className="border border-dashed border-slate-800 hover:border-cyan-500/60 rounded-lg px-3 py-1.5 flex items-center justify-center gap-2 bg-slate-950/20 transition-all cursor-pointer relative group">
+                                                                                      <div className={cn("border border-dashed rounded-lg px-3 py-1.5 flex items-center justify-center gap-2 bg-slate-950/20 transition-all cursor-pointer relative group", fieldErrors['manifests'] ? "border-amber-500/60 hover:border-amber-500/80" : "border-slate-800 hover:border-cyan-500/60")}>
                                                                                           <Upload size={13} className="text-slate-500 group-hover:text-cyan-400 shrink-0" />
                                                                                           <span className="text-[10px] text-slate-400 font-bold block truncate">Drag or click to attach YAML/JSON configuration</span>
                                                                                           <input 
@@ -2626,7 +2601,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                                                               value={manifestUrlInputs[bundle.id] || ''}
                                                                                               onChange={(e) => setManifestUrlInputs(prev => ({ ...prev, [bundle.id]: e.target.value }))}
                                                                                               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddManifestUrl(bundle.id); } }}
-                                                                                              placeholder="e.g. https://github.com/my-org/runs/vllm.yaml"
+                                                                                              placeholder="https://github.com/my-org/runs/vllm.yaml"
                                                                                               className="flex-1 text-xs py-1.5"
                                                                                           />
                                                                                           <Button
@@ -2689,13 +2664,13 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                                               
                                                                               {/* Simple inline Drag-and-drop or File input area */}
                                                                               {wizardStep === 1 && (bundle.attachedEvidence || []).length === 0 && Object.keys(bundle.payload.evidence || {}).length === 0 && (
-                                                                                  <span className="text-slate-500 italic select-none">No evidence logs attached.</span>
+                                                                                  <span className="text-amber-400 italic font-normal select-none">Missing (Optional)</span>
                                                                               )}
                                                                               
                                                                               {/* Simple inline Drag-and-drop or File input area */}
                                                                               {wizardStep === 2 && (
                                                                                   <div className="space-y-2 max-w-xl">
-                                                                                      <div className="border border-dashed border-slate-800 hover:border-cyan-500/60 rounded-lg px-3 py-1.5 flex items-center justify-center gap-2 bg-slate-950/20 transition-all cursor-pointer relative group">
+                                                                                      <div className={cn("border border-dashed rounded-lg px-3 py-1.5 flex items-center justify-center gap-2 bg-slate-950/20 transition-all cursor-pointer relative group", fieldErrors['evidence'] ? "border-amber-500/60 hover:border-amber-500/80" : "border-slate-800 hover:border-cyan-500/60")}>
                                                                                           <Upload size={13} className="text-slate-500 group-hover:text-cyan-400 shrink-0" />
                                                                                           <span className="text-[10px] text-slate-400 font-bold block truncate">Drag or click to attach verification run logs/evidence</span>
                                                                                           <input 
@@ -2717,7 +2692,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                                                               value={evidenceUrlInputs[bundle.id] || ''}
                                                                                               onChange={(e) => setEvidenceUrlInputs(prev => ({ ...prev, [bundle.id]: e.target.value }))}
                                                                                               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddEvidenceUrl(bundle.id); } }}
-                                                                                              placeholder="e.g. gs://my-bucket/runs/evidence.log"
+                                                                                              placeholder="gs://my-bucket/runs/evidence.log"
                                                                                               className="flex-1 text-xs py-1.5"
                                                                                           />
                                                                                           <Button
@@ -2975,7 +2950,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
 
                                                                                         <div className="border-t border-slate-100 dark:border-slate-800/80 pt-2 mt-2">
                                                                                             <span className="text-[9px] text-slate-400 font-mono truncate block" title={run.inference_tool ? `${run.inference_tool} ${run.inference_tool_version || ''}` : 'Unknown serving stack'}>
-                                                                                                Serving Stack: {run.inference_tool ? `${run.inference_tool} ${run.inference_tool_version || ''}` : 'Unknown Stack'}
+                                                                                                Serving Stack: {run.inference_tool ? `${run.inference_tool} ${run.inference_tool_version || ''}` : <span className="text-amber-400 italic font-normal">Missing</span>}
                                                                                             </span>
                                                                                         </div>
                                                                                     </div>
@@ -3049,10 +3024,10 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                     <button 
                                         id="wizard-proceed-staging-btn"
                                         onClick={handleStageLocally}
-                                        disabled={formatCount === 0}
+                                        disabled={validCount === 0 || stagedFiles.some(f => !f.isSkipped && f.validation.errors.length > 0)}
                                         className={cn(
                                             'px-5 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer border',
-                                            formatCount > 0
+                                            validCount > 0 && !stagedFiles.some(f => !f.isSkipped && f.validation.errors.length > 0)
                                             ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white border-transparent shadow-md'
                                             : 'bg-slate-900/40 text-slate-500 border-slate-900/50 cursor-not-allowed'
                                         )}
@@ -3063,10 +3038,10 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                 ) : (
                                     <button 
                                         onClick={() => setWizardStep(3)}
-                                        disabled={validCount === 0}
+                                        disabled={validCount === 0 || stagedFiles.some(f => !f.isSkipped && f.validation.errors.length > 0)}
                                         className={cn(
                                             'px-5 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer',
-                                            validCount > 0
+                                            validCount > 0 && !stagedFiles.some(f => !f.isSkipped && f.validation.errors.length > 0)
                                             ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white shadow-md'
                                             : 'bg-slate-900/40 text-slate-500 border border-slate-900/50 cursor-not-allowed'
                                         )}

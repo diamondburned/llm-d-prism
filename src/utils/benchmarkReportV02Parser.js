@@ -47,10 +47,10 @@ const pct = (val) => {
     return v <= 1 ? v * 100 : v;
 };
 
-const deriveRunLabel = (doc, filename) => {
+const deriveRunLabel = (doc) => {
     if (doc.run?.description) return doc.run.description;
 
-    // Build label from scenario: model · hardware · QPS · stage
+    // Build label from scenario model name if available
     const stack = doc.scenario?.stack || [];
     const primary = (
         stack.find(c => c.standardized?.role === 'aggregate') ||
@@ -59,18 +59,9 @@ const deriveRunLabel = (doc, filename) => {
         stack[0]
     );
     const model = primary?.standardized?.model?.name || doc.scenario?.load?.native?.config?.server?.model_name;
-    if (model) return model.split('/').pop();
+    if (model && model !== 'Unknown' && model !== 'Unknown Model') return model.split('/').pop();
 
-    if (filename && filename.includes('/')) {
-        const pathParts = filename.split('/');
-        pathParts.pop(); // Remove the file name itself
-        return pathParts.join('/');
-    }
-
-    // Last resort: filename stripped of the common prefix
-    return (filename || "upload")
-        .replace(/^benchmark_report_v0\.2[,_]*/i, "")
-        .replace(/\.ya?ml$/i, "");
+    return "";
 };
 
 // ---------------------------------------------------------------------------
@@ -250,13 +241,18 @@ export function parseReportV02(yamlText, filename) {
     const parallelism = accel.parallelism || {};
     const load = doc.scenario?.load?.standardized || {};
 
+    const rawModel = std.model?.name || doc.scenario?.load?.native?.config?.server?.model_name;
+    const modelVal = rawModel && rawModel !== 'Unknown' && rawModel !== 'Unknown Model' ? rawModel : '';
+    const accelVal = accel.model && accel.model !== 'Unknown' && accel.model !== 'Unknown Hardware' ? accel.model : '';
+    const harnessVal = load.tool && load.tool !== 'unknown' ? load.tool : '';
+
     const scenario = {
-        model: std.model?.name || doc.scenario?.load?.native?.config?.server?.model_name || 'Unknown',
-        hardware: accel.model || 'Unknown',
+        model: modelVal,
+        hardware: accelVal,
         acceleratorCount: accel.count ?? null,
         tp: parallelism.tp ?? null,
         role: std.role || 'aggregate',
-        harness: load.tool || 'unknown',
+        harness: harnessVal,
         isl: load.input_seq_len?.value ?? null,
         osl: load.output_seq_len?.value ?? null,
         rateQps: load.rate_qps ?? null,
@@ -382,7 +378,7 @@ export function groupStagesIntoRuns(stageRecords) {
         if (!targetRun) {
             targetRun = {
                 runId: record.runId || uuidv4(),
-                runLabel: record.runLabel || record.runId || "Unknown Run",
+                runLabel: record.runLabel || "",
                 stages: [],
                 model_name: record.model_name || null,
                 hardware: record.hardware || null,
@@ -417,7 +413,7 @@ export function groupStagesIntoRuns(stageRecords) {
 
     // Propagate the runLabel to all stages
     for (const run of runsList) {
-        let uniqueLabel = run.runLabel || run.runId || "Unknown Run";
+        let uniqueLabel = run.runLabel || "";
         run.runLabel = uniqueLabel;
         
         for (const stage of run.stages) {
@@ -436,18 +432,18 @@ export function stageToEntry(stage) {
     const { scenario, performance, runId, timestamp, components, model_name, hardware: rootHardware, config } = stage;
 
     let modelName = scenario.model;
-    if ((modelName === 'Unknown' || !modelName) && model_name) {
+    if ((!modelName || modelName === 'Unknown') && model_name) {
         modelName = model_name;
     }
     modelName = normalizeModelName(modelName);
 
     let hardware = scenario.hardware;
-    if ((hardware === 'Unknown' || hardware === 'TPU' || hardware === 'GPU' || !hardware) && rootHardware?.hardware_name) {
+    if ((!hardware || hardware === 'Unknown' || hardware === 'TPU' || hardware === 'GPU') && rootHardware?.hardware_name) {
         hardware = rootHardware.hardware_name;
     }
     
     // Fallback to config if needed
-    if ((hardware === 'Unknown' || hardware === 'TPU' || hardware === 'GPU' || !hardware) && config) {
+    if ((!hardware || hardware === 'Unknown' || hardware === 'TPU' || hardware === 'GPU') && config) {
         const accBackend = config.kustomize?.acceleratorBackend;
         let inferredHw = null;
         if (accBackend) {
@@ -501,15 +497,17 @@ export function stageToEntry(stage) {
         p99: performance.ttftP99 ?? null,
     };
 
+    const harness = scenario.harness && scenario.harness !== 'unknown' ? scenario.harness : '';
+
     return createEntry({
         run_id: stage.runId,
-        runLabel: stage.runLabel,
+        runLabel: stage.runLabel || '',
         github_author: stage.github_author,
         model: modelName,
         model_name: modelName,
         hardware: hardware,
-        precision: 'Unknown',
-        backend: scenario.harness || 'Unknown',
+        precision: '',
+        backend: harness,
         isl: scenario.isl ?? null,
         osl: scenario.osl ?? null,
         timestamp: ts,
@@ -539,11 +537,11 @@ export function stageToEntry(stage) {
 
         metadata: {
             model_name: modelName,
-            backend: scenario.harness || 'Unknown',
+            backend: harness,
             hardware: hardware,
             accelerator_type: hardware,
             accelerator_count: acceleratorCount,
-            precision: 'Unknown',
+            precision: '',
             timestamp: ts,
             tp: scenario.tp || 1,
             architecture: scenario.role || 'aggregate',

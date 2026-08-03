@@ -269,10 +269,11 @@ export const UnifiedDataTable = (props) => {
             hardware: true,
             timestamp: true,
             stage: true,
-            nodes: false,
+            nodes: true,
+            model: true,
             islOsl: false,
-            maxTput: true,
-            minLat: true,
+            maxTput: false,
+            minLat: false,
             qps: false,
             inputTput: false,
             outputTput: false,
@@ -2332,6 +2333,18 @@ const BenchmarkRow = React.memo(({
                                                                         <span className="font-semibold text-slate-700 dark:text-slate-300">{stat.accelerator_count}x {stat.hardware}</span>
                                                                     </span>
                                                                 );
+                                                            }
+
+                                                            if (visibleSpecs.model) {
+                                                                const modelVal = stat.model_name || stat.model || meta.model_name;
+                                                                if (modelVal) {
+                                                                    specs.push(
+                                                                        <span key="model" className="inline-flex items-center gap-1">
+                                                                            <span className="text-slate-400 dark:text-slate-500 font-normal">Model:</span>
+                                                                            <span className="font-semibold text-slate-700 dark:text-slate-300">{modelVal}</span>
+                                                                        </span>
+                                                                    );
+                                                                }
                                                             }
 
                                                             if (visibleSpecs.nodes) {
