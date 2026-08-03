@@ -17,8 +17,8 @@ import React from 'react';
 export const Row = ({ label, value, unit = '' }) => {
     if (value === undefined || value === null || value === 'Unknown' || value === 'N/A' || value === '') return null;
     return (
-        <div className="flex justify-between gap-4 text-xs">
-            <span className="text-slate-500 dark:text-slate-400">{label}:</span>
+        <div className="flex justify-between items-center gap-3 text-xs leading-tight py-0.5">
+            <span className="text-slate-500 dark:text-slate-400 font-normal">{label}:</span>
             <span className="font-mono font-medium text-slate-900 dark:text-slate-200">
                 {typeof value === 'number' ? value.toLocaleString() : value}{unit}
             </span>

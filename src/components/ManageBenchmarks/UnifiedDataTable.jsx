@@ -1858,7 +1858,7 @@ export const UnifiedDataTable = (props) => {
                         </div>
 
                         {/* Scrollable Content Container */}
-                        <div className="flex-1 overflow-y-auto space-y-8 pr-1 custom-scrollbar">
+                        <div className="flex-1 overflow-y-auto overflow-x-hidden space-y-8 pr-1 custom-scrollbar">
                             
                             {/* Section 1: Chart Container */}
                             <div className="min-h-[500px] w-full flex flex-col">
@@ -1974,6 +1974,7 @@ export const UnifiedDataTable = (props) => {
                                                 handleEditStagedRun={handleEditStagedRun}
                                                 defaultSources={defaultSources}
                                                 readOnly={true}
+                                                canViewRaw={false}
                                                 isHiddenOnGraph={hiddenBenchmarkKeys.has(stat.benchmarkKey)}
                                                 isOnlyThisVisibleOnGraph={isOnlyThisVisible}
                                                 onToggleGraphVisibility={handleToggleGraphVisibility}
@@ -2118,6 +2119,7 @@ const BenchmarkRow = React.memo(({
     handleEditStagedRun,
     defaultSources,
     readOnly = false,
+    canViewRaw = true,
     isHiddenOnGraph = false,
     isOnlyThisVisibleOnGraph = false,
     onToggleGraphVisibility,
@@ -2986,19 +2988,21 @@ const BenchmarkRow = React.memo(({
                                                          <div className="flex-1" />
                                                      )}
 
-                                                     <Button
-                                                         variant="secondary"
-                                                         size="sm"
-                                                         onClick={(e) => {
-                                                             e.stopPropagation();
-                                                             setViewingPayloadRun(stat);
-                                                         }}
-                                                         className="flex-shrink-0 whitespace-nowrap animate-in fade-in duration-200"
-                                                         title="Inspect Raw YAML / JSON Manifest"
-                                                     >
-                                                         <Code2 size={13} />
-                                                         Inspect Raw Manifest
-                                                     </Button>
+                                                     {canViewRaw && (
+                                                         <Button
+                                                             variant="secondary"
+                                                             size="sm"
+                                                             onClick={(e) => {
+                                                                 e.stopPropagation();
+                                                                 setViewingPayloadRun(stat);
+                                                             }}
+                                                             className="flex-shrink-0 whitespace-nowrap animate-in fade-in duration-200"
+                                                             title="Inspect Raw YAML / JSON Manifest"
+                                                         >
+                                                             <Code2 size={13} />
+                                                             Inspect Raw Manifest
+                                                         </Button>
+                                                     )}
                                                  </div>
 
                                                      <div className="overflow-x-auto rounded border border-slate-200 dark:border-slate-700">
@@ -3019,7 +3023,7 @@ const BenchmarkRow = React.memo(({
                                                                       <th className="px-2 py-2">Cost/1M Out ($)</th>
                                                                       <th className="px-2 py-2">Input Len</th>
                                                                       <th className="px-2 py-2">Output Len</th>
-                                                                      <th className="px-2 py-2 w-16 text-center">Raw</th>
+                                                                      {canViewRaw && <th className="px-2 py-2 w-16 text-center">Raw</th>}
                                                                   </tr>
                                                               </thead>
                                                               <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
@@ -3049,32 +3053,48 @@ const BenchmarkRow = React.memo(({
                                                                               <td className="px-2 py-2 text-[10px] text-slate-500">
                                                                                   {d.metrics?.cost?.explicit_output > 0 ? `$${d.metrics.cost.explicit_output.toFixed(4)}` : '-'}
                                                                               </td>
-                                                                              <td className="px-2 py-2 text-[10px]">{d.isl?.toFixed(0) || d.workload?.input_tokens?.toFixed(0) || '-'}</td>
-                                                                              <td className="px-2 py-2 text-[10px]">{d.osl?.toFixed(0) || d.workload?.output_tokens?.toFixed(0) || '-'}</td>
-                                                                              <td className="px-2 py-2 text-center">
-                                                                                  <button
-                                                                                      disabled={!d.rawReport}
-                                                                                      onClick={(e) => {
-                                                                                          e.stopPropagation();
-                                                                                          try {
-                                                                                              setRawYamlContent(d.rawReport ? yaml.dump(d.rawReport, { noRefs: true }) : '');
-                                                                                          } catch (err) {
-                                                                                              console.error("Failed to dump raw report to YAML:", err);
-                                                                                              setRawYamlContent("Error rendering raw report.");
-                                                                                          }
-                                                                                          setRawYamlTitle(d.source_info?.file_identifier || d.filename || `Stage ${d.workload?.stage}`);
-                                                                                      }}
-                                                                                      title="Raw"
-                                                                                      className={cn(
-                                                                                          'p-1 rounded transition-colors',
-                                                                                          d.rawReport
-                                                                                              ? 'text-slate-400 hover:text-blue-500 dark:text-slate-500 dark:hover:text-blue-400 cursor-pointer whitespace-nowrap'
-                                                                                              : 'text-slate-200 dark:text-slate-800 cursor-not-allowed opacity-50'
-                                                                                      )}
-                                                                                  >
-                                                                                      <FileText size={14} />
-                                                                                  </button>
+                                                                              <td className="px-2 py-2 text-[10px]">
+                                                                                  {(() => {
+                                                                                      const val = d.isl ?? d.workload?.input_tokens;
+                                                                                      if (val == null || isNaN(Number(val))) return '-';
+                                                                                      const n = Number(val);
+                                                                                      return Number.isInteger(n) ? n.toString() : Number(n.toFixed(2)).toString();
+                                                                                  })()}
                                                                               </td>
+                                                                              <td className="px-2 py-2 text-[10px]">
+                                                                                  {(() => {
+                                                                                      const val = d.osl ?? d.workload?.output_tokens;
+                                                                                      if (val == null || isNaN(Number(val))) return '-';
+                                                                                      const n = Number(val);
+                                                                                      return Number.isInteger(n) ? n.toString() : Number(n.toFixed(2)).toString();
+                                                                                  })()}
+                                                                              </td>
+                                                                              {canViewRaw && (
+                                                                                  <td className="px-2 py-2 text-center">
+                                                                                      <button
+                                                                                          disabled={!d.rawReport}
+                                                                                          onClick={(e) => {
+                                                                                              e.stopPropagation();
+                                                                                              try {
+                                                                                                  setRawYamlContent(d.rawReport ? yaml.dump(d.rawReport, { noRefs: true }) : '');
+                                                                                              } catch (err) {
+                                                                                                  console.error("Failed to dump raw report to YAML:", err);
+                                                                                                  setRawYamlContent("Error rendering raw report.");
+                                                                                              }
+                                                                                              setRawYamlTitle(d.source_info?.file_identifier || d.filename || `Stage ${d.workload?.stage}`);
+                                                                                          }}
+                                                                                          title="Raw"
+                                                                                          className={cn(
+                                                                                              'p-1 rounded transition-colors',
+                                                                                              d.rawReport
+                                                                                                  ? 'text-slate-400 hover:text-blue-500 dark:text-slate-500 dark:hover:text-blue-400 cursor-pointer whitespace-nowrap'
+                                                                                                  : 'text-slate-200 dark:text-slate-800 cursor-not-allowed opacity-50'
+                                                                                          )}
+                                                                                      >
+                                                                                          <FileText size={14} />
+                                                                                      </button>
+                                                                                  </td>
+                                                                              )}
                                                                           </tr>
                                                                       ))}
                                                               </tbody>

@@ -472,8 +472,22 @@ export const UnifiedDataTable = (props) => {
                                                                            <td className="px-2 py-1 font-mono text-xs text-slate-500">
                                                                                 {d.metrics?.cost?.explicit_output > 0 ? `$${d.metrics.cost.explicit_output.toFixed(4)}` : '-'}
                                                                            </td>
-                                                                           <td className="px-2 py-1 font-mono text-xs">{d.isl?.toFixed(0) || d.workload?.input_tokens?.toFixed(0) || '-'}</td>
-                                                                           <td className="px-2 py-1 font-mono text-xs">{d.osl?.toFixed(0) || d.workload?.output_tokens?.toFixed(0) || '-'}</td>
+                                                                           <td className="px-2 py-1 font-mono text-xs">
+                                                                               {(() => {
+                                                                                   const val = d.isl ?? d.workload?.input_tokens;
+                                                                                   if (val == null || isNaN(Number(val))) return '-';
+                                                                                   const n = Number(val);
+                                                                                   return Number.isInteger(n) ? n.toString() : Number(n.toFixed(2)).toString();
+                                                                               })()}
+                                                                           </td>
+                                                                           <td className="px-2 py-1 font-mono text-xs">
+                                                                               {(() => {
+                                                                                   const val = d.osl ?? d.workload?.output_tokens;
+                                                                                   if (val == null || isNaN(Number(val))) return '-';
+                                                                                   const n = Number(val);
+                                                                                   return Number.isInteger(n) ? n.toString() : Number(n.toFixed(2)).toString();
+                                                                               })()}
+                                                                           </td>
                                                                            <td className="px-2 py-1 font-mono text-[10px] text-slate-400 whitespace-nowrap">
                                                                                {(() => {
                                                                                    const ts = d.timestamp;
