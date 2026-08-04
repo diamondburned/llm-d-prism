@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { X, UploadCloud, CheckCircle, AlertCircle, AlertOctagon, AlertTriangle, FileText, ChevronLeft, ChevronRight, ChevronDown, Trash2, Upload, ShieldAlert, Check, ArrowRight, ArrowLeft, GitCompare, Zap, Cpu, Pencil, Layers, Split, GripVertical, Sparkles, Info } from 'lucide-react';
+import { X, UploadCloud, CheckCircle, AlertCircle, AlertOctagon, AlertTriangle, FileText, ChevronLeft, ChevronRight, ChevronDown, Trash2, Upload, ShieldAlert, Check, ArrowRight, ArrowLeft, GitCompare, Zap, Cpu, Pencil, Layers, Split, GripVertical, Sparkles, Info, RotateCcw } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Scatter } from 'recharts';
 import { validateBenchmark, validatePrismUploadStructure } from '../../utils/benchmarkValidator';
-import { parseReportV02, stageToEntry, canonicalStringify, mutateRawReportMetadata } from '../../utils/benchmarkReportV02Parser';
+import { parseReportV02, stageToEntry, canonicalStringify, mutateRawReportMetadata, compareOriginalStageOrder } from '../../utils/benchmarkReportV02Parser';
 import yaml from 'js-yaml';
 import IntelligentRoutingChart from '../IntelligentRoutingChart';
 import { useGitHubAuth } from '../../hooks/useGitHubAuth';
@@ -146,6 +146,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
 
     // Coalescing & Selection states
     const [selectedBundleIds, setSelectedBundleIds] = useState([]);
+    const [confirmDeleteStage, setConfirmDeleteStage] = useState(null);
     const [isConflictModalOpen, setIsConflictModalOpen] = useState(false);
     const [pendingCoalesceBundles, setPendingCoalesceBundles] = useState([]);
     const [draggedStageIndex, setDraggedStageIndex] = useState(null);
@@ -245,7 +246,6 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
         let combinedConfig = null;
         let combinedSummary = null;
 
-        let globalStageIndex = 0;
         targetBundles.forEach(bundle => {
             if (bundle.stageFiles) {
                 combinedStageFiles.push(...bundle.stageFiles);
@@ -270,11 +270,16 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                 });
                 combinedEntries.push({
                     ...entry,
-                    prism_stage_index: globalStageIndex++,
                     run_description: resolvedMetadata.runLabel || entry.run_description,
                     raw_report: mutatedRawReport
                 });
             });
+        });
+
+        // Sort combined entries by original BRV02 stage index / filename and assign sequential prism_stage_index
+        combinedEntries.sort(compareOriginalStageOrder);
+        combinedEntries.forEach((entry, idx) => {
+            entry.prism_stage_index = idx;
         });
 
         const newPayload = {
@@ -589,6 +594,93 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                 }
             };
         }));
+    };
+
+    const isStageOrderingModified = (entries) => {
+        if (!entries || entries.length < 2) return false;
+        const sorted = [...entries].sort(compareOriginalStageOrder);
+        return entries.some((entry, idx) => entry.filename !== sorted[idx].filename || entry.run_uid !== sorted[idx].run_uid || entry.prism_stage_index !== idx);
+    };
+
+    const handleRestoreOriginalStageOrder = (bundleId) => {
+        setStagedFiles(prev => prev.map(bundle => {
+            if (bundle.id !== bundleId || !bundle.payload?.entries || bundle.payload.entries.length < 2) {
+                return bundle;
+            }
+
+            const sortedEntries = [...bundle.payload.entries].sort(compareOriginalStageOrder);
+            const reindexedEntries = sortedEntries.map((entry, idx) => ({
+                ...entry,
+                prism_stage_index: idx
+            }));
+
+            const updatedPayload = {
+                ...bundle.payload,
+                entries: reindexedEntries
+            };
+
+            setStageSortConfig(prevConfig => {
+                const copy = { ...prevConfig };
+                delete copy[bundleId];
+                return copy;
+            });
+
+            const uploadValidation = validatePrismUploadStructure(updatedPayload, { isUpload: false });
+            return {
+                ...bundle,
+                payload: updatedPayload,
+                validation: {
+                    ...bundle.validation,
+                    errors: uploadValidation.errors || [],
+                    warnings: uploadValidation.warnings || [],
+                    fieldErrors: uploadValidation.fieldErrors || {}
+                }
+            };
+        }));
+    };
+
+    const handleDeleteStage = (bundleId, stageIndexToDelete) => {
+        setStagedFiles(prev => {
+            const bundle = prev.find(b => b.id === bundleId);
+            if (!bundle || !bundle.payload?.entries) return prev;
+
+            const remainingEntries = bundle.payload.entries.filter((_, idx) => idx !== stageIndexToDelete);
+            if (remainingEntries.length === 0) {
+                return prev.filter(b => b.id !== bundleId);
+            }
+
+            const reindexedEntries = remainingEntries.map((entry, idx) => ({
+                ...entry,
+                prism_stage_index: idx
+            }));
+
+            const remainingFilenames = new Set(remainingEntries.map(e => e.filename));
+            const updatedStageFiles = (bundle.stageFiles || []).filter(sf => {
+                const fname = sf.file?.name || sf.name || sf.filename || sf.path;
+                return remainingFilenames.has(fname) || remainingEntries.some(e => e.filename?.endsWith(fname));
+            });
+
+            const updatedPayload = {
+                ...bundle.payload,
+                entries: reindexedEntries
+            };
+
+            const uploadValidation = validatePrismUploadStructure(updatedPayload, { isUpload: false });
+            return prev.map(b => {
+                if (b.id !== bundleId) return b;
+                return {
+                    ...b,
+                    stageFiles: updatedStageFiles,
+                    payload: updatedPayload,
+                    validation: {
+                        ...b.validation,
+                        errors: uploadValidation.errors || [],
+                        warnings: uploadValidation.warnings || [],
+                        fieldErrors: uploadValidation.fieldErrors || {}
+                    }
+                };
+            });
+        });
     };
 
     React.useEffect(() => {
@@ -1485,6 +1577,12 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                     }
                 });
             }
+
+            // Sort payload entries by original BRV02 stage index / filename and assign normalized sequential prism_stage_index
+            payloadEntries.sort(compareOriginalStageOrder);
+            payloadEntries.forEach((entry, idx) => {
+                entry.prism_stage_index = idx;
+            });
 
             let initialInferenceTool = "";
             let initialInferenceToolVersion = "";
@@ -2639,7 +2737,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                     {(wizardStep === 1 || wizardStep === 2) && stagedFiles.length > 0 && (
                     <div className={cn(
                         wizardStep === 1 ? (isUploadSidebarCollapsed ? 'w-full' : 'w-2/3 border-l border-slate-900/60') : 'w-full',
-                        'bg-slate-950 overflow-y-auto p-6 relative transition-all duration-300'
+                        'bg-slate-950 overflow-y-auto p-6 pb-24 relative transition-all duration-300'
                     )}>
                         {stagedFiles.length === 0 ? (
                             <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
@@ -2791,7 +2889,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                     const _otherToolsStr = otherTools.length > 0 ? otherTools.join(', ') : 'generic/unknown';
 
                                     return (
-                                        <Panel key={bundle.id} padding="none" className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden shadow-none">
+                                        <Panel key={bundle.id} padding="none" className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-visible shadow-none">
                                             <div 
                                                 className="flex items-center justify-between p-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/50"
                                                 onClick={() => toggleExpand(bundle.id)}
@@ -2897,7 +2995,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                           * Fields marked with "Inferred" are auto-populated by guessing from configuration files and should be verified (these fields will become editable in the next stage).
                                                       </div>
 
-                                                      <div className="mb-4 overflow-hidden border border-slate-800/40 rounded-xl bg-slate-950/40 backdrop-blur-md shadow-sm">
+                                                      <div className="mb-4 overflow-hidden border border-slate-800/40 rounded-xl bg-slate-950/40 shadow-sm">
                                                           <table className="w-full text-left text-xs border-collapse">
                                                               <tbody className="divide-y divide-slate-800/35">
                                                                   <tr className="hover:bg-slate-900/20">
@@ -3316,13 +3414,35 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                     {bundle.payload.entries && bundle.payload.entries.length > 0 && (
                                                         <div>
                                                             <h4 className="font-bold text-slate-300 text-xs uppercase tracking-wider mb-2.5 select-none">Parsed Sub-runs / Stages Validation Checklist ({bundle.payload.entries.length})</h4>
-                                                            <div className="overflow-x-auto border border-slate-900/60 rounded-xl bg-slate-950/20">
+                                                            <div className="overflow-visible border border-slate-900/60 rounded-xl bg-slate-950/20">
                                                                 <table className="w-full text-left text-xs border-collapse">
                                                                     <thead className="bg-[#0b101c]/45 text-slate-400 border-b border-slate-900/80 uppercase tracking-widest text-[9px]">
                                                                         <tr>
-                                                                            <th className="px-2 py-1.5 w-8 text-center"></th>
-                                                                            <th className="px-3 py-1.5 w-12 text-center">Stage</th>
-                                                                            <th className="px-3 py-1.5 text-center">File</th>
+                                                                            <th className="pl-2 pr-0 py-1.5 w-8 text-center"></th>
+                                                                            <th className="px-3 py-1.5 w-14 text-center select-none">
+                                                                                <div className="relative inline-flex items-center justify-center gap-1 group/stage-tooltip cursor-help">
+                                                                                    <span className="underline decoration-dotted underline-offset-4 decoration-slate-500/70 hover:decoration-cyan-400">
+                                                                                        Stage
+                                                                                    </span>
+                                                                                    <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover/stage-tooltip:block w-56 px-2.5 py-1.5 bg-slate-900 border border-slate-700/80 text-slate-200 text-xs rounded-lg shadow-xl z-50 whitespace-normal break-words text-center normal-case tracking-normal font-sans font-normal pointer-events-none">
+                                                                                        <span className="text-[11px] text-slate-300">Stages are automatically sequential and do not reflect the original values.</span>
+                                                                                    </div>
+                                                                                </div>
+                                                                            </th>
+                                                                            <th
+                                                                                onClick={() => handleSortStages(bundle.id, 'filename')}
+                                                                                className="px-3 py-1.5 text-center cursor-pointer hover:text-cyan-400 select-none transition-colors group"
+                                                                                title="Click to sort by file name"
+                                                                            >
+                                                                                <div className="flex items-center justify-center gap-1">
+                                                                                    <span>File</span>
+                                                                                    {stageSortConfig[bundle.id]?.column === 'filename' ? (
+                                                                                        <span className="text-cyan-400 font-bold">{stageSortConfig[bundle.id].direction === 'asc' ? '▲' : '▼'}</span>
+                                                                                    ) : (
+                                                                                        <span className="opacity-0 group-hover:opacity-60 text-slate-500">▲</span>
+                                                                                    )}
+                                                                                </div>
+                                                                            </th>
                                                                             <th
                                                                                 onClick={() => handleSortStages(bundle.id, 'timestamp')}
                                                                                 className="px-3 py-1.5 cursor-pointer hover:text-cyan-400 select-none transition-colors group"
@@ -3365,7 +3485,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                                                     <span className="underline decoration-dotted underline-offset-4 decoration-slate-500/70 hover:decoration-cyan-400">
                                                                                         Latency
                                                                                     </span>
-                                                                                    <div className="absolute right-0 top-full mt-2 hidden group-hover/metric-tooltip:block px-2.5 py-1.5 bg-slate-900 border border-slate-700/80 text-slate-200 text-xs rounded-lg shadow-xl z-50 whitespace-nowrap text-right normal-case tracking-normal font-sans font-normal pointer-events-none">
+                                                                                    <div className="absolute right-0 bottom-full mb-2 hidden group-hover/metric-tooltip:block px-2.5 py-1.5 bg-slate-900 border border-slate-700/80 text-slate-200 text-xs rounded-lg shadow-xl z-50 whitespace-nowrap text-right normal-case tracking-normal font-sans font-normal pointer-events-none">
                                                                                         <span className="text-[11px] text-slate-300">End-to-End Latency</span>
                                                                                     </div>
                                                                                 </div>
@@ -3384,7 +3504,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                                                     <span className="underline decoration-dotted underline-offset-4 decoration-slate-500/70 hover:decoration-cyan-400">
                                                                                         TTFT
                                                                                     </span>
-                                                                                    <div className="absolute right-0 top-full mt-2 hidden group-hover/metric-tooltip:block px-2.5 py-1.5 bg-slate-900 border border-slate-700/80 text-slate-200 text-xs rounded-lg shadow-xl z-50 whitespace-nowrap text-right normal-case tracking-normal font-sans font-normal pointer-events-none">
+                                                                                    <div className="absolute right-0 bottom-full mb-2 hidden group-hover/metric-tooltip:block px-2.5 py-1.5 bg-slate-900 border border-slate-700/80 text-slate-200 text-xs rounded-lg shadow-xl z-50 whitespace-nowrap text-right normal-case tracking-normal font-sans font-normal pointer-events-none">
                                                                                         <span className="text-[11px] text-slate-300">Time to First Token (Prefill)</span>
                                                                                     </div>
                                                                                 </div>
@@ -3403,7 +3523,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                                                     <span className="underline decoration-dotted underline-offset-4 decoration-slate-500/70 hover:decoration-cyan-400">
                                                                                         TPOT
                                                                                     </span>
-                                                                                    <div className="absolute right-0 top-full mt-2 hidden group-hover/metric-tooltip:block px-2.5 py-1.5 bg-slate-900 border border-slate-700/80 text-slate-200 text-xs rounded-lg shadow-xl z-50 whitespace-nowrap text-right normal-case tracking-normal font-sans font-normal pointer-events-none">
+                                                                                    <div className="absolute right-0 bottom-full mb-2 hidden group-hover/metric-tooltip:block px-2.5 py-1.5 bg-slate-900 border border-slate-700/80 text-slate-200 text-xs rounded-lg shadow-xl z-50 whitespace-nowrap text-right normal-case tracking-normal font-sans font-normal pointer-events-none">
                                                                                         <span className="text-[11px] text-slate-300">Time per Output Token (Decode)</span>
                                                                                     </div>
                                                                                 </div>
@@ -3429,12 +3549,54 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                                                         }}
                                                                                         className="hover:bg-slate-900/30 border-b border-slate-900/10 font-medium transition-colors"
                                                                                     >
-                                                                                        <td className="px-2 py-1.5 text-center">
-                                                                                            <div
-                                                                                                className="cursor-grab active:cursor-grabbing p-1 text-slate-500 hover:text-cyan-400 transition-colors inline-block"
-                                                                                                title="Drag to re-order stage"
-                                                                                            >
-                                                                                                <GripVertical size={14} />
+                                                                                        <td className="pl-2 pr-0 py-1.5 text-center">
+                                                                                            <div className="flex items-center justify-center gap-0.5">
+                                                                                                <div
+                                                                                                    className="cursor-grab active:cursor-grabbing p-1 text-slate-500 hover:text-cyan-400 transition-colors inline-block"
+                                                                                                    title="Drag to re-order stage"
+                                                                                                >
+                                                                                                    <GripVertical size={14} />
+                                                                                                </div>
+                                                                                                <div className="relative inline-block">
+                                                                                                    <button
+                                                                                                        onClick={(e) => {
+                                                                                                            e.stopPropagation();
+                                                                                                            if (confirmDeleteStage?.bundleId === bundle.id && confirmDeleteStage?.stageIndex === idx) {
+                                                                                                                setConfirmDeleteStage(null);
+                                                                                                            } else {
+                                                                                                                setConfirmDeleteStage({ bundleId: bundle.id, stageIndex: idx });
+                                                                                                            }
+                                                                                                        }}
+                                                                                                        className="p-1 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors cursor-pointer"
+                                                                                                        title="Delete sub-run stage"
+                                                                                                    >
+                                                                                                        <X size={13} />
+                                                                                                    </button>
+                                                                                                    {confirmDeleteStage?.bundleId === bundle.id && confirmDeleteStage?.stageIndex === idx && (
+                                                                                                        <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 z-50 bg-slate-900 border border-slate-700/90 text-slate-200 rounded-lg shadow-2xl px-2.5 py-1.5 text-xs whitespace-nowrap flex items-center gap-2 normal-case tracking-normal font-sans">
+                                                                                                            <span className="text-[11px] font-medium text-slate-200">Delete stage?</span>
+                                                                                                            <button
+                                                                                                                onClick={(e) => {
+                                                                                                                    e.stopPropagation();
+                                                                                                                    handleDeleteStage(bundle.id, idx);
+                                                                                                                    setConfirmDeleteStage(null);
+                                                                                                                }}
+                                                                                                                className="px-1.5 py-0.5 text-[10px] font-bold bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 rounded transition-colors cursor-pointer"
+                                                                                                            >
+                                                                                                                Delete
+                                                                                                            </button>
+                                                                                                            <button
+                                                                                                                onClick={(e) => {
+                                                                                                                    e.stopPropagation();
+                                                                                                                    setConfirmDeleteStage(null);
+                                                                                                                }}
+                                                                                                                className="px-1.5 py-0.5 text-[10px] font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 rounded transition-colors cursor-pointer"
+                                                                                                            >
+                                                                                                                Cancel
+                                                                                                            </button>
+                                                                                                        </div>
+                                                                                                    )}
+                                                                                                </div>
                                                                                             </div>
                                                                                         </td>
                                                                                         <td className="px-3 py-1.5 text-center font-bold font-mono text-slate-400">{check.stageIndex}</td>
@@ -3447,7 +3609,15 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                                                                 <Info size={15} />
                                                                                             </div>
                                                                                         </td>
-                                                                                        <td className="px-3 py-1.5 font-mono text-[10px] text-slate-400 whitespace-nowrap" title={check.timestamp}>{check.timestamp}</td>
+                                                                                        <td className="px-3 py-1.5 font-mono whitespace-nowrap" title={check.timestamp}>
+                                                                                            {check.timestamp === 'N/A' || !check.timestamp ? (
+                                                                                                <span className="text-amber-400 italic" title="Timestamp missing or unavailable">
+                                                                                                    N/A
+                                                                                                </span>
+                                                                                            ) : (
+                                                                                                <span className="text-slate-400">{check.timestamp}</span>
+                                                                                            )}
+                                                                                        </td>
                                                                                         
                                                                                         <td className="px-3 py-1.5 text-right font-mono">
                                                                                             {check.throughput.isValid ? (
@@ -3502,6 +3672,18 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                                     </tbody>
                                                                 </table>
                                                             </div>
+                                                            {isStageOrderingModified(bundle.payload.entries) && (
+                                                                <div className="flex justify-end mt-2">
+                                                                    <button
+                                                                        onClick={() => handleRestoreOriginalStageOrder(bundle.id)}
+                                                                        className="text-[11px] text-slate-400 hover:text-cyan-400 font-semibold flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900/60 hover:bg-slate-900 border border-slate-800/80 hover:border-cyan-500/40 transition-colors cursor-pointer"
+                                                                        title="Restore initial stage ordering based on original benchmark report stage numbers"
+                                                                    >
+                                                                        <RotateCcw size={12} className="text-cyan-400" />
+                                                                        <span>Restore Original Stage Order</span>
+                                                                    </button>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     )}
 

@@ -1,0 +1,207 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+import assert from 'node:assert';
+import { v4 as uuidv4 } from 'uuid';
+import { validatePrismUploadStructure } from './benchmarkValidator.js';
+import { PrismResultPayloadSchema } from '../../server/results/api.ts';
+import { mutateRawReportMetadata, getOriginalStageIndex, compareOriginalStageOrder } from './benchmarkReportV02Parser.js';
+
+console.log('Running manual benchmark coalescing unit tests...');
+
+// 1. Validate payload schema with prism_stage_index
+const samplePayload = {
+    runId: uuidv4(),
+    runLabel: "Coalesced uBench Multi-Stage Run",
+    model_name: "meta-llama/Llama-3-8B-Instruct",
+    hardware: {
+        hardware_name: "H100",
+        accelerator_count: 8
+    },
+    format: "brv02",
+    entries: [
+        {
+            run_id: uuidv4(),
+            run_description: "Coalesced uBench Multi-Stage Run",
+            filename: "stage_0_report.yaml",
+            prism_stage_index: 0,
+            raw_report: {
+                version: "0.2",
+                workload: { stage: 0 },
+                run: { uid: "ubench-stage-0" },
+                scenario: { model: "meta-llama/Llama-3-8B-Instruct" },
+                results: {
+                    request_performance: {
+                        aggregate: {
+                            throughput: { output_token_rate: { mean: 45.2 } },
+                            latency: { request_latency: { mean: 0.25 }, time_to_first_token: { mean: 0.1 }, time_per_output_token: { mean: 0.02 } }
+                        }
+                    }
+                }
+            }
+        },
+        {
+            run_id: uuidv4(),
+            run_description: "Coalesced uBench Multi-Stage Run",
+            filename: "stage_1_report.yaml",
+            prism_stage_index: 1,
+            raw_report: {
+                version: "0.2",
+                workload: { stage: 1 },
+                run: { uid: "ubench-stage-1" },
+                scenario: { model: "meta-llama/Llama-3-8B-Instruct" },
+                results: {
+                    request_performance: {
+                        aggregate: {
+                            throughput: { output_token_rate: { mean: 55.0 } },
+                            latency: { request_latency: { mean: 0.22 }, time_to_first_token: { mean: 0.09 }, time_per_output_token: { mean: 0.018 } }
+                        }
+                    }
+                }
+            }
+        }
+    ]
+};
+
+// Test Zod schema validation
+const parseResult = PrismResultPayloadSchema.safeParse(samplePayload);
+assert.strictEqual(parseResult.success, true, `Zod validation failed: ${JSON.stringify(parseResult.error?.issues)}`);
+assert.strictEqual(samplePayload.entries[0].prism_stage_index, 0);
+assert.strictEqual(samplePayload.entries[1].prism_stage_index, 1);
+
+// Test validatePrismUploadStructure helper
+const structValidation = validatePrismUploadStructure(samplePayload, { isUpload: false });
+assert.strictEqual(structValidation.isValid, true, `Structure validation failed: ${structValidation.errors?.join(', ')}`);
+
+// 2. Test raw report immutability during stage re-indexing
+const rawReportBefore0 = { ...samplePayload.entries[0].raw_report };
+const reindexedEntries = samplePayload.entries.map((entry, idx) => ({
+    ...entry,
+    prism_stage_index: 1 - idx // reverse ordering
+}));
+
+assert.deepStrictEqual(reindexedEntries[0].raw_report, rawReportBefore0, "Raw report object was mutated during re-indexing");
+assert.strictEqual(reindexedEntries[0].prism_stage_index, 1, "prism_stage_index was not updated");
+assert.strictEqual(reindexedEntries[1].prism_stage_index, 0, "prism_stage_index was not updated");
+
+// 3. Test Auto-Group heuristic grouping logic
+const runA = {
+    id: "run-1",
+    payload: {
+        model_name: "meta-llama/Llama-3-8B-Instruct",
+        hardware: { hardware_name: "H100", accelerator_count: 8 },
+        inference_tool: "vllm"
+    }
+};
+const runB = {
+    id: "run-2",
+    payload: {
+        model_name: "meta-llama/Llama-3-8B-Instruct",
+        hardware: { hardware_name: "H100", accelerator_count: 8 },
+        inference_tool: "vllm"
+    }
+};
+const runC = {
+    id: "run-3",
+    payload: {
+        model_name: "Qwen/Qwen2.5-7B",
+        hardware: { hardware_name: "TPU v6e", accelerator_count: 4 },
+        inference_tool: "tgi"
+    }
+};
+
+const bundles = [runA, runB, runC];
+const groupsMap = new Map();
+bundles.forEach(bundle => {
+    const m = (bundle.payload?.model_name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const h = (bundle.payload?.hardware?.hardware_name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const tool = (bundle.payload?.inference_tool || '').toLowerCase().trim();
+    const key = `${m}::${h}::${tool}`;
+
+    if (!groupsMap.has(key)) {
+        groupsMap.set(key, [bundle]);
+    } else {
+        groupsMap.get(key).push(bundle);
+    }
+});
+
+assert.strictEqual(groupsMap.size, 2, "Auto-grouping did not produce expected number of distinct groups");
+const matchingGroup = Array.from(groupsMap.values()).find(g => g.length === 2);
+assert.notStrictEqual(matchingGroup, undefined, "Auto-grouping failed to match candidate runs");
+assert.strictEqual(matchingGroup.length, 2, "Candidate group does not contain 2 matched runs");
+assert.strictEqual(matchingGroup[0].id, "run-1");
+assert.strictEqual(matchingGroup[1].id, "run-2");
+
+// 4. Test Stage Sorting by Original BRV02 Stage Number & Normalization
+const unsortedEntries = [
+    { filename: "stage_9_report.yaml", raw_report: { workload: { stage: 9 } } },
+    { filename: "stage_3_report.yaml", raw_report: { workload: { stage: 3 } } },
+    { filename: "stage_8_report.yaml", raw_report: { workload: { stage: 8 } } },
+    { filename: "stage_5_report.yaml", raw_report: { workload: { stage: 5 } } }
+];
+
+unsortedEntries.sort(compareOriginalStageOrder);
+unsortedEntries.forEach((entry, idx) => {
+    entry.prism_stage_index = idx;
+});
+
+assert.strictEqual(unsortedEntries[0].raw_report.workload.stage, 3);
+assert.strictEqual(unsortedEntries[0].prism_stage_index, 0);
+
+assert.strictEqual(unsortedEntries[1].raw_report.workload.stage, 5);
+assert.strictEqual(unsortedEntries[1].prism_stage_index, 1);
+
+assert.strictEqual(unsortedEntries[2].raw_report.workload.stage, 8);
+assert.strictEqual(unsortedEntries[2].prism_stage_index, 2);
+
+assert.strictEqual(unsortedEntries[3].raw_report.workload.stage, 9);
+assert.strictEqual(unsortedEntries[3].prism_stage_index, 3);
+
+// 5. Test raw_report metadata mutation synchronization
+const brv02Report = {
+    version: "0.2",
+    run: { uid: "stage-uid-123", description: "Old Run Description" },
+    scenario: {
+        stack: [
+            {
+                standardized: {
+                    role: "aggregate",
+                    model: { name: "qwen3_coder_480b_a35b_instruct-fp8_8k_1k_inference_perf" },
+                    accelerator: { model: "Old Hardware" }
+                }
+            }
+        ],
+        load: {
+            native: {
+                config: {
+                    server: { model_name: "qwen3_coder_480b_a35b_instruct-fp8_8k_1k_inference_perf" }
+                }
+            }
+        }
+    }
+};
+
+const updatedReport = mutateRawReportMetadata(brv02Report, {
+    model_name: "qwen3_coder_480b",
+    hardware_name: "H100",
+    runLabel: "Unified Coalesced Run"
+});
+
+assert.strictEqual(updatedReport.run.uid, "stage-uid-123", "Stage uid was mutated");
+assert.strictEqual(updatedReport.run.description, "Unified Coalesced Run", "Run description was not updated");
+assert.strictEqual(updatedReport.scenario.stack[0].standardized.model.name, "qwen3_coder_480b", "Model name in scenario.stack was not updated");
+assert.strictEqual(updatedReport.scenario.load.native.config.server.model_name, "qwen3_coder_480b", "Model name in load.native was not updated");
+assert.strictEqual(updatedReport.scenario.stack[0].standardized.accelerator.model, "H100", "Hardware in scenario.stack was not updated");
+
+console.log('All manual benchmark coalescing unit tests passed successfully!');
