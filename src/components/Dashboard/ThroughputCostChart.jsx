@@ -29,13 +29,224 @@ export const ThroughputCostChart = (props) => {
         qualityMetrics, allModels, selectedModels, filteredData, getBenchmarkKey, theme,
         isZoomEnabled, setIsZoomEnabled, zoomDomain, setZoomDomain, chartContainerRef,
         isDragging, setIsDragging, lastMouseRef, chartColorMode, setChartColorMode,
-        metricAvailability, filteredBySource, xAxisMax, setXAxisMax, setDebugInfo,
+        metricAvailability, filteredBySource, xAxisMax, setXAxisMax,
         isLogScaleX, setIsLogScaleX, setLatType, selectedBenchmarks,
         baselineBenchmarkKey
     } = props;
 
     // We can infer canShowPerChip
     const [showFilters, setShowFilters] = React.useState(false);
+    const localContainerRef = React.useRef(null);
+    const containerRef = chartContainerRef || localContainerRef;
+    const [pinnedPopover, setPinnedPopover] = React.useState(null);
+    const [hoveredPointCoord, setHoveredPointCoord] = React.useState(null);
+    const pinnedPopoverRef = React.useRef(null);
+
+    const handlePointClick = (e, payloadInfo, benchmarkKey, color, currentXLabel, currentYLabel, chartId) => {
+        if (e && e.stopPropagation) {
+            e.stopPropagation();
+        }
+        const d = payloadInfo?.payload;
+        if (!d) return;
+
+        const cx = payloadInfo?.cx ?? 0;
+        const cy = payloadInfo?.cy ?? 0;
+        const pointColor = color || payloadInfo?.fill || payloadInfo?.stroke || '#38bdf8';
+        const containerWidth = containerRef.current?.offsetWidth || 800;
+
+        setPinnedPopover({
+            d,
+            payload: [{ payload: d, color: pointColor, value: d.vy ?? payloadInfo?.value }],
+            label: d.vx ?? d.time_per_output_token,
+            xLabel: currentXLabel,
+            yLabel: currentYLabel,
+            coordinate: { x: cx, y: cy },
+            containerWidth,
+            chartId
+        });
+    };
+
+    const isPointPinned = (d, key, chartId) => {
+        if (!pinnedPopover || pinnedPopover.chartId !== chartId || !pinnedPopover.d) return false;
+        const p = pinnedPopover.d;
+        if (p === d) return true;
+        return (
+            p.vx === d.vx &&
+            p.vy === d.vy &&
+            (p.benchmarkKey || p.model) === (d.benchmarkKey || key || d.model)
+        );
+    };
+
+    const renderCustomDot = (dotProps, benchmarkKey, color, currentXLabel, currentYLabel, chartId, isBaseline) => {
+        const { cx, cy, payload: d, key } = dotProps;
+        if (cx == null || cy == null || !d) return null;
+
+        const isPinned = isPointPinned(d, benchmarkKey, chartId);
+
+        if (isPinned) {
+            if (isBaseline) {
+                const r = 7.5;
+                const points = [];
+                for (let i = 0; i < 10; i++) {
+                    const angle = (Math.PI / 5) * i - Math.PI / 2;
+                    const radius = i % 2 === 0 ? r : r / 2.4;
+                    points.push(`${cx + radius * Math.cos(angle)},${cy + radius * Math.sin(angle)}`);
+                }
+                return (
+                    <g key={key} style={{ cursor: 'pointer' }} onClick={(e) => handlePointClick(e, dotProps, benchmarkKey, color, currentXLabel, currentYLabel, chartId)}>
+                        <circle cx={cx} cy={cy} r={11} fill="#ef4444" fillOpacity={0.35} />
+                        <polygon
+                            points={points.join(' ')}
+                            fill="#ef4444"
+                            stroke="#ffffff"
+                            strokeWidth={1.8}
+                        />
+                    </g>
+                );
+            }
+
+            return (
+                <g key={key} style={{ cursor: 'pointer' }} onClick={(e) => handlePointClick(e, dotProps, benchmarkKey, color, currentXLabel, currentYLabel, chartId)}>
+                    <circle cx={cx} cy={cy} r={9} fill="#ef4444" fillOpacity={0.35} />
+                    <circle cx={cx} cy={cy} r={6} fill="#ef4444" stroke="#ffffff" strokeWidth={2} />
+                </g>
+            );
+        }
+
+        if (isBaseline) {
+            const r = 6.5;
+            const points = [];
+            for (let i = 0; i < 10; i++) {
+                const angle = (Math.PI / 5) * i - Math.PI / 2;
+                const radius = i % 2 === 0 ? r : r / 2.4;
+                points.push(`${cx + radius * Math.cos(angle)},${cy + radius * Math.sin(angle)}`);
+            }
+            return (
+                <polygon
+                    key={key}
+                    points={points.join(' ')}
+                    fill={color}
+                    stroke={theme === 'dark' ? '#0f172a' : '#ffffff'}
+                    strokeWidth={1.2}
+                    style={{ cursor: 'pointer' }}
+                    onClick={(e) => handlePointClick(e, dotProps, benchmarkKey, color, currentXLabel, currentYLabel, chartId)}
+                />
+            );
+        }
+
+        if (showDataLabels) {
+            return (
+                <circle
+                    key={key}
+                    cx={cx}
+                    cy={cy}
+                    r={3.5}
+                    fill={color}
+                    strokeWidth={0}
+                    style={{ cursor: 'pointer' }}
+                    onClick={(e) => handlePointClick(e, dotProps, benchmarkKey, color, currentXLabel, currentYLabel, chartId)}
+                />
+            );
+        }
+
+        return (
+            <circle
+                key={key}
+                cx={cx}
+                cy={cy}
+                r={4}
+                fill={color}
+                fillOpacity={0.45}
+                stroke={color}
+                strokeWidth={1}
+                style={{ cursor: 'pointer' }}
+                onClick={(e) => handlePointClick(e, dotProps, benchmarkKey, color, currentXLabel, currentYLabel, chartId)}
+            />
+        );
+    };
+
+    const renderActiveDot = (props, benchmarkKey, color, currentXLabel, currentYLabel, chartId) => {
+        const { cx, cy, payload: d, key } = props;
+        if (cx == null || cy == null || !d) return null;
+
+        if (hoveredPointCoord?.x !== cx || hoveredPointCoord?.y !== cy || hoveredPointCoord?.chartId !== chartId) {
+            setHoveredPointCoord({ x: cx, y: cy, chartId });
+        }
+
+        const isPinned = isPointPinned(d, benchmarkKey, chartId);
+
+        if (pinnedPopover && pinnedPopover.chartId === chartId) {
+            if (isPinned) {
+                return (
+                    <g key={key} style={{ cursor: 'pointer' }} onClick={(e) => handlePointClick(e, props, benchmarkKey, color, currentXLabel, currentYLabel, chartId)}>
+                        <circle cx={cx} cy={cy} r={9} fill="#ef4444" fillOpacity={0.35} />
+                        <circle cx={cx} cy={cy} r={6} fill="#ef4444" stroke="#ffffff" strokeWidth={2} />
+                    </g>
+                );
+            }
+            return (
+                <circle
+                    key={key}
+                    cx={cx}
+                    cy={cy}
+                    r={5}
+                    fill={color}
+                    stroke="#ffffff"
+                    strokeWidth={1.5}
+                    style={{ cursor: 'pointer' }}
+                    onClick={(e) => handlePointClick(e, props, benchmarkKey, color, currentXLabel, currentYLabel, chartId)}
+                />
+            );
+        }
+
+        return (
+            <circle
+                key={key}
+                cx={cx}
+                cy={cy}
+                r={6}
+                fill="#ef4444"
+                stroke="#ffffff"
+                strokeWidth={2}
+                style={{ cursor: 'pointer' }}
+                onClick={(e) => handlePointClick(e, props, benchmarkKey, color, currentXLabel, currentYLabel, chartId)}
+            />
+        );
+    };
+
+    React.useEffect(() => {
+        if (!pinnedPopover) return;
+
+        const handleClickOutside = (event) => {
+            if (pinnedPopoverRef.current && pinnedPopoverRef.current.contains(event.target)) {
+                return;
+            }
+            if (event.target.closest && event.target.closest('.recharts-active-dot, .recharts-dot, svg circle, svg polygon, svg path')) {
+                return;
+            }
+            setPinnedPopover(null);
+        };
+
+        const handleKeyDown = (event) => {
+            if (event.key === 'Escape') {
+                setPinnedPopover(null);
+            }
+        };
+
+        const timer = setTimeout(() => {
+            document.addEventListener('mousedown', handleClickOutside);
+            document.addEventListener('click', handleClickOutside);
+            document.addEventListener('keydown', handleKeyDown);
+        }, 0);
+
+        return () => {
+            clearTimeout(timer);
+            document.removeEventListener('mousedown', handleClickOutside);
+            document.removeEventListener('click', handleClickOutside);
+            document.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [pinnedPopover]);
+
     const validData = filteredBySource.filter(d => selectedModels.has(d.model));
     const canShowPerChip = validData.every(d => d.accelerator_count > 0);
 
@@ -820,16 +1031,17 @@ export const ThroughputCostChart = (props) => {
                                 )}
 
                                 <div 
-                                    ref={chartContainerRef}
+                                    ref={containerRef}
                                     className={cn('relative w-full h-[55vh] select-none', isZoomEnabled && isDragging ? 'cursor-grabbing' : 'cursor-default')}
                                     onWheel={handleWheel}
                                     onMouseDown={handleMouseDown}
                                     onMouseMove={handleMouseMove}
                                     onMouseUp={handleMouseUp}
                                     onMouseLeave={handleMouseUp}
-                                >
+                                 >
+
                                     <ResponsiveContainer width="100%" height="100%">
-                                        <LineChart margin={{ top: 25, right: 20, left: 35, bottom: 25 }}>
+                                        <LineChart margin={{ top: 25, right: 20, left: 35, bottom: 25 }} onMouseLeave={() => setHoveredPointCoord(null)}>
                                             <CartesianGrid {...gridProps()} opacity={0.35} />
                                             <ChartXAxis
                                                 type="number"
@@ -864,17 +1076,24 @@ export const ThroughputCostChart = (props) => {
                                                 }}
                                             />
                                             <Tooltip
+                                                allowEscapeViewBox={{ x: true, y: true }}
+                                                active={pinnedPopover && pinnedPopover.chartId === 'drawer' ? true : undefined}
+                                                position={pinnedPopover && pinnedPopover.chartId === 'drawer' ? pinnedPopover.coordinate : (hoveredPointCoord && hoveredPointCoord.chartId === 'drawer' ? { x: hoveredPointCoord.x, y: hoveredPointCoord.y } : undefined)}
                                                 content={<CustomChartTooltip
-                                                    xLabel={xLabel}
-                                                    yLabel={yLabel}
-                                                    costMode={costMode}
+                                                    xLabel={pinnedPopover && pinnedPopover.chartId === 'drawer' ? pinnedPopover.xLabel : xLabel}
+                                                    yLabel={pinnedPopover && pinnedPopover.chartId === 'drawer' ? pinnedPopover.yLabel : yLabel}
                                                     qualityMetrics={qualityMetrics}
                                                     baselineBenchmarkKey={baselineBenchmarkKey}
                                                     baselineSeries={baselineSeries}
+                                                    isPinned={!!(pinnedPopover && pinnedPopover.chartId === 'drawer')}
+                                                    pinnedPayload={pinnedPopover && pinnedPopover.chartId === 'drawer' ? pinnedPopover.payload : undefined}
+                                                    pinnedLabel={pinnedPopover && pinnedPopover.chartId === 'drawer' ? pinnedPopover.label : undefined}
+                                                    onClose={() => setPinnedPopover(null)}
                                                 />}
-                                                wrapperStyle={{ outline: 'none', zIndex: 100 }}
+                                                wrapperStyle={{ outline: 'none', zIndex: 100000 }}
                                                 cursor={{ stroke: '#475569', strokeWidth: 1, strokeDasharray: '4 4' }}
-                                                animationDuration={150}
+                                                animationDuration={0}
+                                                isAnimationActive={false}
                                             />
 
                                             {uniqueBenchmarks.map((benchmarkKey) => {
@@ -918,10 +1137,11 @@ export const ThroughputCostChart = (props) => {
                                                          stroke={color} 
                                                          strokeWidth={isBaseline ? 2.5 : 2} 
                                                          strokeDasharray={isBaseline ? "4 4" : "0"}
-                                                         dot={showDataLabels ? { r: 3, fill: color, strokeWidth: 0 } : false} 
+                                                         dot={(props) => renderCustomDot(props, benchmarkKey, color, xLabel, yLabel, 'drawer', isBaseline)}
+                                                         activeDot={(props) => renderActiveDot(props, benchmarkKey, color, xLabel, yLabel, 'drawer')}
                                                          label={(props) => <CustomLabel {...props} lastIndex={lineData.length - 1} text={smartLabels[benchmarkKey] || displayName} stroke={color} showLineLabel={showLabels} showDataLabels={showDataLabels} dataPoint={lineData[props.index]} />}
                                                          isAnimationActive={false}
-                                                     />
+                                                    />
                                                 );
                                             })}
 
@@ -1078,14 +1298,14 @@ export const ThroughputCostChart = (props) => {
                     </div>
                   </div>
                   <div
-                      ref={chartContainerRef}
+                      ref={containerRef}
                       className={cn('relative w-full min-h-[450px] h-[60vh] select-none', isZoomEnabled && isDragging ? 'cursor-grabbing' : 'cursor-default')}
                       onWheel={handleWheel}
                       onMouseDown={handleMouseDown}
                       onMouseMove={handleMouseMove}
                       onMouseUp={handleMouseUp}
-                      onMouseLeave={handleMouseUp}
                   >
+
                       {zoomDomain && (
                           <Button
                               variant="secondary"
@@ -1098,7 +1318,7 @@ export const ThroughputCostChart = (props) => {
                       )}
                       
                       <ResponsiveContainer width="100%" height="100%">
-                        <LineChart margin={{ top: 45, right: 30, left: 60, bottom: 45 }}>
+                        <LineChart margin={{ top: 45, right: 30, left: 60, bottom: 45 }} onMouseLeave={() => setHoveredPointCoord(null)}>
                           <CartesianGrid {...gridProps()} opacity={0.5} />
                           <ChartXAxis
                             type="number"
@@ -1135,17 +1355,24 @@ export const ThroughputCostChart = (props) => {
                             }}
                           />
                           <Tooltip
+                            allowEscapeViewBox={{ x: true, y: true }}
+                            active={pinnedPopover && pinnedPopover.chartId === 'main' ? true : undefined}
+                            position={pinnedPopover && pinnedPopover.chartId === 'main' ? pinnedPopover.coordinate : (hoveredPointCoord && hoveredPointCoord.chartId === 'main' ? { x: hoveredPointCoord.x, y: hoveredPointCoord.y } : undefined)}
                             content={<CustomChartTooltip
-                                xLabel={config.xLabel}
-                                yLabel={config.yLabel}
-                                costMode={costMode}
+                                xLabel={pinnedPopover && pinnedPopover.chartId === 'main' ? pinnedPopover.xLabel : config.xLabel}
+                                yLabel={pinnedPopover && pinnedPopover.chartId === 'main' ? pinnedPopover.yLabel : config.yLabel}
                                 qualityMetrics={qualityMetrics}
                                 baselineBenchmarkKey={baselineBenchmarkKey}
                                 baselineSeries={baselineSeries}
+                                isPinned={!!(pinnedPopover && pinnedPopover.chartId === 'main')}
+                                pinnedPayload={pinnedPopover && pinnedPopover.chartId === 'main' ? pinnedPopover.payload : undefined}
+                                pinnedLabel={pinnedPopover && pinnedPopover.chartId === 'main' ? pinnedPopover.label : undefined}
+                                onClose={() => setPinnedPopover(null)}
                             />}
-                            wrapperStyle={{ outline: 'none', zIndex: 100 }}
+                            wrapperStyle={{ outline: 'none', zIndex: 100000 }}
                             cursor={{ stroke: '#94a3b8', strokeWidth: 1, strokeDasharray: '4 4' }}
-                            animationDuration={200}
+                            animationDuration={0}
+                            isAnimationActive={false}
                           />
     
                           {uniqueBenchmarks.map((benchmarkKey) => {
@@ -1193,26 +1420,6 @@ export const ThroughputCostChart = (props) => {
                               }
 
                               const isBaseline = benchmarkKey === baselineBenchmarkKey;
-                              const starDot = ({ cx, cy, key }) => {
-                                  if (cx == null || cy == null) return null;
-                                  const r = 6.5;
-                                  // 5-point star path centered at (cx, cy)
-                                  const points = [];
-                                  for (let i = 0; i < 10; i++) {
-                                      const angle = (Math.PI / 5) * i - Math.PI / 2;
-                                      const radius = i % 2 === 0 ? r : r / 2.4;
-                                      points.push(`${cx + radius * Math.cos(angle)},${cy + radius * Math.sin(angle)}`);
-                                  }
-                                  return (
-                                      <polygon
-                                          key={key}
-                                          points={points.join(' ')}
-                                          fill={color}
-                                          stroke={theme === 'dark' ? '#0f172a' : '#ffffff'}
-                                          strokeWidth={1.2}
-                                      />
-                                  );
-                              };
 
                               return (
                               <Line
@@ -1224,27 +1431,10 @@ export const ThroughputCostChart = (props) => {
                                 stroke={color}
                                 strokeDasharray="0"
                                 strokeWidth={isBaseline ? 3.5 : 2}
-                                dot={isBaseline ? starDot : true}
+                                dot={(props) => renderCustomDot(props, benchmarkKey, color, config.xLabel, config.yLabel, 'main', isBaseline)}
                                 isAnimationActive={false}
                                 label={(props) => <CustomLabel {...props} lastIndex={lineData.length - 1} text={smartLabels[benchmarkKey] || displayName} stroke={color} showLineLabel={showLabels} showDataLabels={showDataLabels} dataPoint={lineData[props.index]} />}
-                                activeDot={{
-                                    r: 6,
-                                    fill: "#ef4444",
-                                    stroke: "#fff",
-                                    strokeWidth: 2,
-                                    style: { cursor: 'pointer' },
-                                    onClick: (_, payload) => {
-                                        const d = payload.payload;
-                                        setDebugInfo({
-                                            title: `Data Inspector: ${d.model}`,
-                                            url: d.raw_url,
-                                            content: `=== NORMALIZED DATA ===\n${JSON.stringify(d, (key, value) => {
-                                                if (['vx', 'vy'].includes(key)) return undefined;
-                                                return key === '_raw' ? undefined : value;
-                                            }, 2)}\n\n=== ORIGINAL SOURCE ===\n${JSON.stringify(d._raw || "Original source not available", null, 2)}`
-                                        });
-                                    }
-                                }}
+                                activeDot={(props) => renderActiveDot(props, benchmarkKey, color, config.xLabel, config.yLabel, 'main')}
                               />
                               );
                           })}

@@ -42,16 +42,96 @@ const yMetricIsHigherBetter = (yLabel) => {
     return true;
 };
 
-export const CustomChartTooltip = ({ active, payload, label, xLabel, yLabel, costMode, qualityMetrics, baselineBenchmarkKey, baselineSeries }) => {
-    if (!active || !payload || !payload.length) return null;
+const getRightBoundaryLimit = (el) => {
+    let rightLimit = window.innerWidth;
+
+    // 1. If popover is inside a dialog/drawer, clip to that dialog's right edge
+    const containingDialog = el.closest('.fixed.right-4, .fixed.right-0, [role="dialog"]');
+    if (containingDialog) {
+        return containingDialog.getBoundingClientRect().right - 12;
+    }
+
+    // 2. If a right-side sidebar/panel is visible on screen, use its left edge
+    const rightSidebars = document.querySelectorAll('.fixed.right-4, .fixed.right-0, aside.right-0');
+    for (const sidebar of rightSidebars) {
+        const sRect = sidebar.getBoundingClientRect();
+        if (sRect.width > 0 && sRect.left > 200 && sRect.left < rightLimit) {
+            rightLimit = sRect.left;
+        }
+    }
+
+    // 3. Fallback to chart container right edge if smaller
+    const chartContainer = el.closest('.relative');
+    if (chartContainer) {
+        const cRect = chartContainer.getBoundingClientRect();
+        if (cRect.right > 0 && cRect.right < rightLimit) {
+            rightLimit = cRect.right;
+        }
+    }
+
+    return rightLimit - 12;
+};
+
+const getLeftBoundaryLimit = (el) => {
+    let leftLimit = 12;
+
+    const containingDialog = el.closest('.fixed.right-4, .fixed.right-0, [role="dialog"]');
+    if (containingDialog) {
+        return containingDialog.getBoundingClientRect().left + 12;
+    }
+
+    const chartContainer = el.closest('.relative');
+    if (chartContainer) {
+        const cRect = chartContainer.getBoundingClientRect();
+        if (cRect.left > leftLimit) {
+            leftLimit = cRect.left + 12;
+        }
+    }
+
+    return leftLimit;
+};
+
+export const CustomChartTooltip = ({ active, payload, label, xLabel, yLabel, qualityMetrics, baselineBenchmarkKey, baselineSeries, isPinned, pinnedPayload, pinnedLabel, coordinate }) => {
+    const effectivePayload = (isPinned && pinnedPayload && pinnedPayload.length) ? pinnedPayload : payload;
+    const effectiveLabel = (isPinned && pinnedLabel !== undefined) ? pinnedLabel : label;
+
+    const tooltipRef = React.useRef(null);
+    const [flipLeft, setFlipLeft] = React.useState(false);
+
+    React.useLayoutEffect(() => {
+        if (!tooltipRef.current) return;
+        const el = tooltipRef.current;
+        const rect = el.getBoundingClientRect();
+
+        const rightLimit = getRightBoundaryLimit(el);
+        const leftLimit = getLeftBoundaryLimit(el);
+
+        if (!flipLeft) {
+            const flippedLeft = rect.left - rect.width - 24;
+            if (rect.right > rightLimit && flippedLeft >= leftLimit) {
+                setFlipLeft(true);
+            }
+        } else {
+            const unflippedRight = rect.right + rect.width + 24;
+            if (rect.left < leftLimit || unflippedRight <= rightLimit) {
+                setFlipLeft(false);
+            }
+        }
+    }, [active, isPinned, effectivePayload, effectiveLabel, coordinate, flipLeft]);
+
+    if ((!active && !isPinned) || !effectivePayload || !effectivePayload.length) return null;
 
     // Sort payload by value (descending)
-    const sortedPayload = [...payload].sort((a, b) => b.value - a.value);
+    const sortedPayload = [...effectivePayload].sort((a, b) => b.value - a.value);
     const higherIsBetter = yMetricIsHigherBetter(yLabel);
 
     return (
-        <div className="bg-white/95 dark:bg-slate-900/95 border border-slate-200 dark:border-slate-700/50 rounded-xl shadow-2xl p-4 min-w-[320px] backdrop-blur-md text-slate-900 dark:text-slate-100 z-[100]">
-            <div className="space-y-6">
+        <div
+            ref={tooltipRef}
+            className="bg-white/95 dark:bg-slate-900/95 border border-slate-200 dark:border-slate-700/50 rounded-xl shadow-2xl p-2.5 min-w-[260px] backdrop-blur-md text-slate-900 dark:text-slate-100 z-[100000]"
+            style={flipLeft ? { transform: 'translateX(calc(-100% - 24px))' } : undefined}
+        >
+            <div className="space-y-2">
                 {sortedPayload.map((entry, index) => {
                      const d = entry.payload;
                      const meta = d.metadata || {};
@@ -61,15 +141,16 @@ export const CustomChartTooltip = ({ active, payload, label, xLabel, yLabel, cos
                      const accelerator = d.accelerator_type || meta.accelerator_type || meta.accelerator;
                      const chips = meta.accelerator_count || d.accelerator_count || getAcceleratorCount(d);
                      const tp = d.tp || meta.tensor_parallelism || d.tensor_parallelism;
-                     const precision = d.precision || meta.precision;
-                     const isl = d.workload?.input_tokens ?? d.isl ?? meta.input_seq_len;
-                     const osl = d.workload?.output_tokens ?? d.osl ?? meta.output_seq_len;
+                     const rawIsl = d.workload?.input_tokens ?? d.isl ?? meta.input_seq_len;
+                     const rawOsl = d.workload?.output_tokens ?? d.osl ?? meta.output_seq_len;
+                     const formatSeqNum = (val) => {
+                         if (val == null || val === '' || isNaN(Number(val))) return null;
+                         const n = Number(val);
+                         return Number.isInteger(n) ? n.toString() : Number(n.toFixed(2)).toString();
+                     };
+                     const isl = formatSeqNum(rawIsl);
+                     const osl = formatSeqNum(rawOsl);
                      const seqLen = (isl && osl) ? `${isl} / ${osl}` : null;
-                     const source = d.source_info?.type || d.source;
-                     const qps = d.qps ?? meta.qps ?? d.workload?.qps;
-                     const isInterpolated = !!(d.interpolated || meta.interpolated);
-                     const ttft = d.ttft ?? meta.ttft ?? (d.metrics?.ttft?.value || null);
-                     const itl = d.itl ?? meta.itl ?? (d.metrics?.itl?.value || null);
                      
                      // Format X-Value logic
                      const formattedXValue = (() => {
@@ -86,97 +167,83 @@ export const CustomChartTooltip = ({ active, payload, label, xLabel, yLabel, cos
                      const isDisaggregated = (meta.prefill_node_count > 0 || meta.decode_node_count > 0);
 
                     return (
-                        <div key={index} className="flex flex-col gap-2">
+                        <div key={index} className="flex flex-col">
                              {/* Series Header */}
-                            <div className="flex items-start gap-3 mb-1">
-                                 <div className="w-3 h-3 rounded-full mt-1.5 shrink-0 shadow-sm" style={{ backgroundColor: entry.color, boxShadow: `0 0 6px ${entry.color}60` }} />
-                                 <div className="flex-1 overflow-hidden">
-                                     <h4 className="font-bold text-lg leading-tight truncate" title={d.model}>
-                                        {d.model_name || d.model}
-                                     </h4>
-                                     <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-mono truncate">
-                                        {hardware !== 'Unknown' ? hardware : ''} 
-                                        {machine && machine !== hardware ? ` • ${machine}` : ''}
-                                     </div>
-                                     <div className="text-[10px] text-orange-500/90 dark:text-orange-400 mt-0.5 font-mono font-medium">
-                                        Source: {source}
+                            <div className="flex items-start justify-between gap-2.5 pb-0.5">
+                                 <div className="flex items-start gap-2 min-w-0 flex-1">
+                                     <div className="w-2.5 h-2.5 rounded-full mt-0.5 shrink-0 shadow-sm" style={{ backgroundColor: entry.color, boxShadow: `0 0 6px ${entry.color}60` }} />
+                                     <div className="flex-1 overflow-hidden">
+                                         <h4 className="font-bold text-xs leading-tight truncate" title={d.model}>
+                                            {d.model_name || d.model}
+                                         </h4>
+                                         {((hardware && hardware !== 'Unknown') || (machine && machine !== hardware)) && (
+                                             <div className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate leading-tight mt-0.5">
+                                                {hardware !== 'Unknown' ? hardware : ''} 
+                                                {machine && machine !== hardware ? ` • ${machine}` : ''}
+                                             </div>
+                                         )}
                                      </div>
                                  </div>
                             </div>
 
-                            {/* Divider */}
-                            <div className="border-b border-slate-100 dark:border-slate-800/60 my-1"></div>
+                            {/* Metadata Rows */}
+                            <Row label="Accelerator" value={accelerator || hardware} />
+                            {isDisaggregated ? (
+                               <Row label="Nodes (P/D)" value={`P:${meta.prefill_node_count}(TP${meta.prefill_tp}) | D:${meta.decode_node_count}(TP${meta.decode_tp})`} />
+                            ) : (
+                               <>
+                                   <Row label="Chips" value={chips} />
+                                   <Row label="TP" value={tp} />
+                                   {config && config !== 'Unknown' && <Row label="Config" value={config} />}
+                               </>
+                            )}
+                            <Row label="Seq Len (I/O)" value={seqLen} />
 
-                            {/* Content Grid */}
-                            <div className="space-y-1 mb-2">
-                                 <Row label="Accelerator" value={accelerator || hardware} />
-                                 {isDisaggregated ? (
+                            {/* Chart Metric Rows */}
+                            <Row label={xLabel} value={formattedXValue} />
+                            <Row
+                                label={yLabel}
+                                value={
                                     <>
-                                        <Row label="Nodes (P/D)" value={`P:${meta.prefill_node_count}(TP${meta.prefill_tp}) | D:${meta.decode_node_count}(TP${meta.decode_tp})`} />
-                                    </>
-                                 ) : (
-                                    <>
-                                        <Row label="Chips" value={chips} />
-                                        <Row label="TP" value={tp} />
-                                        {config && config !== 'Unknown' && <Row label="Config" value={config} />}
-                                    </>
-                                 )}
-                                 <Row label="Seq Len (I/O)" value={seqLen} />
-                                 <Row label="Source" value={source} />
-                            </div>
-
-                             {/* Metrics */}
-                            <div className="space-y-1 pt-2 border-t border-slate-100 dark:border-slate-800/60">
-                                {/* X-Axis Metric */}
-                                <div className="flex justify-between items-baseline">
-                                     <span className="text-slate-500 dark:text-slate-400 font-bold text-sm">{xLabel}:</span>
-                                     <span className="text-slate-900 dark:text-white font-bold font-mono text-lg">
-                                        {formattedXValue}
-                                     </span>
-                                </div>
-                                {/* Y-Axis Metric */}
-                                <div className="flex justify-between items-baseline">
-                                    <span className="text-slate-500 dark:text-slate-400 font-bold text-sm">{yLabel}:</span>
-                                    <span className="text-slate-900 dark:text-white font-bold font-mono text-xl">
                                         {Number(entry.value).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                                         {yLabel.includes('Cost') && d.metrics?.cost?.source === 'derived_constant_product' && (
                                             <span className="text-[10px] text-amber-500 ml-1 font-normal align-top">(Est)</span>
                                         )}
-                                    </span>
-                                </div>
+                                    </>
+                                }
+                            />
 
-                                {/* %diff vs baseline (when set, and this point isn't the baseline itself) */}
-                                {(() => {
-                                    if (!baselineBenchmarkKey || !baselineSeries || baselineSeries.length === 0) return null;
-                                    if (d.benchmarkKey === baselineBenchmarkKey) {
-                                        return (
-                                            <div className="flex justify-between items-baseline">
-                                                <span className="text-cyan-500 dark:text-cyan-400 font-bold text-xs uppercase tracking-wider">★ Baseline</span>
-                                            </div>
-                                        );
-                                    }
-                                    const baseY = baselineYNearX(baselineSeries, d.vx);
-                                    if (baseY == null || baseY === 0) return null;
-                                    const diff = ((Number(entry.value) - baseY) / Math.abs(baseY)) * 100;
-                                    const isNeutral = Math.abs(diff) < 0.1;
-                                    const isImprovement = higherIsBetter === null ? null : (higherIsBetter ? diff > 0 : diff < 0);
-                                    const color = isNeutral
-                                        ? 'text-slate-400'
-                                        : isImprovement === null
-                                            ? 'text-slate-400'
-                                            : isImprovement
-                                                ? 'text-emerald-500 dark:text-emerald-400'
-                                                : 'text-red-500 dark:text-red-400';
+                            {/* %diff vs baseline */}
+                            {(() => {
+                                if (!baselineBenchmarkKey || !baselineSeries || baselineSeries.length === 0) return null;
+                                if (d.benchmarkKey === baselineBenchmarkKey) {
                                     return (
-                                        <div className="flex justify-between items-baseline">
-                                            <span className="text-slate-400 dark:text-slate-500 font-medium text-xs">vs baseline:</span>
-                                            <span className={`font-mono text-sm font-bold ${color}`}>
-                                                {diff > 0 ? '+' : ''}{diff.toFixed(1)}%
-                                            </span>
+                                        <div className="flex justify-between items-center text-xs leading-tight py-0.5">
+                                            <span className="text-cyan-500 dark:text-cyan-400 font-bold uppercase tracking-wider">★ Baseline</span>
                                         </div>
                                     );
-                                })()}
-                            </div>
+                                }
+                                const baseY = baselineYNearX(baselineSeries, d.vx);
+                                if (baseY == null || baseY === 0) return null;
+                                const diff = ((Number(entry.value) - baseY) / Math.abs(baseY)) * 100;
+                                const isNeutral = Math.abs(diff) < 0.1;
+                                const isImprovement = higherIsBetter === null ? null : (higherIsBetter ? diff > 0 : diff < 0);
+                                const color = isNeutral
+                                    ? 'text-slate-400'
+                                    : isImprovement === null
+                                        ? 'text-slate-400'
+                                        : isImprovement
+                                            ? 'text-emerald-500 dark:text-emerald-400'
+                                            : 'text-red-500 dark:text-red-400';
+                                return (
+                                    <div className="flex justify-between items-center text-xs leading-tight py-0.5">
+                                        <span className="text-slate-500 dark:text-slate-400 font-normal">vs baseline:</span>
+                                        <span className={`font-mono text-xs font-bold ${color}`}>
+                                            {diff > 0 ? '+' : ''}{diff.toFixed(1)}%
+                                        </span>
+                                    </div>
+                                );
+                            })()}
                             
                             {/* Quality Metrics */}
                             {(() => {
@@ -193,23 +260,14 @@ export const CustomChartTooltip = ({ active, payload, label, xLabel, yLabel, cos
                                 };
 
                                 return (
-                                    <div className="space-y-1 pt-2 border-t border-slate-100 dark:border-slate-800/60 mt-2">
+                                    <>
                                         {Object.entries(qData).map(([key, value]) => {
                                             if (key === 'timestamp' || key === 'id') return null;
-                                            
                                             const isPercentage = key.includes('mmlu') || key.includes('bench');
                                             const displayValue = isPercentage ? `${value}%` : value;
-
-                                            return (
-                                                <div key={key} className="flex justify-between items-baseline">
-                                                    <span className="text-indigo-500 dark:text-indigo-400 font-bold text-xs uppercase tracking-wider">{formatLabel(key)}:</span>
-                                                    <span className="text-slate-900 dark:text-white font-bold font-mono text-sm">
-                                                        {displayValue || 'N/A'}
-                                                    </span>
-                                                </div>
-                                            );
+                                            return <Row key={key} label={formatLabel(key)} value={displayValue || 'N/A'} />;
                                         })}
-                                    </div>
+                                    </>
                                 );
                             })()}
                         </div>

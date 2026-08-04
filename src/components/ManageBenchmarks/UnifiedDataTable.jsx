@@ -237,12 +237,13 @@ export const UnifiedDataTable = (props) => {
     const [dragBox, setDragBox] = useState(null);
     const dragActionSelect = React.useRef(true);
     const initialSelection = React.useRef(new Set());
+    const lastSelectedKeyRef = React.useRef(null);
 
     const {
         defaultSources = new Set(['llm-d-benchmarks', 'llm-d-benchmarks-staging']),
         modelStats, selectedModels, filteredBySource, showSelectedOnly: propShowSelectedOnly, setShowSelectedOnly,
         selectedBenchmarks, setSelectedBenchmarks, setActiveFilters, expandedModels,
-        toggleBenchmark, toggleModelExpansion,
+        _toggleBenchmark, toggleModelExpansion,
         baselineBenchmarkKey, setBaselineBenchmarkKey,
         hideShowSelectedOnly = false,
         renameClearToUnselectAll = false,
@@ -268,10 +269,11 @@ export const UnifiedDataTable = (props) => {
             hardware: true,
             timestamp: true,
             stage: true,
-            nodes: false,
+            nodes: true,
+            model: true,
             islOsl: false,
-            maxTput: true,
-            minLat: true,
+            maxTput: false,
+            minLat: false,
             qps: false,
             inputTput: false,
             outputTput: false,
@@ -583,6 +585,7 @@ export const UnifiedDataTable = (props) => {
                 }
             }
         });
+        lastSelectedKeyRef.current = null;
         setSelectedBenchmarks(new Set());
     };
 
@@ -773,22 +776,50 @@ export const UnifiedDataTable = (props) => {
             currentY: e.clientY
         });
 
+        const isShift = e.shiftKey;
+
+        // Shift + Click Range Selection (relative to last selected item)
+        if (isShift && lastSelectedKeyRef.current) {
+            const lastIdx = visibleStatsList.findIndex(s => s.benchmarkKey === lastSelectedKeyRef.current);
+            const targetIdx = visibleStatsList.findIndex(s => s.benchmarkKey === key);
+
+            if (lastIdx !== -1 && targetIdx !== -1) {
+                const startIdx = Math.min(lastIdx, targetIdx);
+                const endIdx = Math.max(lastIdx, targetIdx);
+                const rangeKeys = visibleStatsList.slice(startIdx, endIdx + 1).map(s => s.benchmarkKey);
+
+                const willSelect = !isCurrentlySelected;
+                const newSelected = new Set(selectedBenchmarks);
+                if (willSelect) {
+                    rangeKeys.forEach(k => newSelected.add(k));
+                } else {
+                    rangeKeys.forEach(k => newSelected.delete(k));
+                }
+
+                lastSelectedKeyRef.current = key;
+                initialSelection.current = new Set(newSelected);
+                dragActionSelect.current = willSelect;
+                setSelectedBenchmarks(newSelected);
+                setIsDraggingSelection(true);
+                return;
+            }
+        }
+
+        // Single click (or Shift + Click when no previous item exists)
         const willSelect = !isCurrentlySelected;
         dragActionSelect.current = willSelect;
-        
-        // Take a snapshot of the selection BEFORE this click so that the
-        // pointermove loop can cleanly apply additions/deletions onto it.
-        initialSelection.current = new Set(selectedBenchmarks);
-        
+        lastSelectedKeyRef.current = key;
+
+        let newSelected = new Set(selectedBenchmarks);
+        if (willSelect) {
+            newSelected.add(key);
+        } else {
+            newSelected.delete(key);
+        }
+
+        initialSelection.current = new Set(newSelected);
+        setSelectedBenchmarks(newSelected);
         setIsDraggingSelection(true);
-        
-        // Immediately toggle the one we pressed on
-        setSelectedBenchmarks(prev => {
-            const newSelected = new Set(prev);
-            if (willSelect) newSelected.add(key);
-            else newSelected.delete(key);
-            return newSelected;
-        });
     };
 
 
@@ -801,6 +832,7 @@ export const UnifiedDataTable = (props) => {
     };
 
     const clearFilters = () => {
+        lastSelectedKeyRef.current = null;
         setActiveFilters({
             models: new Set(), hardware: new Set(), machines: new Set(), precisions: new Set(),
             tp: new Set(), isl: new Set(), osl: new Set(), ratio: new Set(),
@@ -814,6 +846,7 @@ export const UnifiedDataTable = (props) => {
     };
 
     const toggleGroup = (stats, isAllSelected) => {
+        lastSelectedKeyRef.current = null;
         setSelectedBenchmarks(prev => {
             const next = new Set(prev);
             stats.forEach(s => {
@@ -1102,17 +1135,24 @@ export const UnifiedDataTable = (props) => {
         return grouped;
     }, [sortedStats, groupBy]);
 
+    const visibleStatsList = React.useMemo(() => {
+        return Object.values(groupedStats).flat();
+    }, [groupedStats]);
+
     const selectAllVisible = () => {
         const allVisible = new Set(sortedStats.map(s => s.benchmarkKey));
+        lastSelectedKeyRef.current = null;
         setSelectedBenchmarks(allVisible);
     };
 
     const invertSelected = () => {
         const inverted = new Set(sortedStats.map(s => s.benchmarkKey).filter(k => !selectedBenchmarks.has(k)));
+        lastSelectedKeyRef.current = null;
         setSelectedBenchmarks(inverted);
     };
 
     const clearSelected = () => {
+        lastSelectedKeyRef.current = null;
         setSelectedBenchmarks(new Set());
     };
 
@@ -1818,7 +1858,7 @@ export const UnifiedDataTable = (props) => {
                         </div>
 
                         {/* Scrollable Content Container */}
-                        <div className="flex-1 overflow-y-auto space-y-8 pr-1 custom-scrollbar">
+                        <div className="flex-1 overflow-y-auto overflow-x-hidden space-y-8 pr-1 custom-scrollbar">
                             
                             {/* Section 1: Chart Container */}
                             <div className="min-h-[500px] w-full flex flex-col">
@@ -1934,6 +1974,7 @@ export const UnifiedDataTable = (props) => {
                                                 handleEditStagedRun={handleEditStagedRun}
                                                 defaultSources={defaultSources}
                                                 readOnly={true}
+                                                canViewRaw={false}
                                                 isHiddenOnGraph={hiddenBenchmarkKeys.has(stat.benchmarkKey)}
                                                 isOnlyThisVisibleOnGraph={isOnlyThisVisible}
                                                 onToggleGraphVisibility={handleToggleGraphVisibility}
@@ -2078,6 +2119,7 @@ const BenchmarkRow = React.memo(({
     handleEditStagedRun,
     defaultSources,
     readOnly = false,
+    canViewRaw = true,
     isHiddenOnGraph = false,
     isOnlyThisVisibleOnGraph = false,
     onToggleGraphVisibility,
@@ -2293,6 +2335,18 @@ const BenchmarkRow = React.memo(({
                                                                         <span className="font-semibold text-slate-700 dark:text-slate-300">{stat.accelerator_count}x {stat.hardware}</span>
                                                                     </span>
                                                                 );
+                                                            }
+
+                                                            if (visibleSpecs.model) {
+                                                                const modelVal = stat.model_name || stat.model || meta.model_name;
+                                                                if (modelVal) {
+                                                                    specs.push(
+                                                                        <span key="model" className="inline-flex items-center gap-1">
+                                                                            <span className="text-slate-400 dark:text-slate-500 font-normal">Model:</span>
+                                                                            <span className="font-semibold text-slate-700 dark:text-slate-300">{modelVal}</span>
+                                                                        </span>
+                                                                    );
+                                                                }
                                                             }
 
                                                             if (visibleSpecs.nodes) {
@@ -2934,19 +2988,21 @@ const BenchmarkRow = React.memo(({
                                                          <div className="flex-1" />
                                                      )}
 
-                                                     <Button
-                                                         variant="secondary"
-                                                         size="sm"
-                                                         onClick={(e) => {
-                                                             e.stopPropagation();
-                                                             setViewingPayloadRun(stat);
-                                                         }}
-                                                         className="flex-shrink-0 whitespace-nowrap animate-in fade-in duration-200"
-                                                         title="Inspect Raw YAML / JSON Manifest"
-                                                     >
-                                                         <Code2 size={13} />
-                                                         Inspect Raw Manifest
-                                                     </Button>
+                                                     {canViewRaw && (
+                                                         <Button
+                                                             variant="secondary"
+                                                             size="sm"
+                                                             onClick={(e) => {
+                                                                 e.stopPropagation();
+                                                                 setViewingPayloadRun(stat);
+                                                             }}
+                                                             className="flex-shrink-0 whitespace-nowrap animate-in fade-in duration-200"
+                                                             title="Inspect Raw YAML / JSON Manifest"
+                                                         >
+                                                             <Code2 size={13} />
+                                                             Inspect Raw Manifest
+                                                         </Button>
+                                                     )}
                                                  </div>
 
                                                      <div className="overflow-x-auto rounded border border-slate-200 dark:border-slate-700">
@@ -2967,7 +3023,7 @@ const BenchmarkRow = React.memo(({
                                                                       <th className="px-2 py-2">Cost/1M Out ($)</th>
                                                                       <th className="px-2 py-2">Input Len</th>
                                                                       <th className="px-2 py-2">Output Len</th>
-                                                                      <th className="px-2 py-2 w-16 text-center">Raw</th>
+                                                                      {canViewRaw && <th className="px-2 py-2 w-16 text-center">Raw</th>}
                                                                   </tr>
                                                               </thead>
                                                               <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
@@ -2997,32 +3053,48 @@ const BenchmarkRow = React.memo(({
                                                                               <td className="px-2 py-2 text-[10px] text-slate-500">
                                                                                   {d.metrics?.cost?.explicit_output > 0 ? `$${d.metrics.cost.explicit_output.toFixed(4)}` : '-'}
                                                                               </td>
-                                                                              <td className="px-2 py-2 text-[10px]">{d.isl?.toFixed(0) || d.workload?.input_tokens?.toFixed(0) || '-'}</td>
-                                                                              <td className="px-2 py-2 text-[10px]">{d.osl?.toFixed(0) || d.workload?.output_tokens?.toFixed(0) || '-'}</td>
-                                                                              <td className="px-2 py-2 text-center">
-                                                                                  <button
-                                                                                      disabled={!d.rawReport}
-                                                                                      onClick={(e) => {
-                                                                                          e.stopPropagation();
-                                                                                          try {
-                                                                                              setRawYamlContent(d.rawReport ? yaml.dump(d.rawReport, { noRefs: true }) : '');
-                                                                                          } catch (err) {
-                                                                                              console.error("Failed to dump raw report to YAML:", err);
-                                                                                              setRawYamlContent("Error rendering raw report.");
-                                                                                          }
-                                                                                          setRawYamlTitle(d.source_info?.file_identifier || d.filename || `Stage ${d.workload?.stage}`);
-                                                                                      }}
-                                                                                      title="Raw"
-                                                                                      className={cn(
-                                                                                          'p-1 rounded transition-colors',
-                                                                                          d.rawReport
-                                                                                              ? 'text-slate-400 hover:text-blue-500 dark:text-slate-500 dark:hover:text-blue-400 cursor-pointer whitespace-nowrap'
-                                                                                              : 'text-slate-200 dark:text-slate-800 cursor-not-allowed opacity-50'
-                                                                                      )}
-                                                                                  >
-                                                                                      <FileText size={14} />
-                                                                                  </button>
+                                                                              <td className="px-2 py-2 text-[10px]">
+                                                                                  {(() => {
+                                                                                      const val = d.isl ?? d.workload?.input_tokens;
+                                                                                      if (val == null || isNaN(Number(val))) return '-';
+                                                                                      const n = Number(val);
+                                                                                      return Number.isInteger(n) ? n.toString() : Number(n.toFixed(2)).toString();
+                                                                                  })()}
                                                                               </td>
+                                                                              <td className="px-2 py-2 text-[10px]">
+                                                                                  {(() => {
+                                                                                      const val = d.osl ?? d.workload?.output_tokens;
+                                                                                      if (val == null || isNaN(Number(val))) return '-';
+                                                                                      const n = Number(val);
+                                                                                      return Number.isInteger(n) ? n.toString() : Number(n.toFixed(2)).toString();
+                                                                                  })()}
+                                                                              </td>
+                                                                              {canViewRaw && (
+                                                                                  <td className="px-2 py-2 text-center">
+                                                                                      <button
+                                                                                          disabled={!d.rawReport}
+                                                                                          onClick={(e) => {
+                                                                                              e.stopPropagation();
+                                                                                              try {
+                                                                                                  setRawYamlContent(d.rawReport ? yaml.dump(d.rawReport, { noRefs: true }) : '');
+                                                                                              } catch (err) {
+                                                                                                  console.error("Failed to dump raw report to YAML:", err);
+                                                                                                  setRawYamlContent("Error rendering raw report.");
+                                                                                              }
+                                                                                              setRawYamlTitle(d.source_info?.file_identifier || d.filename || `Stage ${d.workload?.stage}`);
+                                                                                          }}
+                                                                                          title="Raw"
+                                                                                          className={cn(
+                                                                                              'p-1 rounded transition-colors',
+                                                                                              d.rawReport
+                                                                                                  ? 'text-slate-400 hover:text-blue-500 dark:text-slate-500 dark:hover:text-blue-400 cursor-pointer whitespace-nowrap'
+                                                                                                  : 'text-slate-200 dark:text-slate-800 cursor-not-allowed opacity-50'
+                                                                                          )}
+                                                                                      >
+                                                                                          <FileText size={14} />
+                                                                                      </button>
+                                                                                  </td>
+                                                                              )}
                                                                           </tr>
                                                                       ))}
                                                               </tbody>
