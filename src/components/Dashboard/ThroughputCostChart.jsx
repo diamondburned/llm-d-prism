@@ -19,7 +19,110 @@ import { CustomLabel, CustomChartTooltip } from '../common';
 import { Button, ChartContainer, ChartXAxis, ChartYAxis, Input, Select, gridProps } from '../ui';
 import { cn } from '../../utils/cn';
 import { getBucket, getEffectiveTp, getParetoFrontier } from '../../utils/dashboardHelpers';
-import { normalizeQualityModelName } from '../../utils/qualityParser';
+const getStageIdx = (d) => {
+    const raw = d.workload?.stage ?? d.prism_stage_index ?? d.stageIndex ?? d.stage ?? d.metadata?.stage_index ?? d.metadata?.stage;
+    if (raw !== null && raw !== undefined && raw !== '') {
+        const num = Number(raw);
+        if (!isNaN(num)) return num;
+    }
+    return null;
+};
+
+const CONNECT_MODES = [
+    {
+        id: 'stage',
+        name: 'Stage Sequence',
+        subtitle: 'Connect points in stage order (0 → 1 → 2)',
+    },
+    {
+        id: 'x',
+        name: 'Increasing X-Value',
+        subtitle: 'Connect points by increasing X-axis value',
+    },
+    {
+        id: 'y',
+        name: 'Increasing Y-Value',
+        subtitle: 'Connect points by increasing Y-axis value',
+    },
+];
+
+const CONNECT_MODE_LABELS = {
+    stage: 'Stage',
+    x: 'X-Value',
+    y: 'Y-Value',
+};
+
+const LineConnectPopover = ({ lineConnectMode, setLineConnectMode, size = 'normal' }) => {
+    const [open, setOpen] = React.useState(false);
+    const popoverRef = React.useRef(null);
+
+    React.useEffect(() => {
+        if (!open) return;
+        const handleOutsideClick = (e) => {
+            if (popoverRef.current && !popoverRef.current.contains(e.target)) {
+                setOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleOutsideClick);
+        return () => document.removeEventListener('mousedown', handleOutsideClick);
+    }, [open]);
+
+    const activeLabel = CONNECT_MODE_LABELS[lineConnectMode] || 'Stage';
+
+    return (
+        <div className="relative inline-block" ref={popoverRef}>
+            <button
+                type="button"
+                onClick={() => setOpen(!open)}
+                className={cn(
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all text-[10px] font-extrabold uppercase tracking-wider border cursor-pointer',
+                    open || lineConnectMode !== 'stage'
+                        ? 'bg-slate-800 text-cyan-400 border-slate-700 shadow-sm'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-350 hover:text-white border-slate-800 hover:border-slate-700'
+                )}
+                title="Choose how chart lines connect data points"
+            >
+                <span>Lines: {activeLabel}</span>
+                <ChevronDown className="w-3.5 h-3.5 opacity-80" />
+            </button>
+
+            {open && (
+                <div className="absolute right-0 mt-1.5 w-72 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-2.5 z-[200] flex flex-col gap-1.5 backdrop-blur-md animate-in fade-in zoom-in-95 duration-150">
+                    <div className="text-[9.5px] uppercase tracking-wider font-extrabold text-slate-400 px-1 py-1 border-b border-slate-800 flex items-center justify-between">
+                        <span>Line Connection Mode</span>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                        {CONNECT_MODES.map((option) => {
+                            const isSelected = lineConnectMode === option.id;
+                            return (
+                                <button
+                                    key={option.id}
+                                    type="button"
+                                    onClick={() => {
+                                        setLineConnectMode(option.id);
+                                        setOpen(false);
+                                    }}
+                                    className={cn(
+                                        "flex flex-col items-start p-2 rounded-lg text-left transition-all border cursor-pointer",
+                                        isSelected
+                                            ? "bg-cyan-950/50 border-cyan-800/80 text-cyan-300 shadow-sm"
+                                            : "bg-slate-950/40 border-slate-800 text-slate-300 hover:bg-slate-800/60 hover:border-slate-700"
+                                    )}
+                                >
+                                    <div className="flex items-center justify-between w-full">
+                                        <span className="text-xs font-bold text-slate-200">{option.name}</span>
+                                        {isSelected && <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-sm shadow-cyan-400/50" />}
+                                    </div>
+                                    <span className="text-[10px] text-slate-400 mt-0.5 leading-tight">{option.subtitle}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
 
 export const ThroughputCostChart = (props) => {
     const {
@@ -35,6 +138,10 @@ export const ThroughputCostChart = (props) => {
     } = props;
 
     // We can infer canShowPerChip
+    const [internalLineConnectMode, setInternalLineConnectMode] = React.useState('stage');
+    const lineConnectMode = props.lineConnectMode ?? internalLineConnectMode;
+    const setLineConnectMode = props.setLineConnectMode ?? setInternalLineConnectMode;
+
     const [showFilters, setShowFilters] = React.useState(false);
     const localContainerRef = React.useRef(null);
     const containerRef = chartContainerRef || localContainerRef;
@@ -328,6 +435,19 @@ export const ThroughputCostChart = (props) => {
             }
             // 1. Calculate Data Bounds
             const getVal = (obj, key) => {
+                if (!obj) return undefined;
+                if (key === 'time_per_output_token') {
+                    const val = obj.time_per_output_token ?? obj.metrics?.tpot ?? obj.tpot ?? obj.metrics?.tpot_ms ?? obj.metrics?.time_per_output_token;
+                    if (val !== undefined) return val;
+                }
+                if (key === 'throughput' || key === 'metrics.output_tput') {
+                    const val = obj.throughput ?? obj.metrics?.output_tput ?? obj.metrics?.throughput;
+                    if (val !== undefined) return val;
+                }
+                if (key === 'metrics.request_rate') {
+                    const val = obj.metrics?.request_rate ?? obj.qps ?? obj.workload?.target_qps;
+                    if (val !== undefined) return val;
+                }
                 if (key.startsWith('quality.')) {
                     const normModel = normalizeQualityModelName(obj.model);
                     if (!qualityMetrics?.data?.[normModel]) return undefined;
@@ -341,11 +461,17 @@ export const ThroughputCostChart = (props) => {
             };
 
             // Filter Function Builder
-            // Enforce that BOTH X and Y values are present (> 0) to avoid plotting "0" for missing cost data
+            // Allow 0 for valid baseline/stage-0 metrics (e.g. 0 QPS or 0 ms) while excluding missing/null/negative data
             const createFilter = (xKey) => (d) => {
-                 const xVal = Number(getVal(d, xKey));
-                 const yVal = Number(getVal(d, yKey));
-                 return (!isNaN(xVal) && xVal > 0) && (!isNaN(yVal) && yVal > 0);
+                 const rawX = getVal(d, xKey);
+                 const rawY = getVal(d, yKey);
+                 const isStageZero = d.workload?.stage === 0 || d.prism_stage_index === 0 || d.stageIndex === 0 || d.stage === 0 || d.metadata?.stage_index === 0;
+                 const valX = rawX ?? (isStageZero ? 0 : null);
+                 const valY = rawY ?? (isStageZero ? 0 : null);
+                 if (valX === null || valX === undefined || valY === null || valY === undefined) return false;
+                 const xVal = Number(valX);
+                 const yVal = Number(valY);
+                 return !isNaN(xVal) && xVal >= 0 && !isNaN(yVal) && yVal >= 0;
             };
 
             let filterFn = createFilter(xKey);
@@ -890,7 +1016,7 @@ export const ThroughputCostChart = (props) => {
                 };
 
                 return (
-                    <div className="bg-slate-900/80 border border-slate-700/60 rounded-2xl shadow-2xl flex flex-col w-full min-h-[550px] overflow-visible backdrop-blur-sm relative">
+                    <div className="bg-slate-900/80 border border-slate-700/60 rounded-2xl shadow-2xl flex flex-col w-full min-h-[495px] overflow-visible backdrop-blur-sm relative">
                         <div className="flex flex-col w-full h-full">
                             {/* Drawer Chart Header */}
                             <div className="px-6 py-4 border-b border-slate-800 bg-slate-900/85 flex justify-between items-center gap-6 shadow-sm rounded-t-2xl">
@@ -902,13 +1028,16 @@ export const ThroughputCostChart = (props) => {
                                         Toggle axis dimensions, normalizations and filters below
                                     </div>
                                 </div>
-                                <button 
-                                    onClick={() => setShowFilters(!showFilters)} 
-                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-350 hover:text-white rounded-lg transition-all text-[10px] font-extrabold uppercase tracking-wider border border-slate-750"
-                                >
-                                    Filters
-                                    {showFilters ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                                </button>
+                                <div className="flex items-center gap-2">
+                                    <LineConnectPopover lineConnectMode={lineConnectMode} setLineConnectMode={setLineConnectMode} />
+                                    <button 
+                                        onClick={() => setShowFilters(!showFilters)} 
+                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-350 hover:text-white rounded-lg transition-all text-[10px] font-extrabold uppercase tracking-wider border border-slate-800 hover:border-slate-700"
+                                    >
+                                        Filters
+                                        {showFilters ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                                    </button>
+                                </div>
                             </div>
 
                             {/* Drawer Expandable Filter Panel */}
@@ -1020,11 +1149,11 @@ export const ThroughputCostChart = (props) => {
                             )}
 
                             {/* Chart Plot Area */}
-                            <div className="flex-1 min-h-[480px] p-4 relative overflow-visible flex flex-col bg-slate-950/20 rounded-b-2xl">
+                            <div className="flex-1 min-h-[432px] p-4 relative overflow-visible flex flex-col bg-slate-950/20 rounded-b-2xl">
                                 {zoomDomain && (
                                     <button 
                                         onClick={() => setZoomDomain(null)}
-                                        className="absolute top-4 right-4 z-10 bg-slate-800/85 hover:bg-slate-700 text-slate-350 hover:text-white text-[10px] font-extrabold uppercase tracking-wider px-2 py-1 rounded-md border border-slate-750 shadow-lg flex items-center gap-1 cursor-pointer transition-all"
+                                        className="absolute top-4 right-4 z-10 bg-slate-800/85 hover:bg-slate-700 text-slate-350 hover:text-white text-[10px] font-extrabold uppercase tracking-wider px-2 py-1 rounded-md border border-slate-800 hover:border-slate-700 shadow-lg flex items-center gap-1 cursor-pointer transition-all"
                                     >
                                         <RotateCcw size={10} /> Reset Zoom
                                     </button>
@@ -1032,7 +1161,7 @@ export const ThroughputCostChart = (props) => {
 
                                 <div 
                                     ref={containerRef}
-                                    className={cn('relative w-full h-[55vh] select-none', isZoomEnabled && isDragging ? 'cursor-grabbing' : 'cursor-default')}
+                                    className={cn('relative w-full h-[50vh] select-none', isZoomEnabled && isDragging ? 'cursor-grabbing' : 'cursor-default')}
                                     onWheel={handleWheel}
                                     onMouseDown={handleMouseDown}
                                     onMouseMove={handleMouseMove}
@@ -1106,6 +1235,17 @@ export const ThroughputCostChart = (props) => {
                                                 const lineData = visibleDataPoints
                                                      .filter(d => d.benchmarkKey === benchmarkKey)
                                                      .sort((a, b) => {
+                                                         if (lineConnectMode === 'x') {
+                                                             return a.vx - b.vx;
+                                                         }
+                                                         if (lineConnectMode === 'y') {
+                                                             return a.vy - b.vy;
+                                                         }
+                                                         const stageA = getStageIdx(a);
+                                                         const stageB = getStageIdx(b);
+                                                         if (stageA !== null && stageB !== null && stageA !== stageB) {
+                                                             return stageA - stageB;
+                                                         }
                                                          const qpsA = Number(getVal(a, 'metrics.request_rate')) || 0;
                                                          const qpsB = Number(getVal(b, 'metrics.request_rate')) || 0;
                                                          if (qpsA !== qpsB) return qpsA - qpsB;
@@ -1295,11 +1435,15 @@ export const ThroughputCostChart = (props) => {
                       >
                           Pareto
                       </button>
+
+                      <div className="h-4 w-px bg-slate-300 dark:bg-slate-700"/>
+
+                      <LineConnectPopover lineConnectMode={lineConnectMode} setLineConnectMode={setLineConnectMode} size="normal" />
                     </div>
                   </div>
                   <div
                       ref={containerRef}
-                      className={cn('relative w-full min-h-[450px] h-[60vh] select-none', isZoomEnabled && isDragging ? 'cursor-grabbing' : 'cursor-default')}
+                      className={cn('relative w-full min-h-[360px] h-[50vh] select-none', isZoomEnabled && isDragging ? 'cursor-grabbing' : 'cursor-default')}
                       onWheel={handleWheel}
                       onMouseDown={handleMouseDown}
                       onMouseMove={handleMouseMove}
@@ -1390,6 +1534,18 @@ export const ThroughputCostChart = (props) => {
                               const lineData = visibleDataPoints
                                   .filter(d => d.benchmarkKey === benchmarkKey)
                                   .sort((a, b) => {
+                                      if (lineConnectMode === 'x') {
+                                          return a.vx - b.vx;
+                                      }
+                                      if (lineConnectMode === 'y') {
+                                          return a.vy - b.vy;
+                                      }
+                                      const stageA = getStageIdx(a);
+                                      const stageB = getStageIdx(b);
+                                      if (stageA !== null && stageB !== null && stageA !== stageB) {
+                                          return stageA - stageB;
+                                      }
+
                                       // Sort by QPS (request_rate) first to ensure logical line tracing through load points
                                       const qpsA = Number(getVal(a, 'metrics.request_rate')) || 0;
                                       const qpsB = Number(getVal(b, 'metrics.request_rate')) || 0;

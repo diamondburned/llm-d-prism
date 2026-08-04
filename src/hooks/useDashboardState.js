@@ -80,6 +80,7 @@ export const useDashboardState = () => {
     // Quality mode
     const [xQualityMode, setXQualityMode] = useState(initialState.xQualityMode);
     const [yQualityMode, setYQualityMode] = useState(initialState.yQualityMode);
+    const [lineConnectMode, setLineConnectMode] = useState('stage');
 
     // Chart configs
     const [xAxisMax, setXAxisMax] = useState(initialState.xAxisMax);
@@ -307,6 +308,7 @@ export const useDashboardState = () => {
         latType, setLatType,
         xQualityMode, setXQualityMode,
         yQualityMode, setYQualityMode,
+        lineConnectMode, setLineConnectMode,
 
         // Chart Configs
         xAxisMax, setXAxisMax,

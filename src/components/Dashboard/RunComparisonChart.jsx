@@ -498,7 +498,7 @@ export const RunComparisonChart = ({
                 </div>
             </div>
 
-            <div className="h-72 overflow-x-auto overflow-y-hidden">
+            <div className="h-[260px] overflow-x-auto overflow-y-hidden">
                 {hasPlotData ? (
                     <div style={{ minWidth: `${Math.max(680, plotData.length * 48)}px`, height: '100%' }}>
                         <ResponsiveContainer width="100%" height="100%">

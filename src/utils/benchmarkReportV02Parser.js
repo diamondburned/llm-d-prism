@@ -334,7 +334,7 @@ export function parseReportV02(yamlText, filename) {
         runCid: doc.run?.cid || null,
         runPid: doc.run?.pid || null,
         timestamp: doc.run?.time?.start || null,
-        stageIndex: load.stage ?? null,
+        stageIndex: doc.workload?.stage ?? load.stage ?? null,
         loadMetadata: doc.scenario?.load?.metadata || null,
         scenario,
         performance,
@@ -342,6 +342,53 @@ export function parseReportV02(yamlText, filename) {
         components,
         rawReport: doc,
     };
+}
+
+export function getOriginalStageIndex(entry) {
+    if (!entry) return 0;
+    
+    const raw = entry.raw_report || entry.rawReport || entry;
+    if (raw?.workload?.stage !== undefined && raw?.workload?.stage !== null) {
+        const num = Number(raw.workload.stage);
+        if (!isNaN(num)) return num;
+    }
+    if (raw?.stageIndex !== undefined && raw?.stageIndex !== null) {
+        const num = Number(raw.stageIndex);
+        if (!isNaN(num)) return num;
+    }
+    const strToMatch = entry.filename || entry.run_uid || '';
+    const match = strToMatch.match(/stage[_-]?(\d+)/i);
+    if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num)) return num;
+    }
+    return 0;
+}
+
+/**
+ * Compares two stage entries by original BRV02 stage number or filename.
+ */
+export function compareOriginalStageOrder(a, b) {
+    const idxA = getOriginalStageIndex(a);
+    const idxB = getOriginalStageIndex(b);
+    if (idxA !== idxB) {
+        return idxA - idxB;
+    }
+    const nameA = (a.filename || a.run_uid || '').split('/').pop();
+    const nameB = (b.filename || b.run_uid || '').split('/').pop();
+    return nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' });
+}
+
+/**
+ * Compares two stage entries respecting prism_stage_index first, then original stage number or filename.
+ */
+export function compareStageOrder(a, b) {
+    const idxA = a?.prism_stage_index !== undefined && a?.prism_stage_index !== null ? Number(a.prism_stage_index) : null;
+    const idxB = b?.prism_stage_index !== undefined && b?.prism_stage_index !== null ? Number(b.prism_stage_index) : null;
+    if (idxA !== null && idxB !== null && !isNaN(idxA) && !isNaN(idxB)) {
+        return idxA - idxB;
+    }
+    return compareOriginalStageOrder(a, b);
 }
 
 /**
@@ -402,13 +449,9 @@ export function groupStagesIntoRuns(stageRecords) {
         if (!targetRun.targetDashboards && record.targetDashboards) targetRun.targetDashboards = record.targetDashboards;
     }
     
-    // Sort stages within each run by stageIndex
+    // Sort stages within each run respecting prism_stage_index then original stage index
     for (const run of runsList) {
-        run.stages.sort((a, b) => {
-            if (a.stageIndex === null) return 1;
-            if (b.stageIndex === null) return -1;
-            return a.stageIndex - b.stageIndex;
-        });
+        run.stages.sort(compareStageOrder);
     }
 
     // Propagate the runLabel to all stages

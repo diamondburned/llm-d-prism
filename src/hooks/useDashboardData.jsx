@@ -2007,9 +2007,38 @@ export const useDashboardData = (initialState, dashboardState) => {
                 // Resolved ID for the staged run
                 const resolvedRunId = bundleRunId || null;
 
-                if (bundle.stageFiles && bundle.stageFiles.length > 0) {
+                if (bundle.payload?.entries && bundle.payload.entries.length > 0) {
+                    for (let idx = 0; idx < bundle.payload.entries.length; idx++) {
+                        const entry = bundle.payload.entries[idx];
+                        const record = await parseReportV02(entry.raw_report || entry.content, entry.filename);
+                        if (record) {
+                            record.runId = resolvedRunId || record.runId;
+                            record.runLabel = bundleRunLabel || record.runLabel;
+                            record.run_id = entry.run_id || uuidv4();
+                            record.prism_stage_index = entry.prism_stage_index !== undefined ? entry.prism_stage_index : idx;
+                            if (record.workload) {
+                                record.workload.stage = record.prism_stage_index;
+                            }
+                            // Enrich stage record with bundle metadata
+                            record.model_name = bundle.payload.model_name || null;
+                            record.hardware = bundle.payload.hardware || null;
+                            record.config = config || bundle.payload.config || null;
+                            record.summary = summary || bundle.payload.summary || null;
+                            record.wellLitPath = bundle.payload.well_lit_path;
+                            record.well_lit_path = bundle.payload.well_lit_path;
+                            record.targetDashboards = bundle.targetDashboards;
+                            
+                            const isDupInBatch = trulyNewStages.some(s => s.filename === record.filename && s.runId === record.runId);
+                            const isDupInExisting = otherStages.some(existingStage => existingStage.filename === record.filename && existingStage.runId === record.runId);
+                            
+                            if (!isDupInBatch && !isDupInExisting) {
+                                trulyNewStages.push(record);
+                            }
+                        }
+                    }
+                } else if (bundle.stageFiles && bundle.stageFiles.length > 0) {
                     for (const sf of bundle.stageFiles) {
-                        const identifier = sf.file.webkitRelativePath || sf.file.name;
+                        const identifier = sf.file?.webkitRelativePath || sf.file?.name || sf.filename || sf.name;
                         const record = await parseReportV02(sf.validation?.parsedData || sf.content, identifier);
                         if (record) {
                             record.runId = resolvedRunId || record.runId;
@@ -2023,30 +2052,6 @@ export const useDashboardData = (initialState, dashboardState) => {
                             record.summary = summary;
                             record.wellLitPath = bundle.payload?.well_lit_path || null;
                             record.well_lit_path = bundle.payload?.well_lit_path || null;
-                            record.targetDashboards = bundle.targetDashboards;
-                            
-                            const isDupInBatch = trulyNewStages.some(s => s.filename === record.filename && s.runId === record.runId);
-                            const isDupInExisting = otherStages.some(existingStage => existingStage.filename === record.filename && existingStage.runId === record.runId);
-                            
-                            if (!isDupInBatch && !isDupInExisting) {
-                                trulyNewStages.push(record);
-                            }
-                        }
-                    }
-                } else if (bundle.payload?.entries && bundle.payload.entries.length > 0) {
-                    for (const entry of bundle.payload.entries) {
-                        const record = await parseReportV02(entry.raw_report || entry.content, entry.filename);
-                        if (record) {
-                            record.runId = resolvedRunId || record.runId;
-                            record.runLabel = bundleRunLabel || record.runLabel;
-                            record.run_id = entry.run_id || uuidv4();
-                            // Enrich stage record with bundle metadata
-                            record.model_name = bundle.payload.model_name || null;
-                            record.hardware = bundle.payload.hardware || null;
-                            record.config = config || bundle.payload.config || null;
-                            record.summary = summary || bundle.payload.summary || null;
-                            record.wellLitPath = bundle.payload.well_lit_path;
-                            record.well_lit_path = bundle.payload.well_lit_path;
                             record.targetDashboards = bundle.targetDashboards;
                             
                             const isDupInBatch = trulyNewStages.some(s => s.filename === record.filename && s.runId === record.runId);

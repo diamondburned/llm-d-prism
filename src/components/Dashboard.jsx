@@ -1746,7 +1746,7 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
                                         isDragging, setIsDragging, lastMouseRef, chartColorMode, setChartColorMode,
                                         metricAvailability, filteredBySource, xAxisMax, setXAxisMax, setDebugInfo,
                                         isLogScaleX, setIsLogScaleX, setLatType, selectedBenchmarks,
-                                        baselineBenchmarkKey
+                                        baselineBenchmarkKey, lineConnectMode, setLineConnectMode
                                     }}
                                 />
 
