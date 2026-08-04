@@ -128,6 +128,7 @@ export const UnifiedDataTable = (props) => {
         isLogScaleX: sharedIsLogScaleX, setIsLogScaleX: sharedSetIsLogScaleX,
         latType: sharedLatType, setLatType: sharedSetLatType,
         chartColorMode: sharedChartColorMode, setChartColorMode: sharedSetChartColorMode,
+        lineConnectMode: sharedLineConnectMode, setLineConnectMode: sharedSetLineConnectMode,
     } = dashboardState || {};
 
     // Local state fallbacks (if no shared dashboardState is present)
@@ -146,6 +147,10 @@ export const UnifiedDataTable = (props) => {
     const [localIsLogScaleX, localSetIsLogScaleX] = useState(false);
     const [localLatType, localSetLatType] = useState('e2e');
     const [localChartColorMode, localSetChartColorMode] = useState('hardware');
+    const [localLineConnectMode, localSetLineConnectMode] = useState('stage');
+
+    const drawerLineConnectMode = sharedLineConnectMode !== undefined ? sharedLineConnectMode : localLineConnectMode;
+    const setDrawerLineConnectMode = sharedSetLineConnectMode || localSetLineConnectMode;
 
     const drawerTputType = sharedTputType !== undefined ? sharedTputType : localTputType;
     const setDrawerTputType = sharedSetTputType || localSetTputType;
@@ -1906,6 +1911,8 @@ export const UnifiedDataTable = (props) => {
                                     setLatType={setDrawerLatType}
                                     selectedBenchmarks={selectedBenchmarks}
                                     baselineBenchmarkKey={baselineBenchmarkKey}
+                                    lineConnectMode={drawerLineConnectMode}
+                                    setLineConnectMode={setDrawerLineConnectMode}
                                 />
                             </div>
 

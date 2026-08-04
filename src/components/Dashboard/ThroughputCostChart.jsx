@@ -28,6 +28,102 @@ const getStageIdx = (d) => {
     return null;
 };
 
+const CONNECT_MODES = [
+    {
+        id: 'stage',
+        name: 'Stage Sequence',
+        subtitle: 'Connect points in stage order (0 → 1 → 2)',
+    },
+    {
+        id: 'x',
+        name: 'Increasing X-Value',
+        subtitle: 'Connect points by increasing X-axis value',
+    },
+    {
+        id: 'y',
+        name: 'Increasing Y-Value',
+        subtitle: 'Connect points by increasing Y-axis value',
+    },
+];
+
+const CONNECT_MODE_LABELS = {
+    stage: 'Stage',
+    x: 'X-Value',
+    y: 'Y-Value',
+};
+
+const LineConnectPopover = ({ lineConnectMode, setLineConnectMode, size = 'normal' }) => {
+    const [open, setOpen] = React.useState(false);
+    const popoverRef = React.useRef(null);
+
+    React.useEffect(() => {
+        if (!open) return;
+        const handleOutsideClick = (e) => {
+            if (popoverRef.current && !popoverRef.current.contains(e.target)) {
+                setOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleOutsideClick);
+        return () => document.removeEventListener('mousedown', handleOutsideClick);
+    }, [open]);
+
+    const activeLabel = CONNECT_MODE_LABELS[lineConnectMode] || 'Stage';
+
+    return (
+        <div className="relative inline-block" ref={popoverRef}>
+            <button
+                type="button"
+                onClick={() => setOpen(!open)}
+                className={cn(
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all text-[10px] font-extrabold uppercase tracking-wider border cursor-pointer',
+                    open || lineConnectMode !== 'stage'
+                        ? 'bg-slate-800 text-cyan-400 border-slate-700 shadow-sm'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-350 hover:text-white border-slate-800 hover:border-slate-700'
+                )}
+                title="Choose how chart lines connect data points"
+            >
+                <span>Lines: {activeLabel}</span>
+                <ChevronDown className="w-3.5 h-3.5 opacity-80" />
+            </button>
+
+            {open && (
+                <div className="absolute right-0 mt-1.5 w-72 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-2.5 z-[200] flex flex-col gap-1.5 backdrop-blur-md animate-in fade-in zoom-in-95 duration-150">
+                    <div className="text-[9.5px] uppercase tracking-wider font-extrabold text-slate-400 px-1 py-1 border-b border-slate-800 flex items-center justify-between">
+                        <span>Line Connection Mode</span>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                        {CONNECT_MODES.map((option) => {
+                            const isSelected = lineConnectMode === option.id;
+                            return (
+                                <button
+                                    key={option.id}
+                                    type="button"
+                                    onClick={() => {
+                                        setLineConnectMode(option.id);
+                                        setOpen(false);
+                                    }}
+                                    className={cn(
+                                        "flex flex-col items-start p-2 rounded-lg text-left transition-all border cursor-pointer",
+                                        isSelected
+                                            ? "bg-cyan-950/50 border-cyan-800/80 text-cyan-300 shadow-sm"
+                                            : "bg-slate-950/40 border-slate-800 text-slate-300 hover:bg-slate-800/60 hover:border-slate-700"
+                                    )}
+                                >
+                                    <div className="flex items-center justify-between w-full">
+                                        <span className="text-xs font-bold text-slate-200">{option.name}</span>
+                                        {isSelected && <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-sm shadow-cyan-400/50" />}
+                                    </div>
+                                    <span className="text-[10px] text-slate-400 mt-0.5 leading-tight">{option.subtitle}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
 export const ThroughputCostChart = (props) => {
     const {
         tputType, setTputType, yQualityMode, setYQualityMode, chartMode, setChartMode,
@@ -42,6 +138,10 @@ export const ThroughputCostChart = (props) => {
     } = props;
 
     // We can infer canShowPerChip
+    const [internalLineConnectMode, setInternalLineConnectMode] = React.useState('stage');
+    const lineConnectMode = props.lineConnectMode ?? internalLineConnectMode;
+    const setLineConnectMode = props.setLineConnectMode ?? setInternalLineConnectMode;
+
     const [showFilters, setShowFilters] = React.useState(false);
     const localContainerRef = React.useRef(null);
     const containerRef = chartContainerRef || localContainerRef;
@@ -928,13 +1028,16 @@ export const ThroughputCostChart = (props) => {
                                         Toggle axis dimensions, normalizations and filters below
                                     </div>
                                 </div>
-                                <button 
-                                    onClick={() => setShowFilters(!showFilters)} 
-                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-350 hover:text-white rounded-lg transition-all text-[10px] font-extrabold uppercase tracking-wider border border-slate-750"
-                                >
-                                    Filters
-                                    {showFilters ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                                </button>
+                                <div className="flex items-center gap-2">
+                                    <LineConnectPopover lineConnectMode={lineConnectMode} setLineConnectMode={setLineConnectMode} />
+                                    <button 
+                                        onClick={() => setShowFilters(!showFilters)} 
+                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-350 hover:text-white rounded-lg transition-all text-[10px] font-extrabold uppercase tracking-wider border border-slate-800 hover:border-slate-700"
+                                    >
+                                        Filters
+                                        {showFilters ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                                    </button>
+                                </div>
                             </div>
 
                             {/* Drawer Expandable Filter Panel */}
@@ -1050,7 +1153,7 @@ export const ThroughputCostChart = (props) => {
                                 {zoomDomain && (
                                     <button 
                                         onClick={() => setZoomDomain(null)}
-                                        className="absolute top-4 right-4 z-10 bg-slate-800/85 hover:bg-slate-700 text-slate-350 hover:text-white text-[10px] font-extrabold uppercase tracking-wider px-2 py-1 rounded-md border border-slate-750 shadow-lg flex items-center gap-1 cursor-pointer transition-all"
+                                        className="absolute top-4 right-4 z-10 bg-slate-800/85 hover:bg-slate-700 text-slate-350 hover:text-white text-[10px] font-extrabold uppercase tracking-wider px-2 py-1 rounded-md border border-slate-800 hover:border-slate-700 shadow-lg flex items-center gap-1 cursor-pointer transition-all"
                                     >
                                         <RotateCcw size={10} /> Reset Zoom
                                     </button>
@@ -1132,6 +1235,12 @@ export const ThroughputCostChart = (props) => {
                                                 const lineData = visibleDataPoints
                                                      .filter(d => d.benchmarkKey === benchmarkKey)
                                                      .sort((a, b) => {
+                                                         if (lineConnectMode === 'x') {
+                                                             return a.vx - b.vx;
+                                                         }
+                                                         if (lineConnectMode === 'y') {
+                                                             return a.vy - b.vy;
+                                                         }
                                                          const stageA = getStageIdx(a);
                                                          const stageB = getStageIdx(b);
                                                          if (stageA !== null && stageB !== null && stageA !== stageB) {
@@ -1326,6 +1435,10 @@ export const ThroughputCostChart = (props) => {
                       >
                           Pareto
                       </button>
+
+                      <div className="h-4 w-px bg-slate-300 dark:bg-slate-700"/>
+
+                      <LineConnectPopover lineConnectMode={lineConnectMode} setLineConnectMode={setLineConnectMode} size="normal" />
                     </div>
                   </div>
                   <div
@@ -1421,6 +1534,12 @@ export const ThroughputCostChart = (props) => {
                               const lineData = visibleDataPoints
                                   .filter(d => d.benchmarkKey === benchmarkKey)
                                   .sort((a, b) => {
+                                      if (lineConnectMode === 'x') {
+                                          return a.vx - b.vx;
+                                      }
+                                      if (lineConnectMode === 'y') {
+                                          return a.vy - b.vy;
+                                      }
                                       const stageA = getStageIdx(a);
                                       const stageB = getStageIdx(b);
                                       if (stageA !== null && stageB !== null && stageA !== stageB) {
