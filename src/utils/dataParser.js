@@ -994,7 +994,8 @@ export function parseLpgLatencyProfile(json, filename) {
             workload: {
                 input_tokens: isl,
                 output_tokens: osl,
-                target_qps: reqRate
+                target_qps: reqRate,
+                stage: idx
             },
 
             metadata: {

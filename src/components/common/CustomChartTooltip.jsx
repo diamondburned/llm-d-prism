@@ -152,6 +152,9 @@ export const CustomChartTooltip = ({ active, payload, label, xLabel, yLabel, qua
                      const osl = formatSeqNum(rawOsl);
                      const seqLen = (isl && osl) ? `${isl} / ${osl}` : null;
                      
+                     const rawStage = d.workload?.stage ?? d.prism_stage_index ?? d.stageIndex ?? d.stage ?? meta.stage ?? d.raw_report?.workload?.stage ?? d.rawReport?.workload?.stage;
+                     const stageVal = (rawStage != null && rawStage !== '') ? rawStage : null;
+
                      // Format X-Value logic
                      const formattedXValue = (() => {
                         const val = Number(label);
@@ -187,6 +190,7 @@ export const CustomChartTooltip = ({ active, payload, label, xLabel, yLabel, qua
                             </div>
 
                             {/* Metadata Rows */}
+                            <Row label="Stage" value={stageVal} />
                             <Row label="Accelerator" value={accelerator || hardware} />
                             {isDisaggregated ? (
                                <Row label="Nodes (P/D)" value={`P:${meta.prefill_node_count}(TP${meta.prefill_tp}) | D:${meta.decode_node_count}(TP${meta.decode_tp})`} />

@@ -1861,7 +1861,7 @@ export const UnifiedDataTable = (props) => {
                         <div className="flex-1 overflow-y-auto overflow-x-hidden space-y-8 pr-1 custom-scrollbar">
                             
                             {/* Section 1: Chart Container */}
-                            <div className="min-h-[500px] w-full flex flex-col">
+                            <div className="min-h-[450px] w-full flex flex-col">
                                 <ThroughputCostChart
                                     tputType={drawerTputType}
                                     setTputType={setDrawerTputType}

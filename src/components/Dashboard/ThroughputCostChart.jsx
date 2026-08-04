@@ -19,7 +19,14 @@ import { CustomLabel, CustomChartTooltip } from '../common';
 import { Button, ChartContainer, ChartXAxis, ChartYAxis, Input, Select, gridProps } from '../ui';
 import { cn } from '../../utils/cn';
 import { getBucket, getEffectiveTp, getParetoFrontier } from '../../utils/dashboardHelpers';
-import { normalizeQualityModelName } from '../../utils/qualityParser';
+const getStageIdx = (d) => {
+    const raw = d.workload?.stage ?? d.prism_stage_index ?? d.stageIndex ?? d.stage ?? d.metadata?.stage_index ?? d.metadata?.stage;
+    if (raw !== null && raw !== undefined && raw !== '') {
+        const num = Number(raw);
+        if (!isNaN(num)) return num;
+    }
+    return null;
+};
 
 export const ThroughputCostChart = (props) => {
     const {
@@ -328,6 +335,19 @@ export const ThroughputCostChart = (props) => {
             }
             // 1. Calculate Data Bounds
             const getVal = (obj, key) => {
+                if (!obj) return undefined;
+                if (key === 'time_per_output_token') {
+                    const val = obj.time_per_output_token ?? obj.metrics?.tpot ?? obj.tpot ?? obj.metrics?.tpot_ms ?? obj.metrics?.time_per_output_token;
+                    if (val !== undefined) return val;
+                }
+                if (key === 'throughput' || key === 'metrics.output_tput') {
+                    const val = obj.throughput ?? obj.metrics?.output_tput ?? obj.metrics?.throughput;
+                    if (val !== undefined) return val;
+                }
+                if (key === 'metrics.request_rate') {
+                    const val = obj.metrics?.request_rate ?? obj.qps ?? obj.workload?.target_qps;
+                    if (val !== undefined) return val;
+                }
                 if (key.startsWith('quality.')) {
                     const normModel = normalizeQualityModelName(obj.model);
                     if (!qualityMetrics?.data?.[normModel]) return undefined;
@@ -341,11 +361,17 @@ export const ThroughputCostChart = (props) => {
             };
 
             // Filter Function Builder
-            // Enforce that BOTH X and Y values are present (> 0) to avoid plotting "0" for missing cost data
+            // Allow 0 for valid baseline/stage-0 metrics (e.g. 0 QPS or 0 ms) while excluding missing/null/negative data
             const createFilter = (xKey) => (d) => {
-                 const xVal = Number(getVal(d, xKey));
-                 const yVal = Number(getVal(d, yKey));
-                 return (!isNaN(xVal) && xVal > 0) && (!isNaN(yVal) && yVal > 0);
+                 const rawX = getVal(d, xKey);
+                 const rawY = getVal(d, yKey);
+                 const isStageZero = d.workload?.stage === 0 || d.prism_stage_index === 0 || d.stageIndex === 0 || d.stage === 0 || d.metadata?.stage_index === 0;
+                 const valX = rawX ?? (isStageZero ? 0 : null);
+                 const valY = rawY ?? (isStageZero ? 0 : null);
+                 if (valX === null || valX === undefined || valY === null || valY === undefined) return false;
+                 const xVal = Number(valX);
+                 const yVal = Number(valY);
+                 return !isNaN(xVal) && xVal >= 0 && !isNaN(yVal) && yVal >= 0;
             };
 
             let filterFn = createFilter(xKey);
@@ -890,7 +916,7 @@ export const ThroughputCostChart = (props) => {
                 };
 
                 return (
-                    <div className="bg-slate-900/80 border border-slate-700/60 rounded-2xl shadow-2xl flex flex-col w-full min-h-[550px] overflow-visible backdrop-blur-sm relative">
+                    <div className="bg-slate-900/80 border border-slate-700/60 rounded-2xl shadow-2xl flex flex-col w-full min-h-[495px] overflow-visible backdrop-blur-sm relative">
                         <div className="flex flex-col w-full h-full">
                             {/* Drawer Chart Header */}
                             <div className="px-6 py-4 border-b border-slate-800 bg-slate-900/85 flex justify-between items-center gap-6 shadow-sm rounded-t-2xl">
@@ -1020,7 +1046,7 @@ export const ThroughputCostChart = (props) => {
                             )}
 
                             {/* Chart Plot Area */}
-                            <div className="flex-1 min-h-[480px] p-4 relative overflow-visible flex flex-col bg-slate-950/20 rounded-b-2xl">
+                            <div className="flex-1 min-h-[432px] p-4 relative overflow-visible flex flex-col bg-slate-950/20 rounded-b-2xl">
                                 {zoomDomain && (
                                     <button 
                                         onClick={() => setZoomDomain(null)}
@@ -1032,7 +1058,7 @@ export const ThroughputCostChart = (props) => {
 
                                 <div 
                                     ref={containerRef}
-                                    className={cn('relative w-full h-[55vh] select-none', isZoomEnabled && isDragging ? 'cursor-grabbing' : 'cursor-default')}
+                                    className={cn('relative w-full h-[50vh] select-none', isZoomEnabled && isDragging ? 'cursor-grabbing' : 'cursor-default')}
                                     onWheel={handleWheel}
                                     onMouseDown={handleMouseDown}
                                     onMouseMove={handleMouseMove}
@@ -1106,6 +1132,11 @@ export const ThroughputCostChart = (props) => {
                                                 const lineData = visibleDataPoints
                                                      .filter(d => d.benchmarkKey === benchmarkKey)
                                                      .sort((a, b) => {
+                                                         const stageA = getStageIdx(a);
+                                                         const stageB = getStageIdx(b);
+                                                         if (stageA !== null && stageB !== null && stageA !== stageB) {
+                                                             return stageA - stageB;
+                                                         }
                                                          const qpsA = Number(getVal(a, 'metrics.request_rate')) || 0;
                                                          const qpsB = Number(getVal(b, 'metrics.request_rate')) || 0;
                                                          if (qpsA !== qpsB) return qpsA - qpsB;
@@ -1299,7 +1330,7 @@ export const ThroughputCostChart = (props) => {
                   </div>
                   <div
                       ref={containerRef}
-                      className={cn('relative w-full min-h-[450px] h-[60vh] select-none', isZoomEnabled && isDragging ? 'cursor-grabbing' : 'cursor-default')}
+                      className={cn('relative w-full min-h-[360px] h-[50vh] select-none', isZoomEnabled && isDragging ? 'cursor-grabbing' : 'cursor-default')}
                       onWheel={handleWheel}
                       onMouseDown={handleMouseDown}
                       onMouseMove={handleMouseMove}
@@ -1390,6 +1421,12 @@ export const ThroughputCostChart = (props) => {
                               const lineData = visibleDataPoints
                                   .filter(d => d.benchmarkKey === benchmarkKey)
                                   .sort((a, b) => {
+                                      const stageA = getStageIdx(a);
+                                      const stageB = getStageIdx(b);
+                                      if (stageA !== null && stageB !== null && stageA !== stageB) {
+                                          return stageA - stageB;
+                                      }
+
                                       // Sort by QPS (request_rate) first to ensure logical line tracing through load points
                                       const qpsA = Number(getVal(a, 'metrics.request_rate')) || 0;
                                       const qpsB = Number(getVal(b, 'metrics.request_rate')) || 0;

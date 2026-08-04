@@ -72,8 +72,8 @@ export function validateBenchmark(fileContent, filename) {
                 
                 const entry = stageToEntry(stage);
                 const latencyVal = entry.latency && typeof entry.latency === 'object' ? entry.latency.mean : entry.latency;
-                if (entry.throughput === null || entry.throughput <= 0 || latencyVal === null || latencyVal <= 0) {
-                    result.errors.push(`Stage ${stage.stageIndex} has zero or negative metrics.`);
+                if (entry.throughput === null || entry.throughput < 0 || latencyVal === null || latencyVal < 0) {
+                    result.errors.push(`Stage ${stage.stageIndex} has negative metrics.`);
                 }
                 entries.push({
                     model_name: entry.model_name,
@@ -317,10 +317,10 @@ export function validatePrismUploadStructure(uploadData, options = {}) {
                 }
             }
 
-            // 4. Verify no zero or negative metrics
+            // 4. Verify no negative metrics
             const latencyVal = normalizedEntry.latency && typeof normalizedEntry.latency === 'object' ? normalizedEntry.latency.mean : normalizedEntry.latency;
-            if (normalizedEntry.throughput === null || normalizedEntry.throughput <= 0 || latencyVal === null || latencyVal <= 0) {
-                errors.push(`Stage ${stageIndex} (${entry.filename}) has zero or negative metrics.`);
+            if (normalizedEntry.throughput === null || normalizedEntry.throughput < 0 || latencyVal === null || latencyVal < 0) {
+                errors.push(`Stage ${stageIndex} (${entry.filename}) has negative metrics.`);
             }
 
         } catch (e) {
