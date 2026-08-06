@@ -573,8 +573,11 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
                 return currVal > prevVal ? curr : prev;
             }, groupingData[0] || {});
 
+            const payload = groupingData[0]?.payload;
+
             stats.push({
                 benchmarkKey,
+                runLabel: payload?.runLabel || '',
                 model,
                 configuration,
                 maxTput,
@@ -590,7 +593,8 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
                 uniqueIsl,
                 uniqueOsl,
                 peakRun,
-                nodesAndParallelismText
+                nodesAndParallelismText,
+                payload
             });
         });
 

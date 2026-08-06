@@ -49,18 +49,7 @@ const pct = (val) => {
 
 const deriveRunLabel = (doc) => {
     if (doc.run?.description) return doc.run.description;
-
-    // Build label from scenario model name if available
-    const stack = doc.scenario?.stack || [];
-    const primary = (
-        stack.find(c => c.standardized?.role === 'aggregate') ||
-        stack.find(c => c.standardized?.role === 'decode') ||
-        stack.find(c => c.standardized?.kind === 'inference_engine') ||
-        stack[0]
-    );
-    const model = primary?.standardized?.model?.name || doc.scenario?.load?.native?.config?.server?.model_name;
-    if (model && model !== 'Unknown' && model !== 'Unknown Model') return model.split('/').pop();
-
+    if (doc.run?.label) return doc.run.label;
     return "";
 };
 
@@ -543,6 +532,7 @@ export function stageToEntry(stage) {
     const harness = scenario.harness && scenario.harness !== 'unknown' ? scenario.harness : '';
 
     return createEntry({
+        payload: stage.payload || null,
         run_id: stage.runId,
         runLabel: stage.runLabel || '',
         github_author: stage.github_author,
@@ -622,6 +612,7 @@ export function stageToEntry(stage) {
         },
 
         rawReport: stage.rawReport || null,
+        payload: stage.payload || null,
         _diagnostics: { msg: [], raw_snapshot: {} },
     });
 }

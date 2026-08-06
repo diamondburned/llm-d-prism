@@ -172,7 +172,8 @@ export async function listResults(options: ListResultsOptions): Promise<ListResu
                 runLabel,
                 model_name,
                 hardware: {
-                    hardware_name
+                    hardware_name,
+                    accelerator_count: 1
                 },
                 format: 'brv02',
                 state: itemState,

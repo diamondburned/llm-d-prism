@@ -18,11 +18,14 @@ import { submitResultsHandler } from './routes/submit.ts';
 import { getResultsHandler } from './routes/get.ts';
 import { reviewResultsHandler } from './routes/review.ts';
 import { deleteResultsHandler } from './routes/delete.ts';
+import { exportResultsHandler, downloadEntryHandler } from './routes/export.ts';
 
 export const resultsRouter = Router();
 
 resultsRouter.get('/api/results', listResultsHandler);
 resultsRouter.post('/api/results', submitResultsHandler);
+resultsRouter.get('/api/results/:runId/export', exportResultsHandler);
+resultsRouter.get('/api/results/:runId/entries/:entryIndex/download', downloadEntryHandler);
 resultsRouter.get('/api/results/:runId', getResultsHandler);
 resultsRouter.post('/api/results/:runId/status', reviewResultsHandler);
 resultsRouter.delete('/api/results/:runId', deleteResultsHandler);
@@ -32,6 +35,9 @@ export * from './routes/submit.ts';
 export * from './routes/get.ts';
 export * from './routes/review.ts';
 export * from './routes/delete.ts';
+export * from './routes/export.ts';
 export * from './processing.ts';
 export * from './gcs.ts';
 export * from './api.ts';
+export * from './exporter.ts';
+
