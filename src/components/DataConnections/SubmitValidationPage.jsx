@@ -1532,7 +1532,8 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
             if (firstParsedStage) {
                 if (firstParsedStage.validation?.format === 'brv02') {
                     const stageParsed = parseReportV02(firstParsedStage.content, getFilePath(firstParsedStage.file));
-                    runLabelFromStage = stageParsed?.runLabel || firstParsedStage.runLabel || '';
+                    const rawDoc = stageParsed?.rawReport || {};
+                    runLabelFromStage = rawDoc.run?.description || rawDoc.run?.label || stageParsed?.runLabel || '';
                 } else {
                     runLabelFromStage = firstParsedStage.runLabel || '';
                 }

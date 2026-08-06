@@ -14,7 +14,7 @@
 
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { RotateCcw, ChevronDown, ChevronUp, Star, Pin, CheckSquare, Square, Check, Pencil, Trash2, Code2, Copy, X, Database, Eye, EyeOff, ShieldCheck, AlertCircle, TrendingUp, AlertTriangle, Search, FileText, FileClock, Sliders, Activity, Send, Play, Loader } from 'lucide-react';
+import { RotateCcw, ChevronDown, ChevronUp, Star, Pin, CheckSquare, Square, Check, Pencil, Trash2, Code2, Copy, X, Database, Eye, EyeOff, ShieldCheck, AlertCircle, TrendingUp, AlertTriangle, Search, FileText, FileClock, Sliders, Activity, Send, Play, Loader, Download } from 'lucide-react';
 import { RunComparisonChart } from '../Dashboard/RunComparisonChart';
 import { ThroughputCostChart } from '../Dashboard/ThroughputCostChart';
 import { Button, Badge, StatusChip, Modal, Textarea } from '../ui';
@@ -25,6 +25,7 @@ import { useGitHubAuth } from '../../hooks/useGitHubAuth';
 import { validateBenchmark } from '../../utils/benchmarkValidator';
 import { encodeShareLink, isValidUuid } from '../../utils/shareLinkEncoder';
 import { v4 as uuidv4 } from 'uuid';
+import { downloadRunBRV02, downloadSingleStageYaml } from '../../utils/brv02Exporter';
 
 const getCleanModelName = (name) => {
     if (!name) return '';
@@ -1768,9 +1769,26 @@ export const UnifiedDataTable = (props) => {
                     title={`Raw Report: ${rawYamlTitle}`}
                     className="max-w-3xl"
                     footer={
-                        <Button variant="secondary" size="sm" onClick={() => setRawYamlContent(null)}>
-                            Close
-                        </Button>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => {
+                                    try {
+                                        downloadSingleStageYaml(rawYamlContent, rawYamlTitle);
+                                    } catch (err) {
+                                        console.error("Failed to download stage YAML:", err);
+                                        alert("Failed to download stage YAML: " + (err.message || err));
+                                    }
+                                }}
+                                className="flex items-center gap-1.5"
+                            >
+                                <Download size={13} /> Download YAML
+                            </Button>
+                            <Button variant="secondary" size="sm" onClick={() => setRawYamlContent(null)}>
+                                Close
+                            </Button>
+                        </div>
                     }
                 >
                     <div className="font-mono text-xs select-all whitespace-pre-wrap">
@@ -1793,28 +1811,53 @@ export const UnifiedDataTable = (props) => {
                     }
                     className="max-w-3xl"
                     footer={
-                        <button
-                            onClick={() => {
-                                try {
-                                    const dataToDump = viewingPayloadRun.data?.[0] || viewingPayloadRun;
-                                    const yamlStr = yaml.dump(dataToDump, { noRefs: true });
-                                    navigator.clipboard.writeText(yamlStr);
-                                    alert('Manifest copied to clipboard');
-                                } catch (err) {
-                                    console.error("Failed to copy YAML:", err);
-                                    alert('Failed to copy manifest');
-                                }
-                            }}
-                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 rounded-lg transition-colors cursor-pointer"
-                        >
-                            <Copy className="w-3.5 h-3.5" /> Copy YAML
-                        </button>
+                        <div className="flex items-center gap-2">
+                            {(() => {
+                                const isViewBrv02 =
+                                    viewingPayloadRun?.payload?.format === 'brv02' ||
+                                    viewingPayloadRun?.source?.startsWith('brv02:') ||
+                                    viewingPayloadRun?.data?.[0]?.source_info?.type === 'benchmark_report_v02' ||
+                                    viewingPayloadRun?.data?.[0]?.source?.startsWith('brv02:');
+
+                                return isViewBrv02 ? (
+                                    <button
+                                        onClick={() => {
+                                            try {
+                                                downloadRunBRV02(viewingPayloadRun);
+                                            } catch (err) {
+                                                console.error("Failed to download BRV0.2:", err);
+                                                alert("Failed to download benchmark: " + (err.message || err));
+                                            }
+                                        }}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 rounded-lg transition-colors cursor-pointer"
+                                    >
+                                        <Download className="w-3.5 h-3.5" /> Download BRV0.2
+                                    </button>
+                                ) : null;
+                            })()}
+                            <button
+                                onClick={() => {
+                                    try {
+                                        const dataToDump = viewingPayloadRun.payload || viewingPayloadRun.data?.[0] || viewingPayloadRun;
+                                        const yamlStr = yaml.dump(dataToDump, { noRefs: true });
+                                        navigator.clipboard.writeText(yamlStr);
+                                        alert('Manifest copied to clipboard');
+                                    } catch (err) {
+                                        console.error("Failed to copy YAML:", err);
+                                        alert('Failed to copy manifest');
+                                    }
+                                }}
+                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 rounded-lg transition-colors cursor-pointer"
+                            >
+                                <Copy className="w-3.5 h-3.5" /> Copy YAML
+                            </button>
+                        </div>
                     }
                 >
                     <pre className="m-0 font-mono text-xs leading-relaxed whitespace-pre-wrap">
                         {(() => {
                             try {
-                                const dataToDump = viewingPayloadRun.data?.[0] || viewingPayloadRun;
+                                const dataToDump = viewingPayloadRun.payload || viewingPayloadRun.data?.[0] || viewingPayloadRun;
                                 return yaml.dump(dataToDump, { noRefs: true });
                             } catch (err) {
                                 console.error("Failed to dump to YAML:", err);
@@ -2996,19 +3039,42 @@ const BenchmarkRow = React.memo(({
                                                      )}
 
                                                      {canViewRaw && (
-                                                         <Button
-                                                             variant="secondary"
-                                                             size="sm"
-                                                             onClick={(e) => {
-                                                                 e.stopPropagation();
-                                                                 setViewingPayloadRun(stat);
-                                                             }}
-                                                             className="flex-shrink-0 whitespace-nowrap animate-in fade-in duration-200"
-                                                             title="Inspect Raw YAML / JSON Manifest"
-                                                         >
-                                                             <Code2 size={13} />
-                                                             Inspect Raw Manifest
-                                                         </Button>
+                                                         <div className="flex items-stretch gap-2 flex-shrink-0">
+                                                             <div className="w-px bg-slate-300/70 dark:bg-slate-700/80 self-stretch my-0.5 mr-0.5" />
+                                                             {isBrv02 && (
+                                                                 <Button
+                                                                     variant="secondary"
+                                                                     size="sm"
+                                                                     onClick={(e) => {
+                                                                         e.stopPropagation();
+                                                                         try {
+                                                                             downloadRunBRV02(stat, benchmarkData);
+                                                                         } catch (err) {
+                                                                             console.error("Failed to download BRV0.2 benchmark:", err);
+                                                                             alert("Failed to download benchmark: " + (err.message || err));
+                                                                         }
+                                                                     }}
+                                                                     className="h-full whitespace-nowrap animate-in fade-in duration-200 gap-1.5 flex items-center justify-center"
+                                                                     title={benchmarkData.length > 1 ? "Download BRV0.2 Stage Reports (ZIP Archive)" : "Download BRV0.2 Report (YAML File)"}
+                                                                 >
+                                                                     <Download size={13} />
+                                                                     {benchmarkData.length > 1 ? "Download BRV0.2 (ZIP)" : "Download BRV0.2 (YAML)"}
+                                                                 </Button>
+                                                             )}
+                                                             <Button
+                                                                 variant="secondary"
+                                                                 size="sm"
+                                                                 onClick={(e) => {
+                                                                     e.stopPropagation();
+                                                                     setViewingPayloadRun(stat);
+                                                                 }}
+                                                                 className="h-full whitespace-nowrap animate-in fade-in duration-200 gap-1.5 flex items-center justify-center"
+                                                                 title="Inspect Raw YAML / JSON Manifest"
+                                                             >
+                                                                 <Code2 size={13} />
+                                                                 Inspect Raw Manifest
+                                                             </Button>
+                                                         </div>
                                                      )}
                                                  </div>
 

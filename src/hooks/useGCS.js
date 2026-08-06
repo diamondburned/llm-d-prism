@@ -173,8 +173,9 @@ export const useGCS = ({ pendingRequests, addToast, accessToken }) => {
 
                                             const resolvedWellLit = jsonContent.well_lit_path || customMeta.well_lit_path || null;
                                             parsedStage.well_lit_path = resolvedWellLit;
-                                            parsedStage.wellLitPath = resolvedWellLit;
+                                            parsedStage.payload = jsonContent;
                                             const entry = stageToEntry(parsedStage);
+                                            entry.payload = jsonContent;
                                             entries.push(entry);
                                         }
                                     }

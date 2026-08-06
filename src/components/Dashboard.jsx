@@ -1366,8 +1366,11 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
                 return { name, url, fileCount, fileNames };
             });
 
+            const payload = groupingData[0]?.payload;
+
             stats.push({
                 benchmarkKey,
+                runLabel: payload?.runLabel || '',
                 model,
                 configuration, // Explicitly pass configuration
                 maxTput,
@@ -1379,6 +1382,7 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
                 node_count, // Pre-computed: accelerator_count / tensor_parallelism
                 tp: tensor_parallelism,
                 sourceLinks,
+                payload,
                 // Store reference to the actual data for this benchmark
                 // Fix Duplicates & Sort by QPS
                 data: (() => {
