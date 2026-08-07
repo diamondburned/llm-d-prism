@@ -41,7 +41,7 @@ import { INTEGRATIONS, getBucket, getRatioType, getEffectiveTp, sortBuckets, fin
 import { getCanonicalBucketName, dedupeBucketConfigs } from '../utils/bucketUtils';
 
 const getCleanModelName = (name) => {
-    if (!name) return '';
+    if (!name || typeof name !== 'string') return '';
     return name.replace(/\s*\[.*?\]/g, '').replace(/\s*\(.*?\)/g, '').trim();
 };
 
@@ -171,6 +171,7 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
         latType, setLatType,
         xQualityMode, setXQualityMode,
         yQualityMode, setYQualityMode,
+        lineConnectMode, setLineConnectMode,
         xAxisMax, setXAxisMax,
         showPerChip, setShowPerChip,
         showSelectedOnly, setShowSelectedOnly,
@@ -389,7 +390,8 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
             const source = d.source || 'local';
             if (!selectedSources.has(source)) return false;
 
-            if (activeFilters.models.size > 0 && !activeFilters.models.has(getCleanModelName(d.model_name))) return false;
+            const rawModel = d.model_name || d.model;
+            if (activeFilters.models.size > 0 && !activeFilters.models.has(getCleanModelName(rawModel))) return false;
             if (activeFilters.hardware.size > 0 && !activeFilters.hardware.has(d.hardware)) return false;
             if (activeFilters.precisions.size > 0 && !activeFilters.precisions.has(d.precision)) return false;
             if (activeFilters.isl.size > 0 && !activeFilters.isl.has(getBucket(d.isl))) return false;
@@ -407,7 +409,7 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
             }
 
             return true;
-        }).map(d => d.model);
+        }).map(d => d.model || d.model_name).filter(Boolean);
 
         setSelectedBenchmarks(new Set(matchingModels));
     };
@@ -488,12 +490,14 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
             updateSourceData(`gcs:${cleanName}`, result.entries, finalProfile);
 
             // Update models
-            const newModels = [...new Set(result.entries.map(d => d.model).filter(m => m !== 'Unknown'))];
+            const newModels = [...new Set(result.entries.map(d => d.model || d.model_name).filter(Boolean).filter(m => m !== 'Unknown'))];
             setSelectedBenchmarks(prev => {
                 const next = new Set(prev);
                 if (prev.size === 0 && newModels.length > 0) {
-                    const candidate = newModels.find(m => m.toLowerCase().includes('llama')) || newModels[0];
-                    next.add(candidate);
+                    const candidate = newModels.find(m => m && typeof m === 'string' && m.toLowerCase().includes('llama')) || newModels[0];
+                    if (candidate) {
+                        next.add(candidate);
+                    }
                 }
                 return next;
             });
@@ -610,7 +614,7 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
             // setApiProfiles(prev => ({ ...prev, [`giq:${newProjectId}`]: newProfileWithDebug }));
 
             // Update models
-            const newModels = [...new Set(result.entries.map(d => d.model).filter(m => m !== 'Unknown'))];
+            const newModels = [...new Set(result.entries.map(d => d.model || d.model_name).filter(Boolean).filter(m => m !== 'Unknown'))];
             setSelectedBenchmarks(prev => {
                 const next = new Set(prev);
                 if (prev.size === 0 && newModels.length > 0) {
@@ -710,8 +714,9 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
 
         const canonicalModelMap = {};
         baseData.forEach(d => {
-            if (d.model_name) {
-                const clean = getCleanModelName(d.model_name);
+            const rawModel = d.model_name || d.model;
+            if (rawModel) {
+                const clean = getCleanModelName(rawModel);
                 const cleanLower = clean.toLowerCase();
                 if (!canonicalModelMap[cleanLower]) {
                     canonicalModelMap[cleanLower] = clean;
@@ -722,8 +727,9 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
         // Helper to check if item satisfies all active filters EXCEPT the ignored category
         const check = (d, ignoreKey) => {
             if (ignoreKey !== 'models' && activeFilters.models.size > 0) {
-                const modelNameLower = getCleanModelName(d.model_name).toLowerCase();
-                const hasMatch = [...activeFilters.models].some(m => m.toLowerCase() === modelNameLower);
+                const rawModel = d.model_name || d.model;
+                const modelNameLower = getCleanModelName(rawModel).toLowerCase();
+                const hasMatch = [...activeFilters.models].some(m => (m || '').toLowerCase() === modelNameLower);
                 if (!hasMatch) return false;
             }
             if (ignoreKey !== 'hardware' && activeFilters.hardware.size > 0 && !activeFilters.hardware.has(d.hardware)) return false;
@@ -796,8 +802,9 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
             const modelId = getBenchmarkKey(d); // Unique identifier for the benchmark config
 
             if (check(d, 'models')) {
-                const cleanLower = getCleanModelName(d.model_name).toLowerCase();
-                const canonicalName = canonicalModelMap[cleanLower] || getCleanModelName(d.model_name);
+                const rawModel = d.model_name || d.model;
+                const cleanLower = getCleanModelName(rawModel).toLowerCase();
+                const canonicalName = canonicalModelMap[cleanLower] || getCleanModelName(rawModel);
                 add('models', canonicalName, modelId);
             }
 
@@ -878,7 +885,8 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
         console.log("[Dashboard] recalculating filteredBySource. baseData length:", baseData.length, "activeFilters:", activeFilters);
         const filtered = baseData.filter(d => {
             // Check modal filters
-            if (activeFilters.models.size > 0 && !activeFilters.models.has(getCleanModelName(d.model_name))) return false;
+            const rawModel = d.model_name || d.model;
+            if (activeFilters.models.size > 0 && !activeFilters.models.has(getCleanModelName(rawModel))) return false;
             if (activeFilters.hardware.size > 0 && !activeFilters.hardware.has(d.hardware)) return false;
             if (activeFilters.machines.size > 0 && !activeFilters.machines.has(d.machine_type)) return false;
             if (activeFilters.precisions.size > 0 && !activeFilters.precisions.has(d.precision)) return false;
@@ -986,8 +994,9 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
 
         const seenModelsLower = new Set();
         baseData.forEach(d => {
-            if (d.model_name) {
-                const clean = getCleanModelName(d.model_name);
+            const rawModel = d.model_name || d.model;
+            if (rawModel) {
+                const clean = getCleanModelName(rawModel);
                 const cleanLower = clean.toLowerCase();
                 if (!seenModelsLower.has(cleanLower)) {
                     seenModelsLower.add(cleanLower);
@@ -1068,7 +1077,7 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
         };
     }, [baseData]);
 
-    const allModels = [...new Set(filteredBySource.map(d => d.model).filter(m => m !== 'Unknown'))];
+    const allModels = [...new Set(filteredBySource.map(d => d.model || d.model_name).filter(Boolean).filter(m => m !== 'Unknown'))];
     const backends = [...new Set(data.map(d => d.backend).filter(b => b !== 'Unknown'))];
 
     // Sanitize activeFilters on load to remove stale filters that are not in the dataset
@@ -1187,8 +1196,8 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
 
                 if (!hasUrlFilters && !hasLocalStorageState) {
                     const qwenKeys = currentKeys.filter(k => {
-                        const parts = k.split('::');
-                        if (parts.length > 2) {
+                        const parts = k ? k.split('::') : [];
+                        if (parts.length > 2 && parts[2]) {
                             const modelLower = parts[2].toLowerCase();
                             return modelLower.includes('qwen3-coder-next') || modelLower.includes('qwen3-code-next');
                         }
@@ -1225,7 +1234,7 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
                 // Enhanced lookup to handle both legacy lpg: and new file: keys
                 // We find the entry that generated this key to get its model name
                 const d = filteredBySource.find(x => getBenchmarkKey(x) === k);
-                if (d) models.add(d.model);
+                if (d) models.add(d.model || d.model_name);
             } else {
                 models.add(k);
             }
@@ -1266,7 +1275,7 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
     const toggleModel = (model) => {
         // Mass toggle all benchmarks for this model
         const keys = filteredBySource
-            .filter(d => d.model === model)
+            .filter(d => (d.model || d.model_name) === model)
             .map(d => getBenchmarkKey(d));
 
         const newSelected = new Set(selectedBenchmarks);
@@ -1294,11 +1303,6 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
             const key = getBenchmarkKey(d);
             if (!groups.has(key)) groups.set(key, []);
             groups.get(key).push(d);
-
-            // Debugging Key Generation (Temporary)
-            if (d.model_name.toLowerCase().includes('llama-3.1-70b')) {
-                console.log(`Key: ${key} | Folder: ${d.source_info?.file_identifier || d.filename}`);
-            }
         });
 
         // 2. Process groups
@@ -1509,25 +1513,25 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
 
         const models = [...selectedModels];
         const hasInput = models.every(m => {
-            const mData = filteredBySource.filter(d => d.model === m && d.throughput > 0);
+            const mData = filteredBySource.filter(d => (d.model || d.model_name) === m && d.throughput > 0);
             if (mData.length === 0) return true; // No valid data for this model, ignore? Or fail? Let's say pass (neutral)
             return mData.every(d => (d.metrics?.input_tput || 0) > 0);
         });
 
         const hasTotal = models.every(m => {
-            const mData = filteredBySource.filter(d => d.model === m && d.throughput > 0);
+            const mData = filteredBySource.filter(d => (d.model || d.model_name) === m && d.throughput > 0);
             if (mData.length === 0) return true;
             return mData.every(d => (d.metrics?.total_tput || 0) > 0);
         });
 
         const hasQPS = models.every(m => {
-            const mData = filteredBySource.filter(d => d.model === m && d.throughput > 0);
+            const mData = filteredBySource.filter(d => (d.model || d.model_name) === m && d.throughput > 0);
             if (mData.length === 0) return true;
             return mData.every(d => (d.qps || d.metrics?.request_rate || 0) > 0);
         });
 
         const hasCost = models.some(m => {
-            const mData = filteredBySource.filter(d => d.model === m);
+            const mData = filteredBySource.filter(d => (d.model || d.model_name) === m);
             if (mData.length === 0) return false;
             return mData.some(d => d.metrics?.cost && (
                 (d.metrics.cost.spot || 0) > 0 ||
@@ -1539,25 +1543,25 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
 
         // X-Axis Availability
         const hasNTPOT = models.every(m => {
-            const mData = filteredBySource.filter(d => d.model === m);
+            const mData = filteredBySource.filter(d => (d.model || d.model_name) === m);
             if (mData.length === 0) return true;
             return mData.some(d => (d.metrics?.ntpot || 0) > 0);
         });
 
         const hasTTFT = models.every(m => {
-            const mData = filteredBySource.filter(d => d.model === m);
+            const mData = filteredBySource.filter(d => (d.model || d.model_name) === m);
             if (mData.length === 0) return true;
             return mData.some(d => (d.metrics?.ttft?.mean || 0) > 0);
         });
 
         const hasITL = models.every(m => {
-            const mData = filteredBySource.filter(d => d.model === m);
+            const mData = filteredBySource.filter(d => (d.model || d.model_name) === m);
             if (mData.length === 0) return true;
             return mData.some(d => (d.metrics?.itl || 0) > 0);
         });
 
         const hasTokensPerSec = models.every(m => {
-            const mData = filteredBySource.filter(d => d.model === m);
+            const mData = filteredBySource.filter(d => (d.model || d.model_name) === m);
             if (mData.length === 0) return true;
             return mData.some(d => (d.tokens_per_second || 0) > 0);
         });

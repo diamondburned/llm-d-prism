@@ -76,7 +76,7 @@ export function resolveRunLabel(runPayloadOrStat, benchmarkData = [], stages = [
                 trimmed.toLowerCase() !== 'custom model' &&
                 trimmed.toLowerCase() !== 'unknown' &&
                 trimmed.toLowerCase() !== 'unknown model' &&
-                (modelName ? trimmed.toLowerCase() !== modelName.toLowerCase() : true)
+                (modelName && typeof modelName === 'string' ? trimmed.toLowerCase() !== modelName.toLowerCase() : true)
             ) {
                 return trimmed;
             }

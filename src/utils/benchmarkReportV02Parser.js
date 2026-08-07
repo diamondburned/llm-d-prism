@@ -612,7 +612,6 @@ export function stageToEntry(stage) {
         },
 
         rawReport: stage.rawReport || null,
-        payload: stage.payload || null,
         _diagnostics: { msg: [], raw_snapshot: {} },
     });
 }
