@@ -847,27 +847,7 @@ export const ThroughputCostChart = (props) => {
             };
 
             // 3. Color Logic (Spectrum)
-            const colorPalettes = {
-                'h100': ['#3b82f6', '#60a5fa', '#93c5fd', '#2563eb', '#1d4ed8'], // Blue
-                'a100': ['#10b981', '#34d399', '#6ee7b7', '#059669', '#047857'], // Emerald
-                'h200': ['#f43f5e', '#fb7185', '#fda4af', '#e11d48', '#be123c'], // Rose (Red-ish)
-                'b200': ['#06b6d4', '#22d3ee', '#67e8f9', '#0891b2', '#155e75'], // Cyan (Distinct from H200)
-                'gb200':['#ec4899', '#f472b6', '#fbcfe8', '#db2777', '#be185d'], // Pink
-                
-                // TPUs - Analogous Colors (Purples/Violets/Indigos) - Google Hardware Group
-                'tpu':    ['#d946ef', '#e879f9', '#f0abfc', '#c026d3', '#a21caf'], // Fuchsia (v7 fallback)
-                'tpu_v5': ['#6366f1', '#818cf8', '#a5b4fc', '#4f46e5', '#4338ca'], // Indigo (v5)
-                'tpu_v6': ['#8b5cf6', '#a78bfa', '#c4b5fd', '#7c3aed', '#6d28d9'], // Violet (v6) - Slightly warmer than Indigo
-                'tpu_v7': ['#d946ef', '#e879f9', '#f0abfc', '#c026d3', '#a21caf'], // Fuchsia (v7) - Distinctive Pink/Purple
-                
-                'l4':   ['#f59e0b', '#fbbf24', '#fcd34d', '#d97706', '#b45309'], // Amber
-                'rtx':  ['#71717a', '#a1a1aa', '#d4d4d8', '#52525b', '#3f3f46'], // Zinc
-                'mi300':['#14b8a6', '#5eead4', '#99f6e4', '#0d9488', '#0f766e'], // Teal
-                'other':['#94a3b8', '#cbd5e1', '#64748b', '#475569', '#e2e8f0']  // Slate
-            };
-
-            // Helper to generate a palette from a base color (varying lightness)
-            // We'll use a simple approach: if base is hex, we might just use a pre-defined set of categorical palettes that are arrays
+            // Pre-defined categorical palettes (array of lightness-varied color series)
             const categoricalPalettes = [
                  ['#3b82f6', '#60a5fa', '#93c5fd', '#2563eb', '#1d4ed8'], // Blue
                  ['#ef4444', '#f87171', '#fca5a5', '#dc2626', '#b91c1c'], // Red
@@ -881,30 +861,11 @@ export const ThroughputCostChart = (props) => {
                  ['#14b8a6', '#5eead4', '#99f6e4', '#0d9488', '#0f766e'], // Teal
             ];
 
-            const getHwKey = (s) => {
-                const v = String(s).toLowerCase();
-                // Specific Matches First
-                if (v.includes('h200') || v.includes('a3-ultra')) return 'h200';
-                if (v.includes('gb200')) return 'gb200';
-                if (v.includes('b200')) return 'b200'; 
-                
-                if (v.includes('tpu-v5') || v.includes('v5')) return 'tpu_v5';
-                if (v.includes('tpu-v6') || v.includes('v6')) return 'tpu_v6';
-                if (v.includes('tpu-v7') || v.includes('v7')) return 'tpu_v7';
-                if (v.includes('tpu')) return 'tpu'; // Fallback for v4/generic
-                
-                if (v.includes('h100') || v.includes('a3')) return 'h100';
-                if (v.includes('a100') || v.includes('a2')) return 'a100';
-                if (v.includes('l4') || v.includes('g2')) return 'l4';
-                if (v.includes('rtx')) return 'rtx';
-                if (v.includes('mi3')) return 'mi300';
-                return 'other';
-            };
-
             const modelColorMap = new Map();
             const benchmarkColorMap = new Map();
             const colorGroups = {}; // groupKey -> [benchmarkKeys]
             const groupLabels = {}; // groupKey -> Label String
+            const hwCanonicalMap = {}; // lowercase -> first-seen hardware name
             
             // Group benchmarks
             uniqueBenchmarks.forEach(benchmarkKey => {
@@ -912,8 +873,8 @@ export const ThroughputCostChart = (props) => {
                 if (!bData.length) return;
                 
                 const sample = bData[0];
-                let groupKey = 'other';
-                let groupLabel = 'Other';
+                let groupKey = 'Unknown Hardware';
+                let groupLabel = 'Unknown Hardware';
 
                 if (chartColorMode === 'hardware') {
                      const candidates = [
@@ -921,20 +882,20 @@ export const ThroughputCostChart = (props) => {
                         sample.hardware,
                         sample.metadata?.machine_type,
                         sample.machine_type
-                     ].filter(val => val && val !== 'Unknown');
-                     
-                     let hwKey = 'other';
-                     for (const s of candidates) {
-                         const k = getHwKey(s);
-                         if (k !== 'other') {
-                             hwKey = k;
-                             break;
+                     ].filter(val => val && val !== 'Unknown' && val !== 'Unknown Hardware' && String(val).trim() !== '');
+
+                     if (candidates.length > 0) {
+                         const rawHw = String(candidates[0]).trim();
+                         const lower = rawHw.toLowerCase();
+                         if (!hwCanonicalMap[lower]) {
+                             hwCanonicalMap[lower] = rawHw;
                          }
+                         groupKey = hwCanonicalMap[lower];
+                         groupLabel = groupKey;
+                     } else {
+                         groupKey = 'Unknown Hardware';
+                         groupLabel = 'Unknown Hardware';
                      }
-                     groupKey = hwKey;
-                     // We don't strictly need a custom label map for HW because we look it up in the predefined list later
-                     // But for consistency:
-                     groupLabel = groupKey; 
 
                  } else if (chartColorMode === 'model') {
                     // Group by clean model name, but use full model string for groupKey to keep individual colors if desired
@@ -965,7 +926,7 @@ export const ThroughputCostChart = (props) => {
                                 
                                 // Normalize to "Nodes: ..." format
                                 groupKey = `Nodes: ${pNodes}P-${pTp} ${dNodes}D-${dTp}`;
-                            } catch (e) {
+                            } catch {
                                  groupKey = `${numNodes} Disagg`;
                             }
                         } else {
@@ -983,8 +944,7 @@ export const ThroughputCostChart = (props) => {
             });
 
             // Assign Colors
-            // If Hardware: key matches keys in 'colorPalettes'
-            // If Other: assign from categoricalPalettes dynamically
+            // Cycle through categoricalPalettes dynamically using modulo on sorted group keys
             
             // Stable sort keys to ensure color stability
             const sortedGroupKeys = Object.keys(colorGroups).sort((a, b) => {
@@ -1029,22 +989,20 @@ export const ThroughputCostChart = (props) => {
                     }
                     
                     // 3. Final Tie-breaker: Alphabetical
-                    return a.localeCompare(b);
+                    return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+                }
+
+                if (chartColorMode === 'hardware') {
+                    if (a === 'Unknown Hardware' || a === 'Unknown') return 1;
+                    if (b === 'Unknown Hardware' || b === 'Unknown') return -1;
                 }
                 
                 // Default alphabetical sort for other modes
-                return a.localeCompare(b);
+                return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
             });
             
             sortedGroupKeys.forEach((key, groupIndex) => {
-                let palette;
-                
-                if (chartColorMode === 'hardware') {
-                    palette = colorPalettes[key] || colorPalettes['other'];
-                } else {
-                    // Cycle through categorical palettes
-                    palette = categoricalPalettes[groupIndex % categoricalPalettes.length];
-                }
+                const palette = categoricalPalettes[groupIndex % categoricalPalettes.length];
 
                 colorGroups[key].forEach((benchmarkKey, i) => {
                     const color = palette[i % palette.length];
@@ -1617,34 +1575,9 @@ export const ThroughputCostChart = (props) => {
                                     </div>
                                     
                                     <div className="flex flex-wrap gap-x-8 gap-y-3">
-                                        {sortedGroupKeys.map(key => {
-                                            let palette;
-                                            if (chartColorMode === 'hardware') {
-                                                palette = colorPalettes[key] || colorPalettes['other'];
-                                            } else {
-                                                const groupIndex = sortedGroupKeys.indexOf(key);
-                                                palette = categoricalPalettes[groupIndex % categoricalPalettes.length];
-                                            }
-                                            
-                                            let label = groupLabels[key] || key;
-                                            if (chartColorMode === 'hardware') {
-                                                 const hwMap = {
-                                                     'h100': 'H100',
-                                                     'a100': 'A100',
-                                                     'h200': 'H200',
-                                                     'b200': 'B200',
-                                                     'gb200': 'GB200',
-                                                     'tpu_v5': 'TPU v5',
-                                                     'tpu_v6': 'TPU v6',
-                                                     'tpu_v7': 'TPU v7',
-                                                     'tpu': 'TPU v7',
-                                                     'l4': 'L4',
-                                                     'mi300': 'MI300',
-                                                     'rtx': 'RTX PRO 6K',
-                                                     'other': 'Other'
-                                                 };
-                                                 label = hwMap[key] || key;
-                                            }
+                                        {sortedGroupKeys.map((key, groupIndex) => {
+                                            const palette = categoricalPalettes[groupIndex % categoricalPalettes.length];
+                                            const label = groupLabels[key] || key;
 
                                             return (
                                                 <div key={key} className="flex flex-col gap-1">
@@ -2043,35 +1976,12 @@ export const ThroughputCostChart = (props) => {
                                // Just show 5-stop gradient or single color block? 
                                // Let's show the palette strips like before.
                                
-                               let palette;
-                               if (chartColorMode === 'hardware') {
-                                   palette = colorPalettes[key] || colorPalettes['other'];
-                               } else {
-                                   const groupIndex = sortedGroupKeys.indexOf(key);
-                                   palette = categoricalPalettes[groupIndex % categoricalPalettes.length];
-                               }
+                               const groupIndex = sortedGroupKeys.indexOf(key);
+                               const palette = categoricalPalettes[groupIndex % categoricalPalettes.length];
                                
                                // Label resolution
                                let label = groupLabels[key] || key;
-                               if (chartColorMode === 'hardware') {
-                                    // Map codes to nice names
-                                    const hwMap = {
-                                        'h100': 'H100',
-                                        'a100': 'A100',
-                                        'h200': 'H200',
-                                        'tpu_v5': 'TPU v5',
-                                        'tpu_v6': 'TPU v6',
-                                        'tpu_v7': 'TPU v7',
-                                        'tpu': 'TPU v7',
-                                        'l4': 'L4',
-                                        'gb200': 'GB200',
-                                        'b200': 'B200',
-                                        'mi300': 'MI300',
-                                        'rtx': 'RTX PRO 6K',
-                                        'other': 'Other'
-                                    };
-                                    label = hwMap[key] || key;
-                               }
+
 
                                return (
                                    <div key={key} className="flex flex-col gap-1">
