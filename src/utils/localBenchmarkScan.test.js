@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, afterEach } from 'vitest';
 import { scanLocalBenchmarks } from './gcsScanner.js';
 import { groupStagesIntoRuns, isFileBackedRun, isPristineScannedRun } from './benchmarkReportV02Parser.js';
 import assert from 'node:assert';
