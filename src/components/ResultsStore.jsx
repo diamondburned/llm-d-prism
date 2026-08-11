@@ -1012,15 +1012,17 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
     ]);
 
     return (
-        <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased relative overflow-x-hidden pt-0 bg-[radial-gradient(#334155_1.2px,transparent_1.2px)] bg-[size:24px_24px] bg-repeat tabular-nums">
+        <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased relative pt-0 bg-[radial-gradient(#334155_1.2px,transparent_1.2px)] bg-[size:24px_24px] bg-repeat tabular-nums">
             {/* Pulsing Vibrant Neon Glow Background Shapes */}
-            <div className="absolute top-0 -left-1/4 w-1/2 h-1/2 bg-blue-600/20 rounded-full blur-3xl pointer-events-none animate-pulse" />
-            <div className="absolute bottom-0 -right-1/4 w-1/2 h-1/2 bg-emerald-600/20 rounded-full blur-3xl pointer-events-none animate-pulse" style={{ animationDelay: '2s' }} />
+            <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+                <div className="absolute top-0 -left-1/4 w-1/2 h-1/2 bg-blue-600/20 rounded-full blur-3xl animate-pulse" />
+                <div className="absolute bottom-0 -right-1/4 w-1/2 h-1/2 bg-emerald-600/20 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '2s' }} />
+            </div>
             {/* Toast Stack */}
-            <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2">
+            <div className="fixed bottom-4 right-4 z-[100000] flex flex-col gap-2 pointer-events-none">
                 {toasts.map(t => (
                     <div key={t.id} className={cn(
-                        'px-4 py-3 rounded-lg shadow-lg text-white text-sm font-medium transition-all animate-in slide-in-from-right duration-300 flex items-center justify-between gap-4',
+                        'pointer-events-auto px-4 py-3 rounded-lg shadow-lg text-white text-sm font-medium transition-all animate-in slide-in-from-right duration-300 flex items-center justify-between gap-4',
                         t.type === 'error' ? 'bg-red-500/90 backdrop-blur' :
                             t.type === 'success' ? 'bg-green-500/90 backdrop-blur' : 'bg-blue-600/90 backdrop-blur'
                     )}>
@@ -1032,7 +1034,7 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
                 ))}
             </div>
 
-            <header className="w-full h-16 border-b border-slate-900/65 flex justify-between items-center px-6 bg-slate-950/20 backdrop-blur-md sticky top-0 z-[49]">
+            <header className="w-full h-16 border-b border-slate-800 flex justify-between items-center px-6 bg-slate-950/90 backdrop-blur-xl sticky top-0 z-[49] shadow-xl">
                 <div className="flex items-center gap-4">
                     {onNavigateBack && (
                         <button onClick={onNavigateBack} className="p-1.5 rounded-xl hover:bg-slate-900/60 text-slate-400 hover:text-white transition-colors cursor-pointer border border-transparent hover:border-slate-800/60">

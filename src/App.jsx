@@ -191,9 +191,9 @@ function App() {
 
   return (
     <ErrorBoundary>
-      <div className="min-h-screen bg-slate-950 w-full overflow-hidden font-sans relative flex flex-col">
+      <div className="min-h-screen bg-slate-950 w-full font-sans relative flex flex-col">
         <LeftNavigation currentView={currentView} onNavigate={handleNavigate} isMobileOpen={isMobileNavOpen} />
-        <main ref={mainRef} className="flex-1 overflow-y-auto flex flex-col relative w-full h-screen">
+        <main ref={mainRef} className="flex-1 flex flex-col relative w-full min-h-screen">
           {/* Top Spark Progress Bar */}
           {showOverlays && (
             <div className="fixed top-0 left-0 right-0 h-1 bg-slate-900 z-[9999] pointer-events-none">

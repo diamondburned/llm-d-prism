@@ -70,7 +70,7 @@ export function PageHeader({
 
 // "Share link" button with the built-in "Link copied!" toast used across dashboards.
 // Pass getUrl to share a constructed deep link instead of the current location.
-export function ShareLinkButton({ label = 'Share link', getUrl, className }) {
+export function ShareLinkButton({ label = 'Share Link', getUrl, className }) {
     const [copied, setCopied] = useState(false);
 
     const handleShare = () => {
