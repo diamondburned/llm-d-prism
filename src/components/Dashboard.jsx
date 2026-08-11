@@ -1602,7 +1602,7 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
     return (
         <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased relative pt-0">
             {/* Toast Stack */}
-            <div className="fixed bottom-4 right-4 z-[100000] flex flex-col gap-2 pointer-events-none">
+            <div className="fixed top-20 right-4 z-[100000] flex flex-col gap-2 pointer-events-none">
                 {toasts.map(t => (
                     <div key={t.id} className={cn(
                         'pointer-events-auto px-4 py-3 rounded-lg shadow-lg text-white text-sm font-medium transition-all animate-in slide-in-from-right duration-300 flex items-center justify-between gap-4',

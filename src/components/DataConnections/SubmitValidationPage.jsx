@@ -2502,7 +2502,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
     return (
         <div className="h-screen bg-[#02050b] text-slate-100 flex flex-col font-sans antialiased relative overflow-hidden pt-0 pl-28">
             {/* Toast Stack */}
-            <div className="fixed bottom-4 right-4 z-[100000] flex flex-col gap-2 pointer-events-none">
+            <div className="fixed top-20 right-4 z-[100000] flex flex-col gap-2 pointer-events-none">
                 {toasts.map(t => (
                     <div key={t.id} className={cn(
                         'pointer-events-auto px-4 py-3 rounded-lg shadow-lg text-white text-sm font-medium transition-all animate-in slide-in-from-right duration-300 flex items-center justify-between gap-4',

@@ -1019,7 +1019,7 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
                 <div className="absolute bottom-0 -right-1/4 w-1/2 h-1/2 bg-emerald-600/20 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '2s' }} />
             </div>
             {/* Toast Stack */}
-            <div className="fixed bottom-4 right-4 z-[100000] flex flex-col gap-2 pointer-events-none">
+            <div className="fixed top-20 right-4 z-[100000] flex flex-col gap-2 pointer-events-none">
                 {toasts.map(t => (
                     <div key={t.id} className={cn(
                         'pointer-events-auto px-4 py-3 rounded-lg shadow-lg text-white text-sm font-medium transition-all animate-in slide-in-from-right duration-300 flex items-center justify-between gap-4',

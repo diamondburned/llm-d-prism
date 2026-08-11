@@ -241,9 +241,9 @@ function App() {
             {currentView === 'guided-analysis' && <div className="p-8 text-center text-slate-400 mt-20">Guided Analysis Coming Soon... <button onClick={() => handleNavigate('home')} className="underline ml-2 text-indigo-400">Back</button></div>}
           </>
 
-          {/* Bottom-Right Persistent Status Toast */}
+          {/* Top-Right Persistent Status Toast */}
           {showOverlays && (
-            <div className="fixed bottom-6 right-6 z-[100] w-96 bg-slate-900/95 border border-slate-800 rounded-2xl p-4 shadow-2xl backdrop-blur-md flex flex-col space-y-3 text-sm select-none border-slate-700/50 animate-in slide-in-from-bottom duration-300">
+            <div className="fixed top-20 right-6 z-[100] w-96 bg-slate-900/95 border border-slate-800 rounded-2xl p-4 shadow-2xl backdrop-blur-md flex flex-col space-y-3 text-sm select-none border-slate-700/50 animate-in slide-in-from-top duration-300">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Loader className="w-4 h-4 animate-spin text-blue-500" />
