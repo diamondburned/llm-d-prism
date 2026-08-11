@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import React, { useMemo } from 'react';
-import { ResponsiveContainer, LineChart, CartesianGrid, Tooltip, Line } from 'recharts';
+import { ResponsiveContainer, LineChart, CartesianGrid, Tooltip, Line, BarChart, Bar, LabelList } from 'recharts';
 import { RotateCcw, Maximize, Minimize, ChevronUp, ChevronDown } from 'lucide-react';
 import { CustomLabel, CustomChartTooltip } from '../common';
 import { Button, ChartContainer, ChartXAxis, ChartYAxis, Input, Select, gridProps } from '../ui';
@@ -120,6 +120,106 @@ const LineConnectPopover = ({ lineConnectMode, setLineConnectMode, size = 'norma
                     </div>
                 </div>
             )}
+        </div>
+    );
+};
+
+const metricIsHigherBetter = (label) => {
+    if (!label) return true;
+    const l = String(label).toLowerCase();
+    if (l.includes('cost')) return false;
+    if (l.includes('latency') || l.includes('time') || l.includes('ttft') || l.includes('tpot') || l.includes('itl')) return false;
+    return true;
+};
+
+const BarCustomTooltip = ({
+    active,
+    payload,
+    label,
+    metricLabel,
+    smartLabels,
+    baselineBenchmarkKey,
+    theme = 'dark',
+}) => {
+    if (!active || !payload || !payload.length) return null;
+
+    const baselineItem = payload.find(p => p.dataKey === baselineBenchmarkKey);
+    const baselineVal = baselineItem ? baselineItem.value : null;
+    const isHigherBetter = metricIsHigherBetter(metricLabel);
+
+    return (
+        <div className={cn(
+            "p-3 rounded-xl border shadow-2xl backdrop-blur-md z-[100000] min-w-[220px] max-w-sm flex flex-col gap-2 font-sans select-none animate-in fade-in zoom-in-95 duration-100",
+            theme === 'dark' 
+                ? "bg-slate-900/95 border-slate-700/80 text-slate-200" 
+                : "bg-white/95 border-slate-200 text-slate-800 shadow-slate-300"
+        )}>
+            <div className="flex items-center justify-between border-b border-slate-700/50 pb-1.5 mb-1">
+                <span className="text-xs font-black uppercase tracking-wider text-cyan-400">
+                    {label}
+                </span>
+                <span className="text-[10px] text-slate-400 font-mono">
+                    {metricLabel}
+                </span>
+            </div>
+
+            <div className="flex flex-col gap-1.5 max-h-[300px] overflow-y-auto custom-scrollbar">
+                {payload.filter(p => p.value !== undefined && p.value !== null).map((item) => {
+                    const benchmarkKey = item.dataKey;
+                    const isBaseline = benchmarkKey === baselineBenchmarkKey;
+                    const displayName = smartLabels?.[benchmarkKey] || item.name || benchmarkKey;
+                    const raw = item.payload?.[`_raw_${benchmarkKey}`];
+                    const val = Number(item.value);
+                    const formattedVal = Math.abs(val) >= 100 ? val.toFixed(1) : val.toLocaleString(undefined, { maximumFractionDigits: 2 });
+
+                    let diffPercent = null;
+                    if (!isBaseline && baselineVal != null && baselineVal > 0) {
+                        diffPercent = ((val - baselineVal) / baselineVal) * 100;
+                    }
+
+                    return (
+                        <div key={benchmarkKey} className="flex flex-col gap-0.5 py-1 border-b border-slate-800/40 last:border-0">
+                            <div className="flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                    <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: item.fill || item.color }} />
+                                    <span className={cn(
+                                        "text-xs truncate font-semibold",
+                                        isBaseline ? "text-amber-300 font-bold" : (theme === 'dark' ? "text-slate-200" : "text-slate-800")
+                                    )} title={displayName}>
+                                        {isBaseline ? `★ ${displayName}` : displayName}
+                                    </span>
+                                </div>
+                                <span className={cn("text-xs font-mono font-bold flex-shrink-0", theme === 'dark' ? "text-white" : "text-slate-900")}>
+                                    {formattedVal}
+                                </span>
+                            </div>
+
+                            {diffPercent !== null && (
+                                <div className="flex items-center justify-end gap-1 text-[10px] font-mono">
+                                    <span className="text-slate-500">vs baseline:</span>
+                                    <span className={cn(
+                                        "font-bold",
+                                        diffPercent === 0 
+                                            ? "text-slate-400" 
+                                            : (isHigherBetter 
+                                                ? (diffPercent > 0 ? "text-emerald-400" : "text-rose-400")
+                                                : (diffPercent < 0 ? "text-emerald-400" : "text-rose-400")
+                                            )
+                                    )}>
+                                        {diffPercent > 0 ? `+${diffPercent.toFixed(1)}%` : `${diffPercent.toFixed(1)}%`}
+                                    </span>
+                                </div>
+                            )}
+
+                            {raw && (raw.metadata?.hardware || raw.hardware || raw.metadata?.machine_type) && (
+                                <div className="text-[9.5px] text-slate-400/80 truncate pl-4">
+                                    {raw.metadata?.hardware || raw.hardware || raw.metadata?.machine_type}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
         </div>
     );
 };
@@ -365,7 +465,10 @@ export const ThroughputCostChart = (props) => {
             let yLabel = 'Output Tokens/sec';
             
             // Priority selection for Y-Axis
-            if (tputType === 'quality') {
+            if (tputType === 'stage') {
+                yKey = 'stage';
+                yLabel = 'Stage';
+            } else if (tputType === 'quality') {
                 if (yQualityMode === 'mmlu_pro') {
                     yKey = 'quality.mmlu_pro';
                     yLabel = 'MMLU-Pro (%)';
@@ -400,13 +503,16 @@ export const ThroughputCostChart = (props) => {
                 setXQualityMode(chartMode === 'mmlu' ? 'mmlu_pro' : 'arena_score_text');
             }
             
-            if (tputType !== 'cost' && tputType !== 'quality' && showPerChip) yLabel += ' per Chip';
+            if (tputType !== 'cost' && tputType !== 'quality' && tputType !== 'stage' && showPerChip) yLabel += ' per Chip';
 
             // Determine X-Axis based on Chart Mode
             let xKey = "time_per_output_token";
             let xLabel = "Time Per Output Token (ms)";
             
-            if (chartMode === 'quality') {
+            if (chartMode === 'stage') {
+                xKey = 'stage';
+                xLabel = 'Stage';
+            } else if (chartMode === 'quality') {
                 if (xQualityMode === 'mmlu_pro') {
                     xKey = 'quality.mmlu_pro';
                     xLabel = 'MMLU-Pro (%)';
@@ -436,6 +542,9 @@ export const ThroughputCostChart = (props) => {
             // 1. Calculate Data Bounds
             const getVal = (obj, key) => {
                 if (!obj) return undefined;
+                if (key === 'stage') {
+                    return getStageIdx(obj) ?? 0;
+                }
                 if (key === 'time_per_output_token') {
                     const val = obj.time_per_output_token ?? obj.metrics?.tpot ?? obj.tpot ?? obj.metrics?.tpot_ms ?? obj.metrics?.time_per_output_token;
                     if (val !== undefined) return val;
@@ -474,6 +583,9 @@ export const ThroughputCostChart = (props) => {
                  return !isNaN(xVal) && xVal >= 0 && !isNaN(yVal) && yVal >= 0;
             };
 
+            const isBarMode = chartMode === 'stage' || tputType === 'stage';
+            const isVerticalLayout = tputType === 'stage';
+
             let filterFn = createFilter(xKey);
 
             if (chartMode === 'lat') {
@@ -504,10 +616,18 @@ export const ThroughputCostChart = (props) => {
                 xKey = "quality.arena";
                 xLabel = "Arena Score (Text)";
                 filterFn = createFilter(xKey);
+            } else if (chartMode === 'stage') {
+                xKey = "stage";
+                xLabel = "Stage";
+                filterFn = createFilter(xKey);
             }
 
+            const chartTitle = isBarMode
+                ? (isVerticalLayout ? `${xLabel} by Stage` : `${yLabel} by Stage`)
+                : `${yLabel.replace(' per Chip', '')} vs ${xLabel.replace(' (ms)', '')}`;
+
             const config = {
-                title: `${yLabel.replace(' per Chip', '')} vs ${xLabel.replace(' (ms)', '')}`,
+                title: chartTitle,
                 xKey,
                 xLabel,
                 yKey,
@@ -516,7 +636,7 @@ export const ThroughputCostChart = (props) => {
             };
 
             // 1. Calculate Data Bounds (getVal already defined above)
-            const { visibleDataPoints, uniqueBenchmarks, baselineSeries, paretoData, autoX, autoY } = useMemo(() => {
+            const { visibleDataPoints, uniqueBenchmarks, baselineSeries, paretoData, autoX, autoY, barChartData } = useMemo(() => {
                 let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
                 const visibleDataPoints = []; // Flattened
                 
@@ -570,8 +690,63 @@ export const ThroughputCostChart = (props) => {
                 const autoX = [minXBound, upperX]; 
                 const autoY = [Math.max(0, minY - yPad), maxY + yPad];
 
-                return { visibleDataPoints, uniqueBenchmarks, baselineSeries, paretoData, autoX, autoY };
-            }, [filteredData, config, getBenchmarkKey, baselineBenchmarkKey, showPareto, tputType, isLogScaleX, xAxisMax]);
+                // Compute Bar Chart data if in Bar mode
+                let barChartData = [];
+                let allStageIndices = [];
+                if (isBarMode) {
+                    const metricKey = isVerticalLayout ? config.xKey : config.yKey;
+                    const activePoints = [];
+
+                    filteredData.forEach(d => {
+                        const benchmarkKey = getBenchmarkKey(d);
+                        if (!selectedBenchmarks.has(benchmarkKey)) return;
+
+                        const rawMetric = getVal(d, metricKey);
+                        if (rawMetric === null || rawMetric === undefined) return;
+                        let numVal = Number(rawMetric);
+                        if (isNaN(numVal) || numVal < 0) return;
+
+                        if (!isVerticalLayout && showPerChip && tputType !== 'cost' && tputType !== 'quality' && tputType !== 'stage' && d.accelerator_count > 0) {
+                            numVal = numVal / d.accelerator_count;
+                        }
+
+                        const stageIdx = getStageIdx(d) ?? 0;
+                        const model = d.model_name || d.model || 'Unknown';
+                        activePoints.push({
+                            ...d,
+                            stageIdx,
+                            numVal,
+                            benchmarkKey,
+                            model
+                        });
+                    });
+
+                    const stagesSet = new Set(activePoints.map(p => p.stageIdx));
+                    if (stagesSet.size === 0) stagesSet.add(0);
+                    allStageIndices = Array.from(stagesSet).sort((a, b) => a - b);
+
+                    barChartData = allStageIndices.map(stageIdx => {
+                        const row = {
+                            stage: stageIdx,
+                            stageLabel: `Stage ${stageIdx}`,
+                        };
+
+                        uniqueBenchmarks.forEach(benchmarkKey => {
+                            if (!selectedBenchmarks.has(benchmarkKey)) return;
+                            const pts = activePoints.filter(p => p.benchmarkKey === benchmarkKey && p.stageIdx === stageIdx);
+                            if (pts.length > 0) {
+                                const avgVal = pts.reduce((acc, p) => acc + p.numVal, 0) / pts.length;
+                                row[benchmarkKey] = Number(avgVal.toFixed(2));
+                                row[`_raw_${benchmarkKey}`] = pts[0];
+                            }
+                        });
+
+                        return row;
+                    });
+                }
+
+                return { visibleDataPoints, uniqueBenchmarks, baselineSeries, paretoData, autoX, autoY, barChartData };
+            }, [filteredData, config, getBenchmarkKey, baselineBenchmarkKey, showPareto, tputType, isLogScaleX, xAxisMax, isBarMode, isVerticalLayout, selectedBenchmarks, showPerChip]);
 
             const curX = zoomDomain?.x || autoX;
             const curY = zoomDomain?.y || autoY;
@@ -1006,13 +1181,21 @@ export const ThroughputCostChart = (props) => {
                 const currentMax = xAxisMax === Infinity ? dataMax : xAxisMax;
 
                 const switchMode = (mode) => {
+                    if (mode === 'stage' && tputType === 'stage') {
+                        setTputType('output');
+                    }
                     setChartMode(mode);
                     setXAxisMax(Infinity);
+                    setZoomDomain(null);
                 };
 
                 const switchTput = (type) => {
+                    if (type === 'stage' && chartMode === 'stage') {
+                        setChartMode('tpot');
+                    }
                     setTputType(type);
                     setXAxisMax(Infinity);
+                    setZoomDomain(null);
                 };
 
                 return (
@@ -1022,7 +1205,7 @@ export const ThroughputCostChart = (props) => {
                             <div className="px-6 py-4 border-b border-slate-800 bg-slate-900/85 flex justify-between items-center gap-6 shadow-sm rounded-t-2xl">
                                 <div className="flex flex-col gap-1">
                                     <h3 className="text-base font-bold text-white font-mono">
-                                        {yLabel} vs {xLabel}
+                                        {chartTitle}
                                     </h3>
                                     <div className="text-[10px] text-slate-500 font-medium font-sans">
                                         Toggle axis dimensions, normalizations and filters below
@@ -1053,6 +1236,7 @@ export const ThroughputCostChart = (props) => {
                                                  <button onClick={() => switchMode('ttft')} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', chartMode === 'ttft' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white')}>TTFT</button>
                                                  <button onClick={() => switchMode('itl')} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', chartMode === 'itl' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white')}>ITL</button>
                                                  <button onClick={() => switchMode('lat')} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', chartMode === 'lat' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white')}>E2E Latency</button>
+                                                 <button onClick={() => switchMode('stage')} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', chartMode === 'stage' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white')}>Stage</button>
                                              </div>
                                          </div>
 
@@ -1061,10 +1245,11 @@ export const ThroughputCostChart = (props) => {
                                              <span className="text-[10px] text-slate-450 font-extrabold uppercase tracking-wider w-16">Y-Axis:</span>
                                              <div className="flex flex-wrap bg-slate-950/60 border border-slate-800/80 rounded-lg p-0.5 gap-0.5">
                                                  <button onClick={() => switchTput('output')} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', tputType === 'output' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white')}>Output</button>
-                                                 <button onClick={() => metricAvailability.input && switchTput('input')} disabled={!metricAvailability.input} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', !metricAvailability.input ? 'text-slate-700 cursor-not-allowed opacity-40' : tputType === 'input' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white')}>Input</button>
-                                                 <button onClick={() => metricAvailability.total && switchTput('total')} disabled={!metricAvailability.total} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', !metricAvailability.total ? 'text-slate-700 cursor-not-allowed opacity-40' : tputType === 'total' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white')}>Total</button>
-                                                 <button onClick={() => metricAvailability.qps && switchTput('qps')} disabled={!metricAvailability.qps} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', !metricAvailability.qps ? 'text-slate-700 cursor-not-allowed opacity-40' : tputType === 'qps' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white')}>QPS</button>
-                                                 <button onClick={() => metricAvailability.cost && switchTput('cost')} disabled={!metricAvailability.cost} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', !metricAvailability.cost ? 'text-slate-700 cursor-not-allowed opacity-40' : tputType === 'cost' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white')}>Cost</button>
+                                                 <button onClick={() => metricAvailability?.input !== false && switchTput('input')} disabled={metricAvailability?.input === false} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', metricAvailability?.input === false ? 'text-slate-700 cursor-not-allowed opacity-40' : tputType === 'input' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white')}>Input</button>
+                                                 <button onClick={() => metricAvailability?.total !== false && switchTput('total')} disabled={metricAvailability?.total === false} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', metricAvailability?.total === false ? 'text-slate-700 cursor-not-allowed opacity-40' : tputType === 'total' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white')}>Total</button>
+                                                 <button onClick={() => metricAvailability?.qps !== false && switchTput('qps')} disabled={metricAvailability?.qps === false} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', metricAvailability?.qps === false ? 'text-slate-700 cursor-not-allowed opacity-40' : tputType === 'qps' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white')}>QPS</button>
+                                                 <button onClick={() => metricAvailability?.cost !== false && switchTput('cost')} disabled={metricAvailability?.cost === false} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', metricAvailability?.cost === false ? 'text-slate-700 cursor-not-allowed opacity-40' : tputType === 'cost' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white')}>Cost</button>
+                                                 <button onClick={() => switchTput('stage')} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', tputType === 'stage' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white')}>Stage</button>
                                              </div>
                                              {tputType === 'cost' && (
                                                  <select 
@@ -1161,145 +1346,251 @@ export const ThroughputCostChart = (props) => {
 
                                 <div 
                                     ref={containerRef}
-                                    className={cn('relative w-full h-[50vh] select-none', isZoomEnabled && isDragging ? 'cursor-grabbing' : 'cursor-default')}
-                                    onWheel={handleWheel}
-                                    onMouseDown={handleMouseDown}
-                                    onMouseMove={handleMouseMove}
-                                    onMouseUp={handleMouseUp}
-                                    onMouseLeave={handleMouseUp}
+                                    className={cn('relative w-full h-[50vh] select-none', isZoomEnabled && isDragging && !isBarMode ? 'cursor-grabbing' : 'cursor-default')}
+                                    onWheel={!isBarMode ? handleWheel : undefined}
+                                    onMouseDown={!isBarMode ? handleMouseDown : undefined}
+                                    onMouseMove={!isBarMode ? handleMouseMove : undefined}
+                                    onMouseUp={!isBarMode ? handleMouseUp : undefined}
+                                    onMouseLeave={!isBarMode ? handleMouseUp : undefined}
                                  >
 
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <LineChart margin={{ top: 25, right: 20, left: 35, bottom: 25 }} onMouseLeave={() => setHoveredPointCoord(null)}>
-                                            <CartesianGrid {...gridProps()} opacity={0.35} />
-                                            <ChartXAxis
-                                                type="number"
-                                                dataKey="vx"
-                                                label={xLabel}
-                                                domain={curX}
-                                                scale={isLogScaleX ? 'log' : 'auto'}
-                                                allowDataOverflow={true}
-                                                ticks={isLogScaleX ? (() => {
-                                                    const min = curX[0];
-                                                    const max = curX[1];
-                                                    const ticks = [];
-                                                    let current = Math.pow(10, Math.ceil(Math.log10(min)));
-                                                    while (current <= max) {
-                                                        ticks.push(current);
-                                                        current *= 10;
-                                                    }
-                                                    return ticks;
-                                                })() : undefined}
-                                                tickFormatter={(val) => {
-                                                    const v = Number(val);
-                                                    return Math.abs(v) >= 100 ? v.toFixed(0) : v.toLocaleString(undefined, { maximumFractionDigits: 1 });
-                                                }}
-                                            />
-                                            <ChartYAxis
-                                                label={yLabel}
-                                                domain={curY}
-                                                allowDataOverflow={true}
-                                                tickFormatter={(val) => {
-                                                    const v = Number(val);
-                                                    return Math.abs(v) >= 100 ? v.toFixed(0) : v.toLocaleString(undefined, { maximumFractionDigits: 1 });
-                                                }}
-                                            />
-                                            <Tooltip
-                                                allowEscapeViewBox={{ x: true, y: true }}
-                                                active={pinnedPopover && pinnedPopover.chartId === 'drawer' ? true : undefined}
-                                                position={pinnedPopover && pinnedPopover.chartId === 'drawer' ? pinnedPopover.coordinate : (hoveredPointCoord && hoveredPointCoord.chartId === 'drawer' ? { x: hoveredPointCoord.x, y: hoveredPointCoord.y } : undefined)}
-                                                content={<CustomChartTooltip
-                                                    xLabel={pinnedPopover && pinnedPopover.chartId === 'drawer' ? pinnedPopover.xLabel : xLabel}
-                                                    yLabel={pinnedPopover && pinnedPopover.chartId === 'drawer' ? pinnedPopover.yLabel : yLabel}
-                                                    qualityMetrics={qualityMetrics}
-                                                    baselineBenchmarkKey={baselineBenchmarkKey}
-                                                    baselineSeries={baselineSeries}
-                                                    isPinned={!!(pinnedPopover && pinnedPopover.chartId === 'drawer')}
-                                                    pinnedPayload={pinnedPopover && pinnedPopover.chartId === 'drawer' ? pinnedPopover.payload : undefined}
-                                                    pinnedLabel={pinnedPopover && pinnedPopover.chartId === 'drawer' ? pinnedPopover.label : undefined}
-                                                    onClose={() => setPinnedPopover(null)}
-                                                />}
-                                                wrapperStyle={{ outline: 'none', zIndex: 100000 }}
-                                                cursor={{ stroke: '#475569', strokeWidth: 1, strokeDasharray: '4 4' }}
-                                                animationDuration={0}
-                                                isAnimationActive={false}
-                                            />
-
-                                            {uniqueBenchmarks.map((benchmarkKey) => {
-                                                const sample = visibleDataPoints.find(d => d.benchmarkKey === benchmarkKey);
-                                                if (!sample) return null;
-                                                const model = sample.model;
-                                                if (!selectedBenchmarks.has(benchmarkKey)) return null;
-                                                
-                                                const color = benchmarkColorMap.get(benchmarkKey) || modelColorMap.get(model) || '#38bdf8';
-                                                const lineData = visibleDataPoints
-                                                     .filter(d => d.benchmarkKey === benchmarkKey)
-                                                     .sort((a, b) => {
-                                                         if (lineConnectMode === 'x') {
-                                                             return a.vx - b.vx;
-                                                         }
-                                                         if (lineConnectMode === 'y') {
-                                                             return a.vy - b.vy;
-                                                         }
-                                                         const stageA = getStageIdx(a);
-                                                         const stageB = getStageIdx(b);
-                                                         if (stageA !== null && stageB !== null && stageA !== stageB) {
-                                                             return stageA - stageB;
-                                                         }
-                                                         const qpsA = Number(getVal(a, 'metrics.request_rate')) || 0;
-                                                         const qpsB = Number(getVal(b, 'metrics.request_rate')) || 0;
-                                                         if (qpsA !== qpsB) return qpsA - qpsB;
-                                                         return a.vx - b.vx;
-                                                     });
-                                                  
-                                                if (!lineData.length) return null;
-                                                
-                                                let displayName = model;
-                                                if (sample.metadata?.workload_id) {
-                                                     displayName = `${model} (${sample.metadata.workload_id})`;
-                                                } else if (benchmarkKey.startsWith('inference-perf:')) {
-                                                     const filename = benchmarkKey.replace('inference-perf:', '').replace(/\.[^.]+$/, '');
-                                                     displayName = `${model} (${filename})`;
-                                                } else if (benchmarkKey.startsWith('file:')) {
-                                                     const parts = benchmarkKey.split(':');
-                                                     displayName = `${model} (${parts[parts.length - 1]})`;
-                                                }
-
-                                                const isBaseline = benchmarkKey === baselineBenchmarkKey;
-                                                
-                                                return (
-                                                    <Line 
-                                                         key={benchmarkKey}
-                                                         data={lineData}
-                                                         type="monotone" 
-                                                         dataKey="vy" 
-                                                         name={displayName} 
-                                                         stroke={color} 
-                                                         strokeWidth={isBaseline ? 2.5 : 2} 
-                                                         strokeDasharray={isBaseline ? "4 4" : "0"}
-                                                         dot={(props) => renderCustomDot(props, benchmarkKey, color, xLabel, yLabel, 'drawer', isBaseline)}
-                                                         activeDot={(props) => renderActiveDot(props, benchmarkKey, color, xLabel, yLabel, 'drawer')}
-                                                         label={(props) => <CustomLabel {...props} lastIndex={lineData.length - 1} text={smartLabels[benchmarkKey] || displayName} stroke={color} showLineLabel={showLabels} showDataLabels={showDataLabels} dataPoint={lineData[props.index]} />}
-                                                         isAnimationActive={false}
-                                                    />
-                                                );
-                                            })}
-
-                                            {showPareto && paretoData.length > 1 && (
-                                                <Line 
-                                                    data={paretoData}
-                                                    type="monotone"
-                                                    dataKey="vy"
-                                                    stroke="#f59e0b"
-                                                    strokeWidth={2}
-                                                    strokeDasharray="5 5"
-                                                    dot={{ r: 4, fill: '#f59e0b', strokeWidth: 0 }}
-                                                    name="Pareto Frontier"
+                                    {isBarMode ? (
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <BarChart
+                                                data={barChartData}
+                                                layout={isVerticalLayout ? 'vertical' : 'horizontal'}
+                                                margin={isVerticalLayout 
+                                                    ? { top: 25, right: 30, left: 60, bottom: 25 } 
+                                                    : { top: 25, right: 20, left: 45, bottom: 25 }}
+                                                barCategoryGap="20%"
+                                                barGap={4}
+                                            >
+                                                <CartesianGrid {...gridProps()} opacity={0.35} horizontal={!isVerticalLayout} vertical={isVerticalLayout} />
+                                                {isVerticalLayout ? (
+                                                    <>
+                                                        <ChartXAxis
+                                                            type="number"
+                                                            label={xLabel}
+                                                            domain={xAxisMax !== Infinity ? [0, xAxisMax] : [0, 'auto']}
+                                                            scale={isLogScaleX ? 'log' : 'auto'}
+                                                            allowDataOverflow={true}
+                                                            tickFormatter={(val) => {
+                                                                const v = Number(val);
+                                                                return Math.abs(v) >= 100 ? v.toFixed(0) : v.toLocaleString(undefined, { maximumFractionDigits: 1 });
+                                                            }}
+                                                        />
+                                                        <ChartYAxis
+                                                            type="category"
+                                                            dataKey="stageLabel"
+                                                            label="Stage"
+                                                            interval={0}
+                                                            tickFormatter={(val) => val}
+                                                        />
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <ChartXAxis
+                                                            type="category"
+                                                            dataKey="stageLabel"
+                                                            label="Stage"
+                                                            interval={0}
+                                                            tickFormatter={(val) => val}
+                                                        />
+                                                        <ChartYAxis
+                                                            type="number"
+                                                            label={yLabel}
+                                                            domain={[0, 'auto']}
+                                                            allowDataOverflow={true}
+                                                            tickFormatter={(val) => {
+                                                                const v = Number(val);
+                                                                return Math.abs(v) >= 100 ? v.toFixed(0) : v.toLocaleString(undefined, { maximumFractionDigits: 1 });
+                                                            }}
+                                                        />
+                                                    </>
+                                                )}
+                                                <Tooltip
+                                                    cursor={{ fill: 'rgba(148, 163, 184, 0.08)' }}
+                                                    content={<BarCustomTooltip
+                                                        metricLabel={isVerticalLayout ? xLabel : yLabel}
+                                                        smartLabels={smartLabels}
+                                                        baselineBenchmarkKey={baselineBenchmarkKey}
+                                                        theme="dark"
+                                                    />}
+                                                    wrapperStyle={{ outline: 'none', zIndex: 100000 }}
+                                                    animationDuration={0}
                                                     isAnimationActive={false}
                                                 />
-                                            )}
-                                        </LineChart>
-                                    </ResponsiveContainer>
+
+                                                {uniqueBenchmarks.map((benchmarkKey) => {
+                                                    if (!selectedBenchmarks.has(benchmarkKey)) return null;
+                                                    const sample = visibleDataPoints.find(d => d.benchmarkKey === benchmarkKey) || filteredData.find(d => getBenchmarkKey(d) === benchmarkKey);
+                                                    if (!sample) return null;
+                                                    const model = sample.model_name || sample.model || 'Unknown';
+                                                    const color = benchmarkColorMap.get(benchmarkKey) || modelColorMap.get(model) || '#38bdf8';
+                                                    const isBaseline = benchmarkKey === baselineBenchmarkKey;
+                                                    const displayName = smartLabels[benchmarkKey] || model;
+
+                                                    return (
+                                                        <Bar
+                                                            key={benchmarkKey}
+                                                            dataKey={benchmarkKey}
+                                                            name={isBaseline ? `★ ${displayName} (baseline)` : displayName}
+                                                            fill={color}
+                                                            stroke={isBaseline ? '#ffffff' : color}
+                                                            strokeWidth={isBaseline ? 1.5 : 0}
+                                                            strokeDasharray={isBaseline ? "3 3" : undefined}
+                                                            radius={isVerticalLayout ? [0, 4, 4, 0] : [4, 4, 0, 0]}
+                                                            maxBarSize={48}
+                                                            isAnimationActive={false}
+                                                        >
+                                                            {showDataLabels && (
+                                                                <LabelList
+                                                                    dataKey={benchmarkKey}
+                                                                    position={isVerticalLayout ? "right" : "top"}
+                                                                    formatter={(val) => val != null ? Number(val).toLocaleString(undefined, { maximumFractionDigits: 1 }) : ''}
+                                                                    fill="#94a3b8"
+                                                                    fontSize={9.5}
+                                                                    offset={4}
+                                                                />
+                                                            )}
+                                                        </Bar>
+                                                    );
+                                                })}
+                                            </BarChart>
+                                        </ResponsiveContainer>
+                                    ) : (
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <LineChart margin={{ top: 25, right: 20, left: 35, bottom: 25 }} onMouseLeave={() => setHoveredPointCoord(null)}>
+                                                <CartesianGrid {...gridProps()} opacity={0.35} />
+                                                <ChartXAxis
+                                                    type="number"
+                                                    dataKey="vx"
+                                                    label={xLabel}
+                                                    domain={curX}
+                                                    scale={isLogScaleX ? 'log' : 'auto'}
+                                                    allowDataOverflow={true}
+                                                    ticks={isLogScaleX ? (() => {
+                                                        const min = curX[0];
+                                                        const max = curX[1];
+                                                        const ticks = [];
+                                                        let current = Math.pow(10, Math.ceil(Math.log10(min)));
+                                                        while (current <= max) {
+                                                            ticks.push(current);
+                                                            current *= 10;
+                                                        }
+                                                        return ticks;
+                                                    })() : undefined}
+                                                    tickFormatter={(val) => {
+                                                        const v = Number(val);
+                                                        return Math.abs(v) >= 100 ? v.toFixed(0) : v.toLocaleString(undefined, { maximumFractionDigits: 1 });
+                                                    }}
+                                                />
+                                                <ChartYAxis
+                                                    label={yLabel}
+                                                    domain={curY}
+                                                    allowDataOverflow={true}
+                                                    tickFormatter={(val) => {
+                                                        const v = Number(val);
+                                                        return Math.abs(v) >= 100 ? v.toFixed(0) : v.toLocaleString(undefined, { maximumFractionDigits: 1 });
+                                                    }}
+                                                />
+                                                <Tooltip
+                                                    allowEscapeViewBox={{ x: true, y: true }}
+                                                    active={pinnedPopover && pinnedPopover.chartId === 'drawer' ? true : undefined}
+                                                    position={pinnedPopover && pinnedPopover.chartId === 'drawer' ? pinnedPopover.coordinate : (hoveredPointCoord && hoveredPointCoord.chartId === 'drawer' ? { x: hoveredPointCoord.x, y: hoveredPointCoord.y } : undefined)}
+                                                    content={<CustomChartTooltip
+                                                        xLabel={pinnedPopover && pinnedPopover.chartId === 'drawer' ? pinnedPopover.xLabel : xLabel}
+                                                        yLabel={pinnedPopover && pinnedPopover.chartId === 'drawer' ? pinnedPopover.yLabel : yLabel}
+                                                        qualityMetrics={qualityMetrics}
+                                                        baselineBenchmarkKey={baselineBenchmarkKey}
+                                                        baselineSeries={baselineSeries}
+                                                        isPinned={!!(pinnedPopover && pinnedPopover.chartId === 'drawer')}
+                                                        pinnedPayload={pinnedPopover && pinnedPopover.chartId === 'drawer' ? pinnedPopover.payload : undefined}
+                                                        pinnedLabel={pinnedPopover && pinnedPopover.chartId === 'drawer' ? pinnedPopover.label : undefined}
+                                                        onClose={() => setPinnedPopover(null)}
+                                                    />}
+                                                    wrapperStyle={{ outline: 'none', zIndex: 100000 }}
+                                                    cursor={{ stroke: '#475569', strokeWidth: 1, strokeDasharray: '4 4' }}
+                                                    animationDuration={0}
+                                                    isAnimationActive={false}
+                                                />
+
+                                                {uniqueBenchmarks.map((benchmarkKey) => {
+                                                    const sample = visibleDataPoints.find(d => d.benchmarkKey === benchmarkKey);
+                                                    if (!sample) return null;
+                                                    const model = sample.model;
+                                                    if (!selectedBenchmarks.has(benchmarkKey)) return null;
+                                                    
+                                                    const color = benchmarkColorMap.get(benchmarkKey) || modelColorMap.get(model) || '#38bdf8';
+                                                    const lineData = visibleDataPoints
+                                                         .filter(d => d.benchmarkKey === benchmarkKey)
+                                                         .sort((a, b) => {
+                                                             if (lineConnectMode === 'x') {
+                                                                 return a.vx - b.vx;
+                                                             }
+                                                             if (lineConnectMode === 'y') {
+                                                                 return a.vy - b.vy;
+                                                             }
+                                                             const stageA = getStageIdx(a);
+                                                             const stageB = getStageIdx(b);
+                                                             if (stageA !== null && stageB !== null && stageA !== stageB) {
+                                                                 return stageA - stageB;
+                                                             }
+                                                             const qpsA = Number(getVal(a, 'metrics.request_rate')) || 0;
+                                                             const qpsB = Number(getVal(b, 'metrics.request_rate')) || 0;
+                                                             if (qpsA !== qpsB) return qpsA - qpsB;
+                                                             return a.vx - b.vx;
+                                                         });
+                                                      
+                                                    if (!lineData.length) return null;
+                                                    
+                                                    let displayName = model;
+                                                    if (sample.metadata?.workload_id) {
+                                                         displayName = `${model} (${sample.metadata.workload_id})`;
+                                                    } else if (benchmarkKey.startsWith('inference-perf:')) {
+                                                         const filename = benchmarkKey.replace('inference-perf:', '').replace(/\.[^.]+$/, '');
+                                                         displayName = `${model} (${filename})`;
+                                                    } else if (benchmarkKey.startsWith('file:')) {
+                                                         const parts = benchmarkKey.split(':');
+                                                         displayName = `${model} (${parts[parts.length - 1]})`;
+                                                    }
+
+                                                    const isBaseline = benchmarkKey === baselineBenchmarkKey;
+                                                    
+                                                    return (
+                                                        <Line 
+                                                             key={benchmarkKey}
+                                                             data={lineData}
+                                                             type="monotone" 
+                                                             dataKey="vy" 
+                                                             name={displayName} 
+                                                             stroke={color} 
+                                                             strokeWidth={isBaseline ? 2.5 : 2} 
+                                                             strokeDasharray={isBaseline ? "4 4" : "0"}
+                                                             dot={(props) => renderCustomDot(props, benchmarkKey, color, xLabel, yLabel, 'drawer', isBaseline)}
+                                                             activeDot={(props) => renderActiveDot(props, benchmarkKey, color, xLabel, yLabel, 'drawer')}
+                                                             label={(props) => <CustomLabel {...props} lastIndex={lineData.length - 1} text={smartLabels[benchmarkKey] || displayName} stroke={color} showLineLabel={showLabels} showDataLabels={showDataLabels} dataPoint={lineData[props.index]} />}
+                                                             isAnimationActive={false}
+                                                        />
+                                                    );
+                                                })}
+
+                                                {showPareto && paretoData.length > 1 && (
+                                                    <Line 
+                                                        data={paretoData}
+                                                        type="monotone"
+                                                        dataKey="vy"
+                                                        stroke="#f59e0b"
+                                                        strokeWidth={2}
+                                                        strokeDasharray="5 5"
+                                                        dot={{ r: 4, fill: '#f59e0b', strokeWidth: 0 }}
+                                                        name="Pareto Frontier"
+                                                        isAnimationActive={false}
+                                                    />
+                                                )}
+                                            </LineChart>
+                                        </ResponsiveContainer>
+                                    )}
                                 </div>
 
                                 {/* Hardware / Color Legend */}
@@ -1384,10 +1675,11 @@ export const ThroughputCostChart = (props) => {
                               <span className="text-[10px] text-slate-700 dark:text-slate-500 font-bold uppercase tracking-wider">Y-Axis</span>
                               <div className="h-4 w-px bg-slate-300 dark:bg-slate-700"/>
                               <button onClick={() => setTputType('output')} className={cn('px-3 py-1 text-xs font-medium rounded-md transition-all', tputType === 'output' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700/50')}>Output</button>
-                              <button onClick={() => metricAvailability.input && setTputType('input')} disabled={!metricAvailability.input} className={cn('px-3 py-1 text-xs font-medium rounded-md transition-all', !metricAvailability.input ? 'text-slate-600 cursor-not-allowed opacity-50' : tputType === 'input' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700/50')} title={metricAvailability.input ? "Input Tokens per Second" : "Available only when input token stats are reported"}>Input</button>
-                              <button onClick={() => metricAvailability.total && setTputType('total')} disabled={!metricAvailability.total} className={cn('px-3 py-1 text-xs font-medium rounded-md transition-all', !metricAvailability.total ? 'text-slate-600 cursor-not-allowed opacity-50' : tputType === 'total' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700/50')} title={metricAvailability.total ? "Total Tokens per Second" : "Available only when total token stats are reported"}>Total</button>
-                              <button onClick={() => metricAvailability.qps && setTputType('qps')} disabled={!metricAvailability.qps} className={cn('px-3 py-1 text-xs font-medium rounded-md transition-all', !metricAvailability.qps ? 'text-slate-600 cursor-not-allowed opacity-50' : tputType === 'qps' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700/50')} title={metricAvailability.qps ? "Queries Per Second (QPS)" : "Available only when QPS is reported"}>QPS</button>
-                              <button onClick={() => metricAvailability.cost && setTputType('cost')} disabled={!metricAvailability.cost} className={cn('px-3 py-1 text-xs font-medium rounded-md transition-all', !metricAvailability.cost ? 'text-slate-600 cursor-not-allowed opacity-50' : tputType === 'cost' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700/50')} title={metricAvailability.cost ? "Cost per 1M Tokens" : "Available only when cost data is reported"}>Cost</button>
+                              <button onClick={() => metricAvailability?.input !== false && setTputType('input')} disabled={metricAvailability?.input === false} className={cn('px-3 py-1 text-xs font-medium rounded-md transition-all', metricAvailability?.input === false ? 'text-slate-600 cursor-not-allowed opacity-50' : tputType === 'input' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700/50')} title={metricAvailability?.input !== false ? "Input Tokens per Second" : "Available only when input token stats are reported"}>Input</button>
+                              <button onClick={() => metricAvailability?.total !== false && setTputType('total')} disabled={metricAvailability?.total === false} className={cn('px-3 py-1 text-xs font-medium rounded-md transition-all', metricAvailability?.total === false ? 'text-slate-600 cursor-not-allowed opacity-50' : tputType === 'total' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700/50')} title={metricAvailability?.total !== false ? "Total Tokens per Second" : "Available only when total token stats are reported"}>Total</button>
+                              <button onClick={() => metricAvailability?.qps !== false && setTputType('qps')} disabled={metricAvailability?.qps === false} className={cn('px-3 py-1 text-xs font-medium rounded-md transition-all', metricAvailability?.qps === false ? 'text-slate-600 cursor-not-allowed opacity-50' : tputType === 'qps' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700/50')} title={metricAvailability?.qps !== false ? "Queries Per Second (QPS)" : "Available only when QPS is reported"}>QPS</button>
+                              <button onClick={() => metricAvailability?.cost !== false && setTputType('cost')} disabled={metricAvailability?.cost === false} className={cn('px-3 py-1 text-xs font-medium rounded-md transition-all', metricAvailability?.cost === false ? 'text-slate-600 cursor-not-allowed opacity-50' : tputType === 'cost' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700/50')} title={metricAvailability?.cost !== false ? "Cost per 1M Tokens" : "Available only when cost data is reported"}>Cost</button>
+                              <button onClick={() => { if (chartMode === 'stage') setChartMode('tpot'); setTputType('stage'); }} className={cn('px-3 py-1 text-xs font-medium rounded-md transition-all', tputType === 'stage' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700/50')}>Stage</button>
                           </div>
                       
                       <div className="h-4 w-px bg-slate-300 dark:bg-slate-700"/>
@@ -1405,7 +1697,7 @@ export const ThroughputCostChart = (props) => {
                           </Select>
                       )}
 
-                      {tputType !== 'cost' && (
+                      {tputType !== 'cost' && tputType !== 'stage' && (
                           <button onClick={() => canShowPerChip && setShowPerChip(!showPerChip)} disabled={!canShowPerChip} className={cn('px-3 py-1 text-xs font-medium rounded-md transition-all', !canShowPerChip ? 'text-slate-600 cursor-not-allowed opacity-50' : showPerChip ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700/50')} title={canShowPerChip ? "Normalize metric per chip" : "Available only when all selected benchmarks have known chip counts"}>Per Chip</button>
                       )}
                       
@@ -1443,11 +1735,11 @@ export const ThroughputCostChart = (props) => {
                   </div>
                   <div
                       ref={containerRef}
-                      className={cn('relative w-full min-h-[360px] h-[50vh] select-none', isZoomEnabled && isDragging ? 'cursor-grabbing' : 'cursor-default')}
-                      onWheel={handleWheel}
-                      onMouseDown={handleMouseDown}
-                      onMouseMove={handleMouseMove}
-                      onMouseUp={handleMouseUp}
+                      className={cn('relative w-full min-h-[360px] h-[50vh] select-none', isZoomEnabled && isDragging && !isBarMode ? 'cursor-grabbing' : 'cursor-default')}
+                      onWheel={!isBarMode ? handleWheel : undefined}
+                      onMouseDown={!isBarMode ? handleMouseDown : undefined}
+                      onMouseMove={!isBarMode ? handleMouseMove : undefined}
+                      onMouseUp={!isBarMode ? handleMouseUp : undefined}
                   >
 
                       {zoomDomain && (
@@ -1461,157 +1753,264 @@ export const ThroughputCostChart = (props) => {
                           </Button>
                       )}
                       
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart margin={{ top: 45, right: 30, left: 60, bottom: 45 }} onMouseLeave={() => setHoveredPointCoord(null)}>
-                          <CartesianGrid {...gridProps()} opacity={0.5} />
-                          <ChartXAxis
-                            type="number"
-                            dataKey="vx"
-                            label={config.xLabel}
-                            domain={curX}
-                            scale={isLogScaleX ? 'log' : 'auto'}
-                            allowDataOverflow={true}
-                            ticks={isLogScaleX ? (() => {
-                                // Generating power-of-10 ticks within the current domain
-                                const min = curX[0];
-                                const max = curX[1];
-                                const ticks = [];
-                                let current = Math.pow(10, Math.ceil(Math.log10(min)));
-                                while (current <= max) {
-                                    ticks.push(current);
-                                    current *= 10;
-                                }
-                                // Ensure bounds are included for context if they are significant
-                                return ticks;
-                            })() : undefined}
-                            tickFormatter={(val) => {
-                                const v = Number(val);
-                                return Math.abs(v) >= 100 ? v.toFixed(0) : v.toLocaleString(undefined, { maximumFractionDigits: 2 });
-                            }}
-                          />
-                          <ChartYAxis
-                            label={config.yLabel}
-                            domain={curY}
-                            allowDataOverflow={true}
-                            tickFormatter={(val) => {
-                                const v = Number(val);
-                                return Math.abs(v) >= 100 ? v.toFixed(0) : v.toLocaleString(undefined, { maximumFractionDigits: 2 });
-                            }}
-                          />
-                          <Tooltip
-                            allowEscapeViewBox={{ x: true, y: true }}
-                            active={pinnedPopover && pinnedPopover.chartId === 'main' ? true : undefined}
-                            position={pinnedPopover && pinnedPopover.chartId === 'main' ? pinnedPopover.coordinate : (hoveredPointCoord && hoveredPointCoord.chartId === 'main' ? { x: hoveredPointCoord.x, y: hoveredPointCoord.y } : undefined)}
-                            content={<CustomChartTooltip
-                                xLabel={pinnedPopover && pinnedPopover.chartId === 'main' ? pinnedPopover.xLabel : config.xLabel}
-                                yLabel={pinnedPopover && pinnedPopover.chartId === 'main' ? pinnedPopover.yLabel : config.yLabel}
-                                qualityMetrics={qualityMetrics}
-                                baselineBenchmarkKey={baselineBenchmarkKey}
-                                baselineSeries={baselineSeries}
-                                isPinned={!!(pinnedPopover && pinnedPopover.chartId === 'main')}
-                                pinnedPayload={pinnedPopover && pinnedPopover.chartId === 'main' ? pinnedPopover.payload : undefined}
-                                pinnedLabel={pinnedPopover && pinnedPopover.chartId === 'main' ? pinnedPopover.label : undefined}
-                                onClose={() => setPinnedPopover(null)}
-                            />}
-                            wrapperStyle={{ outline: 'none', zIndex: 100000 }}
-                            cursor={{ stroke: '#94a3b8', strokeWidth: 1, strokeDasharray: '4 4' }}
-                            animationDuration={0}
-                            isAnimationActive={false}
-                          />
-    
-                          {uniqueBenchmarks.map((benchmarkKey) => {
-                              // Get the model for this benchmark (for label display)
-                              const sample = visibleDataPoints.find(d => d.benchmarkKey === benchmarkKey);
-                              if (!sample) return null;
-                              const model = sample.model;
-                              
-                              // Visibility Check: Must check benchmarkKey directly for file-based benchmarks
-                              if (!selectedBenchmarks.has(benchmarkKey)) return null;
-                              
-                              const color = benchmarkColorMap.get(benchmarkKey) || modelColorMap.get(model);
-                              if (!color) return null;
+                      {isBarMode ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart
+                                data={barChartData}
+                                layout={isVerticalLayout ? 'vertical' : 'horizontal'}
+                                margin={isVerticalLayout 
+                                    ? { top: 45, right: 30, left: 60, bottom: 45 } 
+                                    : { top: 45, right: 30, left: 60, bottom: 45 }}
+                                barCategoryGap="20%"
+                                barGap={4}
+                            >
+                                <CartesianGrid {...gridProps()} opacity={0.5} horizontal={!isVerticalLayout} vertical={isVerticalLayout} />
+                                {isVerticalLayout ? (
+                                    <>
+                                        <ChartXAxis
+                                            type="number"
+                                            label={config.xLabel}
+                                            domain={xAxisMax !== Infinity ? [0, xAxisMax] : [0, 'auto']}
+                                            scale={isLogScaleX ? 'log' : 'auto'}
+                                            allowDataOverflow={true}
+                                            tickFormatter={(val) => {
+                                                const v = Number(val);
+                                                return Math.abs(v) >= 100 ? v.toFixed(0) : v.toLocaleString(undefined, { maximumFractionDigits: 1 });
+                                            }}
+                                        />
+                                        <ChartYAxis
+                                            type="category"
+                                            dataKey="stageLabel"
+                                            label="Stage"
+                                            interval={0}
+                                            tickFormatter={(val) => val}
+                                        />
+                                    </>
+                                ) : (
+                                    <>
+                                        <ChartXAxis
+                                            type="category"
+                                            dataKey="stageLabel"
+                                            label="Stage"
+                                            interval={0}
+                                            tickFormatter={(val) => val}
+                                        />
+                                        <ChartYAxis
+                                            type="number"
+                                            label={config.yLabel}
+                                            domain={[0, 'auto']}
+                                            allowDataOverflow={true}
+                                            tickFormatter={(val) => {
+                                                const v = Number(val);
+                                                return Math.abs(v) >= 100 ? v.toFixed(0) : v.toLocaleString(undefined, { maximumFractionDigits: 1 });
+                                            }}
+                                        />
+                                    </>
+                                )}
+                                <Tooltip
+                                    cursor={{ fill: 'rgba(148, 163, 184, 0.12)' }}
+                                    content={<BarCustomTooltip
+                                        metricLabel={isVerticalLayout ? config.xLabel : config.yLabel}
+                                        smartLabels={smartLabels}
+                                        baselineBenchmarkKey={baselineBenchmarkKey}
+                                        theme="light"
+                                    />}
+                                    wrapperStyle={{ outline: 'none', zIndex: 100000 }}
+                                    animationDuration={0}
+                                    isAnimationActive={false}
+                                />
 
-                              const lineData = visibleDataPoints
-                                  .filter(d => d.benchmarkKey === benchmarkKey)
-                                  .sort((a, b) => {
-                                      if (lineConnectMode === 'x') {
-                                          return a.vx - b.vx;
-                                      }
-                                      if (lineConnectMode === 'y') {
-                                          return a.vy - b.vy;
-                                      }
-                                      const stageA = getStageIdx(a);
-                                      const stageB = getStageIdx(b);
-                                      if (stageA !== null && stageB !== null && stageA !== stageB) {
-                                          return stageA - stageB;
-                                      }
+                                {uniqueBenchmarks.map((benchmarkKey) => {
+                                    if (!selectedBenchmarks.has(benchmarkKey)) return null;
+                                    const sample = visibleDataPoints.find(d => d.benchmarkKey === benchmarkKey) || filteredData.find(d => getBenchmarkKey(d) === benchmarkKey);
+                                    if (!sample) return null;
+                                    const model = sample.model_name || sample.model || 'Unknown';
+                                    const color = benchmarkColorMap.get(benchmarkKey) || modelColorMap.get(model);
+                                    if (!color) return null;
+                                    const isBaseline = benchmarkKey === baselineBenchmarkKey;
+                                    const displayName = smartLabels[benchmarkKey] || model;
 
-                                      // Sort by QPS (request_rate) first to ensure logical line tracing through load points
-                                      const qpsA = Number(getVal(a, 'metrics.request_rate')) || 0;
-                                      const qpsB = Number(getVal(b, 'metrics.request_rate')) || 0;
-                                      
-                                      if (qpsA !== qpsB) return qpsA - qpsB;
-
-                                      // Fallback: Sort by current X-axis value to prevent Recharts from drawing backtracking lines
-                                      // 'vx' represents the computed X coordinate for this data point
-                                      return a.vx - b.vx;
-                                  });
-                               
-                              if (!lineData.length) return null;
-                              
-                              // Create a display name for the legend
-                              // Use workload info if available, otherwise source
-                              let displayName = model;
-                              if (sample.metadata?.workload_id) {
-                                  displayName = `${model} (${sample.metadata.workload_id})`;
-                              } else if (benchmarkKey.startsWith('inference-perf:')) {
-                                  // Re-add file extension logic if needed, but often lpg relies on name
-                                  const filename = benchmarkKey.replace('inference-perf:', '').replace(/\.[^.]+$/, '');
-                                  displayName = `${model} (${filename})`;
-                              } else if (benchmarkKey.startsWith('file:')) {
-                                  // Extract filename from file:source:filename key
-                                  const parts = benchmarkKey.split(':');
-                                  const filename = parts[parts.length - 1]; // Last part is filename
-                                  displayName = `${model} (${filename})`;
-                              }
-
-                              const isBaseline = benchmarkKey === baselineBenchmarkKey;
-
-                              return (
-                              <Line
-                                key={benchmarkKey}
-                                data={lineData}
-                                type="monotone"
-                                dataKey="vy"
-                                name={isBaseline ? `★ ${displayName} (baseline)` : displayName}
-                                stroke={color}
-                                strokeDasharray="0"
-                                strokeWidth={isBaseline ? 3.5 : 2}
-                                dot={(props) => renderCustomDot(props, benchmarkKey, color, config.xLabel, config.yLabel, 'main', isBaseline)}
-                                isAnimationActive={false}
-                                label={(props) => <CustomLabel {...props} lastIndex={lineData.length - 1} text={smartLabels[benchmarkKey] || displayName} stroke={color} showLineLabel={showLabels} showDataLabels={showDataLabels} dataPoint={lineData[props.index]} />}
-                                activeDot={(props) => renderActiveDot(props, benchmarkKey, color, config.xLabel, config.yLabel, 'main')}
+                                    return (
+                                        <Bar
+                                            key={benchmarkKey}
+                                            dataKey={benchmarkKey}
+                                            name={isBaseline ? `★ ${displayName} (baseline)` : displayName}
+                                            fill={color}
+                                            stroke={isBaseline ? '#0f172a' : color}
+                                            strokeWidth={isBaseline ? 1.5 : 0}
+                                            strokeDasharray={isBaseline ? "3 3" : undefined}
+                                            radius={isVerticalLayout ? [0, 4, 4, 0] : [4, 4, 0, 0]}
+                                            maxBarSize={48}
+                                            isAnimationActive={false}
+                                        >
+                                            {showDataLabels && (
+                                                <LabelList
+                                                    dataKey={benchmarkKey}
+                                                    position={isVerticalLayout ? "right" : "top"}
+                                                    formatter={(val) => val != null ? Number(val).toLocaleString(undefined, { maximumFractionDigits: 1 }) : ''}
+                                                    fill="#64748b"
+                                                    fontSize={9.5}
+                                                    offset={4}
+                                                />
+                                            )}
+                                        </Bar>
+                                    );
+                                })}
+                            </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <LineChart margin={{ top: 45, right: 30, left: 60, bottom: 45 }} onMouseLeave={() => setHoveredPointCoord(null)}>
+                              <CartesianGrid {...gridProps()} opacity={0.5} />
+                              <ChartXAxis
+                                type="number"
+                                dataKey="vx"
+                                label={config.xLabel}
+                                domain={curX}
+                                scale={isLogScaleX ? 'log' : 'auto'}
+                                allowDataOverflow={true}
+                                ticks={isLogScaleX ? (() => {
+                                    // Generating power-of-10 ticks within the current domain
+                                    const min = curX[0];
+                                    const max = curX[1];
+                                    const ticks = [];
+                                    let current = Math.pow(10, Math.ceil(Math.log10(min)));
+                                    while (current <= max) {
+                                        ticks.push(current);
+                                        current *= 10;
+                                    }
+                                    // Ensure bounds are included for context if they are significant
+                                    return ticks;
+                                })() : undefined}
+                                tickFormatter={(val) => {
+                                    const v = Number(val);
+                                    return Math.abs(v) >= 100 ? v.toFixed(0) : v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+                                }}
                               />
-                              );
-                          })}
+                              <ChartYAxis
+                                label={config.yLabel}
+                                domain={curY}
+                                allowDataOverflow={true}
+                                tickFormatter={(val) => {
+                                    const v = Number(val);
+                                    return Math.abs(v) >= 100 ? v.toFixed(0) : v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+                                }}
+                              />
+                              <Tooltip
+                                allowEscapeViewBox={{ x: true, y: true }}
+                                active={pinnedPopover && pinnedPopover.chartId === 'main' ? true : undefined}
+                                position={pinnedPopover && pinnedPopover.chartId === 'main' ? pinnedPopover.coordinate : (hoveredPointCoord && hoveredPointCoord.chartId === 'main' ? { x: hoveredPointCoord.x, y: hoveredPointCoord.y } : undefined)}
+                                content={<CustomChartTooltip
+                                    xLabel={pinnedPopover && pinnedPopover.chartId === 'main' ? pinnedPopover.xLabel : config.xLabel}
+                                    yLabel={pinnedPopover && pinnedPopover.chartId === 'main' ? pinnedPopover.yLabel : config.yLabel}
+                                    qualityMetrics={qualityMetrics}
+                                    baselineBenchmarkKey={baselineBenchmarkKey}
+                                    baselineSeries={baselineSeries}
+                                    isPinned={!!(pinnedPopover && pinnedPopover.chartId === 'main')}
+                                    pinnedPayload={pinnedPopover && pinnedPopover.chartId === 'main' ? pinnedPopover.payload : undefined}
+                                    pinnedLabel={pinnedPopover && pinnedPopover.chartId === 'main' ? pinnedPopover.label : undefined}
+                                    onClose={() => setPinnedPopover(null)}
+                                />}
+                                wrapperStyle={{ outline: 'none', zIndex: 100000 }}
+                                cursor={{ stroke: '#94a3b8', strokeWidth: 1, strokeDasharray: '4 4' }}
+                                animationDuration={0}
+                                isAnimationActive={false}
+                              />
+        
+                              {uniqueBenchmarks.map((benchmarkKey) => {
+                                  // Get the model for this benchmark (for label display)
+                                  const sample = visibleDataPoints.find(d => d.benchmarkKey === benchmarkKey);
+                                  if (!sample) return null;
+                                  const model = sample.model;
+                                  
+                                  // Visibility Check: Must check benchmarkKey directly for file-based benchmarks
+                                  if (!selectedBenchmarks.has(benchmarkKey)) return null;
+                                  
+                                  const color = benchmarkColorMap.get(benchmarkKey) || modelColorMap.get(model);
+                                  if (!color) return null;
 
-                          {showPareto && paretoData.length > 1 && (
-                               <Line
-                                   data={paretoData}
-                                   type="linear"
-                                   dataKey="vy"
-                                   name="Pareto Frontier"
-                                   stroke="#f59e0b" // Amber-500
-                                   strokeWidth={3}
-                                   strokeDasharray="5 5"
-                                   dot={false}
-                                   activeDot={false}
-                                   style={{ opacity: 0.8 }}
-                                   isAnimationActive={false}
-                               />
-                          )}
-                        </LineChart>
-                      </ResponsiveContainer>
+                                  const lineData = visibleDataPoints
+                                      .filter(d => d.benchmarkKey === benchmarkKey)
+                                      .sort((a, b) => {
+                                          if (lineConnectMode === 'x') {
+                                              return a.vx - b.vx;
+                                          }
+                                          if (lineConnectMode === 'y') {
+                                              return a.vy - b.vy;
+                                          }
+                                          const stageA = getStageIdx(a);
+                                          const stageB = getStageIdx(b);
+                                          if (stageA !== null && stageB !== null && stageA !== stageB) {
+                                              return stageA - stageB;
+                                          }
+
+                                          // Sort by QPS (request_rate) first to ensure logical line tracing through load points
+                                          const qpsA = Number(getVal(a, 'metrics.request_rate')) || 0;
+                                          const qpsB = Number(getVal(b, 'metrics.request_rate')) || 0;
+                                          
+                                          if (qpsA !== qpsB) return qpsA - qpsB;
+
+                                          // Fallback: Sort by current X-axis value to prevent Recharts from drawing backtracking lines
+                                          // 'vx' represents the computed X coordinate for this data point
+                                          return a.vx - b.vx;
+                                      });
+                                   
+                                  if (!lineData.length) return null;
+                                  
+                                  // Create a display name for the legend
+                                  // Use workload info if available, otherwise source
+                                  let displayName = model;
+                                  if (sample.metadata?.workload_id) {
+                                      displayName = `${model} (${sample.metadata.workload_id})`;
+                                  } else if (benchmarkKey.startsWith('inference-perf:')) {
+                                      // Re-add file extension logic if needed, but often lpg relies on name
+                                      const filename = benchmarkKey.replace('inference-perf:', '').replace(/\.[^.]+$/, '');
+                                      displayName = `${model} (${filename})`;
+                                  } else if (benchmarkKey.startsWith('file:')) {
+                                      // Extract filename from file:source:filename key
+                                      const parts = benchmarkKey.split(':');
+                                      const filename = parts[parts.length - 1]; // Last part is filename
+                                      displayName = `${model} (${filename})`;
+                                  }
+
+                                  const isBaseline = benchmarkKey === baselineBenchmarkKey;
+
+                                  return (
+                                  <Line
+                                    key={benchmarkKey}
+                                    data={lineData}
+                                    type="monotone"
+                                    dataKey="vy"
+                                    name={isBaseline ? `★ ${displayName} (baseline)` : displayName}
+                                    stroke={color}
+                                    strokeDasharray="0"
+                                    strokeWidth={isBaseline ? 3.5 : 2}
+                                    dot={(props) => renderCustomDot(props, benchmarkKey, color, config.xLabel, config.yLabel, 'main', isBaseline)}
+                                    isAnimationActive={false}
+                                    label={(props) => <CustomLabel {...props} lastIndex={lineData.length - 1} text={smartLabels[benchmarkKey] || displayName} stroke={color} showLineLabel={showLabels} showDataLabels={showDataLabels} dataPoint={lineData[props.index]} />}
+                                    activeDot={(props) => renderActiveDot(props, benchmarkKey, color, config.xLabel, config.yLabel, 'main')}
+                                  />
+                                  );
+                              })}
+
+                              {showPareto && paretoData.length > 1 && (
+                                   <Line
+                                       data={paretoData}
+                                       type="linear"
+                                       dataKey="vy"
+                                       name="Pareto Frontier"
+                                       stroke="#f59e0b" // Amber-500
+                                       strokeWidth={3}
+                                       strokeDasharray="5 5"
+                                       dot={false}
+                                       activeDot={false}
+                                       style={{ opacity: 0.8 }}
+                                       isAnimationActive={false}
+                                   />
+                              )}
+                            </LineChart>
+                        </ResponsiveContainer>
+                      )}
                   </div>
                   
                    {/* Hardware / Color Legend */}
@@ -1721,6 +2120,7 @@ export const ThroughputCostChart = (props) => {
                                    title={metricAvailability.tokens_per_sec ? "Tokens Per Second (Reciprocal of ITL)" : "Available only when Tokens/Sec data is derived/reported"}
                                 >Tokens/Sec</button>
                                <button onClick={() => { setChartMode('lat'); setLatType('e2e'); }} className={cn('px-3 py-1 text-xs font-medium rounded-md transition-all', chartMode === 'lat' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700/50')}>E2E Latency</button>
+                               <button onClick={() => { if (tputType === 'stage') setTputType('output'); setChartMode('stage'); }} className={cn('px-3 py-1 text-xs font-medium rounded-md transition-all', chartMode === 'stage' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700/50')}>Stage</button>
                            </div>
                            
                            {/* Max Slider */}

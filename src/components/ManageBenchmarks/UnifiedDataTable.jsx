@@ -560,7 +560,8 @@ export const UnifiedDataTable = (props) => {
             input: hasInput,
             total: hasTotal,
             qps: hasQPS,
-            cost: hasCost
+            cost: hasCost,
+            stage: true
         };
     }, [drawerFilteredData]);
 
