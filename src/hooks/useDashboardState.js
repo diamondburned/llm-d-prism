@@ -18,7 +18,7 @@ import { defaultState } from '../config/defaultState';
 export const getSharedState = () => {
     if (typeof window === 'undefined') return null;
     const params = new URLSearchParams(window.location.search);
-    if (!params.has('share')) return null;
+    if (Array.from(params.keys()).length === 0) return null;
 
     try {
         const parseSet = (key) => new Set(params.getAll(key));
@@ -26,29 +26,33 @@ export const getSharedState = () => {
         const parseBool = (key, def) => params.has(key) ? params.get(key) === 'true' : def;
 
         return {
+            status: params.get('status') || params.get('kpiFilter') || null,
+            own: params.has('own') ? params.get('own') === 'true' : null,
+            q: params.get('q') || params.get('search') || null,
+            unlisted: params.has('unlisted') ? params.get('unlisted') === 'true' || params.get('unlisted') === '1' : (params.has('includeUnlisted') ? params.get('includeUnlisted') === 'true' || params.get('includeUnlisted') === '1' : null),
             chartMode: params.get('c_mode') || 'tpot',
             tputType: params.get('t_type') || 'output',
             costMode: params.get('cost_mode') || 'spot',
             latType: params.get('l_type') || 'e2e',
             // Normalize Aggregated keys to use double colons (only if not already double)
-            selectedModels: new Set([...parseSet('models')].map(k => k.includes('::Aggregated') ? k : k.replace(':Aggregated', '::Aggregated'))),
-            modelsFilter: parseSet('f_models'),
-            hwFilter: parseSet('f_hw'),
-            machFilter: parseSet('f_mach'),
-            precFilter: parseSet('f_prec'),
-            tpFilter: parseSet('f_tp'),
-            islFilter: parseSet('f_isl'),
-            oslFilter: parseSet('f_osl'),
-            ratioFilter: parseSet('f_ratio'),
-            pdRatioFilter: parseSet('f_pd_ratio'),
-            msFilter: parseSet('f_ms'),
-            ssFilter: parseSet('f_ss'),
-            originFilter: parseSet('f_origin'),
-            accFilter: parseSet('f_acc'),
-            ucFilter: parseSet('f_uc'),
-            optFilter: parseSet('f_opt'),
-            compFilter: parseSet('f_comp'),
-            sources: parseSet('src'),
+            selectedModels: params.has('models') ? new Set([...parseSet('models')].map(k => k.includes('::Aggregated') ? k : k.replace(':Aggregated', '::Aggregated'))) : null,
+            modelsFilter: params.has('f_models') ? parseSet('f_models') : null,
+            hwFilter: params.has('f_hw') ? parseSet('f_hw') : null,
+            machFilter: params.has('f_mach') ? parseSet('f_mach') : null,
+            precFilter: params.has('f_prec') ? parseSet('f_prec') : null,
+            tpFilter: params.has('f_tp') ? parseSet('f_tp') : null,
+            islFilter: params.has('f_isl') ? parseSet('f_isl') : null,
+            oslFilter: params.has('f_osl') ? parseSet('f_osl') : null,
+            ratioFilter: params.has('f_ratio') ? parseSet('f_ratio') : null,
+            pdRatioFilter: params.has('f_pd_ratio') ? parseSet('f_pd_ratio') : null,
+            msFilter: params.has('f_ms') ? parseSet('f_ms') : null,
+            ssFilter: params.has('f_ss') ? parseSet('f_ss') : null,
+            originFilter: params.has('f_origin') ? parseSet('f_origin') : null,
+            accFilter: params.has('f_acc') ? parseSet('f_acc') : null,
+            ucFilter: params.has('f_uc') ? parseSet('f_uc') : null,
+            optFilter: params.has('f_opt') ? parseSet('f_opt') : null,
+            compFilter: params.has('f_comp') ? parseSet('f_comp') : null,
+            sources: params.has('src') ? parseSet('src') : null,
             buckets: params.getAll('buckets'),
             giqProjects: params.getAll('apis'),
             baselineKey: params.get('baseline') || null,
@@ -195,46 +199,45 @@ export const useDashboardState = () => {
 
     // Active Filters
     const [activeFilters, setActiveFilters] = useState(() => {
-        const defaultFilters = {
-            models: deriveInitialModelsFilter(),
-            hardware: initialState.hwFilter || new Set(),
-            machines: initialState.machFilter || new Set(),
-            tp: initialState.tpFilter || new Set(),
-            precisions: initialState.precFilter || new Set(),
-            isl: initialState.islFilter || new Set(),
-            osl: initialState.oslFilter || new Set(),
-            ratio: initialState.ratioFilter || new Set(),
-            modelServer: initialState.msFilter || new Set(),
-            servingStack: initialState.ssFilter || new Set(),
-            components: initialState.compFilter || new Set(),
-            origins: initialState.originFilter || new Set(),
-            connectionNames: new Set(),
-            pdRatio: initialState.pdRatioFilter || new Set(),
-            acc_count: initialState.accFilter || new Set(),
-            useCase: initialState.ucFilter || new Set(),
-            optimizations: initialState.optFilter || new Set()
-        };
-        
-        // If there are no initial state filters (e.g. from URL), try loading from local storage
-        if (!initialState.hwFilter && !initialState.machFilter && !initialState.tpFilter) {
-            try {
-                const savedStr = localStorage.getItem('prism_active_filters');
-                if (savedStr) {
-                    const saved = JSON.parse(savedStr);
-                    const loadedFilters = { ...defaultFilters };
-                    for (const key of Object.keys(saved)) {
-                        if (Array.isArray(saved[key])) {
-                            loadedFilters[key] = new Set(saved[key]);
-                        }
-                    }
-                    return loadedFilters;
-                }
-            } catch (e) {
-                console.warn("Failed to load active filters from local storage", e);
+        let savedFilters = {};
+        try {
+            const savedStr = localStorage.getItem('prism_active_filters');
+            if (savedStr) {
+                savedFilters = JSON.parse(savedStr);
             }
+        } catch (e) {
+            console.warn("Failed to load active filters from local storage", e);
         }
-        
-        return defaultFilters;
+
+        const resolveFilterSet = (urlFilterSet, savedArray) => {
+            if (urlFilterSet && urlFilterSet.size > 0) {
+                return urlFilterSet;
+            }
+            if (Array.isArray(savedArray)) {
+                return new Set(savedArray);
+            }
+            return new Set();
+        };
+
+        return {
+            models: initialState.modelsFilter && initialState.modelsFilter.size > 0 ? initialState.modelsFilter : resolveFilterSet(null, savedFilters.models),
+            hardware: resolveFilterSet(initialState.hwFilter, savedFilters.hardware),
+            machines: resolveFilterSet(initialState.machFilter, savedFilters.machines),
+            tp: resolveFilterSet(initialState.tpFilter, savedFilters.tp),
+            precisions: resolveFilterSet(initialState.precFilter, savedFilters.precisions),
+            isl: resolveFilterSet(initialState.islFilter, savedFilters.isl),
+            osl: resolveFilterSet(initialState.oslFilter, savedFilters.osl),
+            ratio: resolveFilterSet(initialState.ratioFilter, savedFilters.ratio),
+            modelServer: resolveFilterSet(initialState.msFilter, savedFilters.modelServer),
+            servingStack: resolveFilterSet(initialState.ssFilter, savedFilters.servingStack),
+            components: resolveFilterSet(initialState.compFilter, savedFilters.components),
+            origins: resolveFilterSet(initialState.originFilter, savedFilters.origins),
+            connectionNames: new Set(),
+            pdRatio: resolveFilterSet(initialState.pdRatioFilter, savedFilters.pdRatio),
+            acc_count: resolveFilterSet(initialState.accFilter, savedFilters.acc_count),
+            useCase: resolveFilterSet(initialState.ucFilter, savedFilters.useCase),
+            optimizations: resolveFilterSet(initialState.optFilter, savedFilters.optimizations)
+        };
     });
 
     useEffect(() => {
@@ -244,8 +247,45 @@ export const useDashboardState = () => {
                 filtersToSave[key] = Array.from(activeFilters[key]);
             }
             localStorage.setItem('prism_active_filters', JSON.stringify(filtersToSave));
+
+            if (typeof window !== 'undefined') {
+                const params = new URLSearchParams(window.location.search);
+                const filterKeysMap = {
+                    hardware: 'f_hw',
+                    machines: 'f_mach',
+                    tp: 'f_tp',
+                    precisions: 'f_prec',
+                    isl: 'f_isl',
+                    osl: 'f_osl',
+                    ratio: 'f_ratio',
+                    pdRatio: 'f_pd_ratio',
+                    modelServer: 'f_ms',
+                    servingStack: 'f_ss',
+                    origins: 'f_origin',
+                    acc_count: 'f_acc',
+                    useCase: 'f_uc',
+                    optimizations: 'f_opt',
+                    components: 'f_comp',
+                    models: 'f_models'
+                };
+
+                Object.values(filterKeysMap).forEach(paramKey => params.delete(paramKey));
+
+                Object.entries(filterKeysMap).forEach(([filterKey, paramKey]) => {
+                    const setVal = activeFilters[filterKey];
+                    if (setVal && setVal.size > 0) {
+                        Array.from(setVal).forEach(val => params.append(paramKey, val));
+                    }
+                });
+
+                const newSearch = params.toString();
+                const newUrl = `${window.location.pathname}${newSearch ? '?' + newSearch : ''}`;
+                if (window.location.search !== (newSearch ? `?${newSearch}` : '')) {
+                    window.history.replaceState(null, '', newUrl);
+                }
+            }
         } catch (e) {
-            console.warn("Failed to save active filters to local storage", e);
+            console.warn("Failed to save active filters to local storage or sync URL", e);
         }
     }, [activeFilters]);
 

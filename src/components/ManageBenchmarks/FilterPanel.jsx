@@ -14,7 +14,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Filter, ChevronDown, ChevronUp, Check, ArrowDown01, ArrowDown10, Loader, FileText, FileClock, Sliders, Search, Activity, TrendingUp, ShieldCheck, Database, Layout, HelpCircle, Bookmark, Trash2, Settings, X, Pencil, Laptop, CloudUpload, ArrowRight } from 'lucide-react';
+import { Filter, ChevronDown, ChevronUp, Check, ArrowDown01, ArrowDown10, Loader, FileText, FileClock, Sliders, Search, Activity, TrendingUp, ShieldCheck, Database, Layout, HelpCircle, Bookmark, Trash2, Settings, X, Pencil, Laptop, CloudUpload, ArrowRight, RotateCcw } from 'lucide-react';
 import { MultiSelectDropdown } from '../common';
 import { Button, Input, Select, Label } from '../ui';
 import { cn } from '../../utils/cn';
@@ -116,7 +116,6 @@ export const FilterPanel = ({
     const { user } = useGitHubAuth();
 
 
-    const [draftFilters, setDraftFilters] = useState(null);
     const [openSections, setOpenSections] = useState({
         stack: true,
         infra: false,
@@ -126,33 +125,6 @@ export const FilterPanel = ({
 
     const toggleSection = (section) => {
         setOpenSections(prev => ({ ...prev, [section]: !prev[section] }));
-    };
-
-    // Sync draft filters with activeFilters when the drawer opens
-    useEffect(() => {
-        if (isAdvancedExpanded) {
-            const draft = {};
-            Object.entries(activeFilters).forEach(([key, val]) => {
-                draft[key] = new Set(val);
-            });
-            setDraftFilters(draft);
-        } else {
-            setDraftFilters(null);
-        }
-    }, [isAdvancedExpanded, activeFilters]);
-
-    const toggleDraftFilter = (category, value) => {
-        setDraftFilters(prev => {
-            if (!prev) return prev;
-            const newSet = new Set(prev[category] || []);
-            if (value === '' || value === undefined) {
-                newSet.clear();
-            } else {
-                if (newSet.has(value)) newSet.delete(value);
-                else newSet.add(value);
-            }
-            return { ...prev, [category]: newSet };
-        });
     };
 
     const [showSpecsDropdown, setShowSpecsDropdown] = useState(false);
@@ -237,16 +209,32 @@ export const FilterPanel = ({
     };
 
     const hasFiltersToSave = React.useMemo(() => {
-        const filtersToUse = draftFilters || activeFilters;
+        const filtersToUse = activeFilters;
         const hasActiveFilters = Object.values(filtersToUse).some(valSet => valSet instanceof Set && valSet.size > 0);
         return hasActiveFilters || !!searchTerm || !!kpiFilter;
-    }, [draftFilters, activeFilters, searchTerm, kpiFilter]);
+    }, [activeFilters, searchTerm, kpiFilter]);
+
+    const hasAnyActiveFilters = React.useMemo(() => {
+        const hasActiveFacet = Object.values(activeFilters).some(valSet => valSet instanceof Set && valSet.size > 0);
+        return hasActiveFacet || !!searchTerm || !!kpiFilter || !!includeUnlisted;
+    }, [activeFilters, searchTerm, kpiFilter, includeUnlisted]);
+
+    const handleClearAllFilters = () => {
+        setSearchTerm('');
+        setKpiFilter(null);
+        if (setIncludeUnlisted) setIncludeUnlisted(false);
+        const newFilters = {};
+        Object.keys(activeFilters).forEach(key => {
+            newFilters[key] = new Set();
+        });
+        setActiveFilters(newFilters);
+    };
 
     const handleSavePreset = (e) => {
         e.preventDefault();
         if (!newPresetName.trim() || !hasFiltersToSave) return;
         
-        const filtersToUse = draftFilters || activeFilters;
+        const filtersToUse = activeFilters;
         const filtersToSave = {};
         Object.entries(filtersToUse).forEach(([key, set]) => {
             if (set instanceof Set && set.size > 0) {
@@ -1229,7 +1217,22 @@ export const FilterPanel = ({
                     </div>
 
                     {/* Scrollable Content */}
-                    <div className="flex-1 overflow-y-auto p-5 space-y-6 custom-scrollbar">
+                    <div className="flex-1 overflow-y-auto p-5 space-y-5 custom-scrollbar">
+                        {/* Reset All Active Filters Button */}
+                        <button
+                            type="button"
+                            onClick={handleClearAllFilters}
+                            disabled={!hasAnyActiveFilters}
+                            className={cn(
+                                'w-full py-2 px-3 text-xs font-bold uppercase rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 border shadow-sm select-none',
+                                hasAnyActiveFilters
+                                ? 'bg-slate-900 hover:bg-slate-800 text-red-400 border-red-500/30 hover:border-red-500/50 hover:shadow-md'
+                                : 'bg-slate-950/40 text-slate-600 border-slate-900 cursor-not-allowed opacity-60'
+                            )}
+                        >
+                            <RotateCcw size={13} className={cn(hasAnyActiveFilters ? 'text-red-400' : 'text-slate-600')} /> Reset All Active Filters
+                        </button>
+
                         {/* Saved Presets Section */}
                         <div className="bg-slate-950/20 p-4 rounded-xl border border-slate-900/60 shadow-md shadow-slate-950/20 space-y-3.5 mb-2">
                             <h4 className="text-[10px] font-black uppercase tracking-wider text-cyan-400 border-b border-slate-800/60 pb-1.5 flex items-center gap-1.5 select-none">
@@ -1453,15 +1456,15 @@ export const FilterPanel = ({
                                         <MultiSelectDropdown 
                                             label="Serving Stack"
                                             options={filterOptions.servingStack || []}
-                                            selected={draftFilters ? draftFilters.servingStack : (activeFilters.servingStack || new Set())}
-                                            onChange={(val) => toggleDraftFilter('servingStack', val)}
+                                            selected={activeFilters.servingStack || new Set()}
+                                            onChange={(val) => toggleFilter('servingStack', val)}
                                             counts={facetCounts.servingStack || {}}
                                         />
                                         <MultiSelectDropdown 
                                             label="Model Server"
                                             options={filterOptions.modelServer}
-                                            selected={draftFilters ? draftFilters.modelServer : (activeFilters.modelServer || new Set())}
-                                            onChange={(val) => toggleDraftFilter('modelServer', val)}
+                                            selected={activeFilters.modelServer || new Set()}
+                                            onChange={(val) => toggleFilter('modelServer', val)}
                                             counts={facetCounts.modelServer}
                                         />
                                         <MultiSelectDropdown 
@@ -1475,15 +1478,15 @@ export const FilterPanel = ({
                                                 "Approximate prefix aware routing",
                                                 "Precise prefix aware routing"
                                             ]}
-                                            selected={draftFilters ? draftFilters.optimizations : (activeFilters.optimizations || new Set())}
-                                            onChange={(val) => toggleDraftFilter('optimizations', val)}
+                                            selected={activeFilters.optimizations || new Set()}
+                                            onChange={(val) => toggleFilter('optimizations', val)}
                                             counts={facetCounts.optimizations}
                                         />
                                         <MultiSelectDropdown 
                                             label="Precisions"
                                             options={filterOptions.precisions}
-                                            selected={draftFilters ? draftFilters.precisions : (activeFilters.precisions || new Set())}
-                                            onChange={(val) => toggleDraftFilter('precisions', val)}
+                                            selected={activeFilters.precisions || new Set()}
+                                            onChange={(val) => toggleFilter('precisions', val)}
                                             counts={facetCounts.precisions}
                                         />
                                     </div>
@@ -1504,29 +1507,29 @@ export const FilterPanel = ({
                                         <MultiSelectDropdown 
                                             label="Machine Type"
                                             options={filterOptions.machines}
-                                            selected={draftFilters ? draftFilters.machines : (activeFilters.machines || new Set())}
-                                            onChange={(val) => toggleDraftFilter('machines', val)}
+                                            selected={activeFilters.machines || new Set()}
+                                            onChange={(val) => toggleFilter('machines', val)}
                                             counts={facetCounts.machines}
                                         />
                                         <MultiSelectDropdown 
                                             label="Accelerator Count"
                                             options={filterOptions.acc_count}
-                                            selected={draftFilters ? draftFilters.acc_count : (activeFilters.acc_count || new Set())}
-                                            onChange={(val) => toggleDraftFilter('acc_count', val)}
+                                            selected={activeFilters.acc_count || new Set()}
+                                            onChange={(val) => toggleFilter('acc_count', val)}
                                             counts={facetCounts.acc_count}
                                         />
                                         <MultiSelectDropdown 
                                             label="Tensor Parallelism (TP)"
                                             options={filterOptions.tp || []}
-                                            selected={draftFilters ? draftFilters.tp : (activeFilters.tp || new Set())}
-                                            onChange={(val) => toggleDraftFilter('tp', val)}
+                                            selected={activeFilters.tp || new Set()}
+                                            onChange={(val) => toggleFilter('tp', val)}
                                             counts={facetCounts.tp}
                                         />
                                         <MultiSelectDropdown 
                                             label="P/D Node Ratio"
                                             options={filterOptions.pdRatio}
-                                            selected={draftFilters ? draftFilters.pdRatio : (activeFilters.pdRatio || new Set())}
-                                            onChange={(val) => toggleDraftFilter('pdRatio', val)}
+                                            selected={activeFilters.pdRatio || new Set()}
+                                            onChange={(val) => toggleFilter('pdRatio', val)}
                                             counts={facetCounts.pdRatio}
                                         />
                                     </div>
@@ -1547,29 +1550,29 @@ export const FilterPanel = ({
                                         <MultiSelectDropdown 
                                             label="Input (ISL)"
                                             options={filterOptions.isl}
-                                            selected={draftFilters ? draftFilters.isl : (activeFilters.isl || new Set())}
-                                            onChange={(val) => toggleDraftFilter('isl', val)}
+                                            selected={activeFilters.isl || new Set()}
+                                            onChange={(val) => toggleFilter('isl', val)}
                                             counts={facetCounts.isl}
                                         />
                                         <MultiSelectDropdown 
                                             label="Output (OSL)"
                                             options={filterOptions.osl}
-                                            selected={draftFilters ? draftFilters.osl : (activeFilters.osl || new Set())}
-                                            onChange={(val) => toggleDraftFilter('osl', val)}
+                                            selected={activeFilters.osl || new Set()}
+                                            onChange={(val) => toggleFilter('osl', val)}
                                             counts={facetCounts.osl}
                                         />
                                         <MultiSelectDropdown 
                                             label="Workload Type"
                                             options={filterOptions.ratio}
-                                            selected={draftFilters ? draftFilters.ratio : (activeFilters.ratio || new Set())}
-                                            onChange={(val) => toggleDraftFilter('ratio', val)}
+                                            selected={activeFilters.ratio || new Set()}
+                                            onChange={(val) => toggleFilter('ratio', val)}
                                             counts={facetCounts.ratio}
                                         />
                                         <MultiSelectDropdown 
                                             label="Use Case"
                                             options={filterOptions.useCase}
-                                            selected={draftFilters ? draftFilters.useCase : (activeFilters.useCase || new Set())}
-                                            onChange={(val) => toggleDraftFilter('useCase', val)}
+                                            selected={activeFilters.useCase || new Set()}
+                                            onChange={(val) => toggleFilter('useCase', val)}
                                             counts={facetCounts.useCase}
                                             formatLabel={(opt) => {
                                                 const meta = USE_CASE_META[opt];
@@ -1597,14 +1600,14 @@ export const FilterPanel = ({
                                             </div>
                                             <div className="bg-[#0b0f17]/40 border border-slate-800/40 rounded-xl p-2.5 max-h-60 overflow-y-auto space-y-1">
                                                 {(() => {
-                                                    const selectedConnectionNames = draftFilters ? draftFilters.connectionNames : (activeFilters.connectionNames || new Set());
+                                                    const selectedConnectionNames = activeFilters.connectionNames || new Set();
                                                     const selectedCount = selectedConnectionNames.size;
                                                     const options = filterOptions.connectionNames || [];
                                                     return (
                                                         <>
                                                             <div
                                                                 className={cn('flex items-center gap-2 px-2.5 py-1.5 rounded-lg cursor-pointer hover:bg-slate-800/80 transition-all', selectedCount === 0 ? 'bg-cyan-500/10 text-cyan-400 font-semibold' : 'text-slate-300 hover:text-slate-200')}
-                                                                onClick={() => toggleDraftFilter('connectionNames', '')}
+                                                                onClick={() => toggleFilter('connectionNames', '')}
                                                             >
                                                                  <div className={cn('w-3.5 h-3.5 rounded border flex items-center justify-center transition-colors', selectedCount === 0 ? 'bg-cyan-500 border-cyan-500 text-white' : 'border-slate-800/40 bg-slate-950')}>
                                                                     {selectedCount === 0 && <Check size={10} className="text-white" strokeWidth={3} />}
@@ -1626,7 +1629,7 @@ export const FilterPanel = ({
                                                                             count === 0 ? 'opacity-45 hover:bg-slate-800/30' : 'hover:bg-slate-800/80',
                                                                             isSelected ? 'bg-cyan-500/10 text-cyan-400 font-semibold' : 'text-slate-300 hover:text-slate-200'
                                                                         )}
-                                                                        onClick={() => toggleDraftFilter('connectionNames', opt)}
+                                                                        onClick={() => toggleFilter('connectionNames', opt)}
                                                                     >
                                                                          <div className={cn('w-3.5 h-3.5 rounded border flex items-center justify-center transition-colors', isSelected ? 'bg-cyan-500 border-cyan-500 text-white' : 'border-slate-800/40 bg-slate-950')}>
                                                                             {isSelected && <Check size={10} className="text-white" strokeWidth={3} />}
@@ -1646,8 +1649,8 @@ export const FilterPanel = ({
                                         <MultiSelectDropdown 
                                             label="Origin / Folder"
                                             options={filterOptions.origins || []}
-                                            selected={draftFilters ? draftFilters.origins : (activeFilters.origins || new Set())}
-                                            onChange={(val) => toggleDraftFilter('origins', val)}
+                                            selected={activeFilters.origins || new Set()}
+                                            onChange={(val) => toggleFilter('origins', val)}
                                             counts={facetCounts.origins || {}}
                                             formatLabel={formatOriginLabel}
                                         />
@@ -1655,31 +1658,6 @@ export const FilterPanel = ({
                                 )}
                             </div>
                         </div>
-                    </div>
-
-                    {/* Drawer Footer Actions */}
-                    <div className="p-4 bg-slate-950/80 border-t border-slate-800/80 flex items-center justify-between gap-3 select-none">
-                        <Button
-                            type="button"
-                            variant="secondary"
-                            size="sm"
-                            className="flex-1"
-                            onClick={() => setIsAdvancedExpanded(false)}
-                        >
-                            Cancel
-                        </Button>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                if (draftFilters) {
-                                    setActiveFilters(draftFilters);
-                                }
-                                setIsAdvancedExpanded(false);
-                            }}
-                            className="px-4 py-2 text-xs font-bold uppercase text-white bg-cyan-600 hover:bg-cyan-500 rounded-xl transition-all shadow-md cursor-pointer flex-1 text-center"
-                        >
-                            Apply Filters
-                        </button>
                     </div>
                 </div>,
                 document.body

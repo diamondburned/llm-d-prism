@@ -145,12 +145,30 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
         } catch { return []; }
     });
     const [activeTab, setActiveTab] = React.useState('all'); // 'all' or 'submissions'
-    const [searchTerm, setSearchTerm] = React.useState('');
+    const [searchTerm, setSearchTerm] = React.useState(() => {
+        try {
+            const params = new URLSearchParams(window.location.search);
+            const urlQ = params.get('q') || params.get('search');
+            if (urlQ) return urlQ;
+
+            const saved = localStorage.getItem('prism_search_term');
+            if (saved) return saved;
+        } catch {}
+        return '';
+    });
 
     const [includeUnlisted, setIncludeUnlisted] = React.useState(() => {
         try {
             const params = new URLSearchParams(window.location.search);
-            return params.get('includeUnlisted') === '1' || params.get('includeUnlisted') === 'true';
+            if (params.has('unlisted')) {
+                return params.get('unlisted') === 'true' || params.get('unlisted') === '1';
+            }
+            if (params.has('includeUnlisted')) {
+                return params.get('includeUnlisted') === 'true' || params.get('includeUnlisted') === '1';
+            }
+
+            const saved = localStorage.getItem('prism_include_unlisted');
+            if (saved !== null) return saved === 'true';
         } catch {
             return false;
         }
@@ -159,12 +177,15 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
     const [kpiFilter, setKpiFilter] = React.useState(() => {
         try {
             const params = new URLSearchParams(window.location.search);
-            const urlKpi = params.get('kpiFilter');
-            if (urlKpi) return urlKpi;
+            const urlStatus = params.get('status') || params.get('kpiFilter');
+            if (urlStatus) return urlStatus;
 
             if (params.get('own') === 'true') {
                 return 'my-submissions';
             }
+
+            const savedStatus = localStorage.getItem('prism_status_filter');
+            if (savedStatus) return savedStatus;
 
             const triggerStaged = localStorage.getItem('prism_activate_staged_filter');
             if (triggerStaged === 'true') {
@@ -180,8 +201,31 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
     });
 
     React.useEffect(() => {
+        try {
+            localStorage.setItem('prism_search_term', searchTerm);
+        } catch (e) { console.warn(e); }
+    }, [searchTerm]);
+
+    React.useEffect(() => {
+        try {
+            localStorage.setItem('prism_include_unlisted', includeUnlisted.toString());
+        } catch (e) { console.warn(e); }
+    }, [includeUnlisted]);
+
+    React.useEffect(() => {
+        try {
+            if (kpiFilter) {
+                localStorage.setItem('prism_status_filter', kpiFilter);
+            } else {
+                localStorage.removeItem('prism_status_filter');
+            }
+        } catch (e) { console.warn(e); }
+    }, [kpiFilter]);
+
+    React.useEffect(() => {
         const params = new URLSearchParams(window.location.search);
         if (kpiFilter) {
+            params.set('status', kpiFilter);
             params.set('kpiFilter', kpiFilter);
             if (['my-submissions', 'staged', 'unlisted', 'processing', 'in_review', 'approved', 'action'].includes(kpiFilter)) {
                 params.set('own', 'true');
@@ -189,21 +233,31 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
                 params.delete('own');
             }
         } else {
+            params.delete('status');
             params.delete('kpiFilter');
             params.delete('own');
         }
 
         if (includeUnlisted) {
+            params.set('unlisted', '1');
             params.set('includeUnlisted', '1');
         } else {
+            params.delete('unlisted');
             params.delete('includeUnlisted');
+        }
+
+        if (searchTerm) {
+            params.set('q', searchTerm);
+        } else {
+            params.delete('q');
+            params.delete('search');
         }
         
         const newUrl = `${window.location.pathname}?${params.toString()}`;
         if (window.location.search !== `?${params.toString()}`) {
             window.history.replaceState(null, '', newUrl);
         }
-    }, [kpiFilter, includeUnlisted]);
+    }, [kpiFilter, includeUnlisted, searchTerm]);
 
     React.useEffect(() => {
         const showSubmitFlow = sessionStorage.getItem('prism_show_submit_dialog_after_login');

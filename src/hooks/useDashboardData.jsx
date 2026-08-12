@@ -203,8 +203,43 @@ export const useDashboardData = (initialState, dashboardState) => {
         return new Set(['local', 'llm-d-results:google_drive', 'llmd_drive']);
     });
     const [selectedSources, setSelectedSources] = useState(() => {
+        if (initialState?.sources && initialState.sources.size > 0) {
+            return initialState.sources;
+        }
+        try {
+            const savedStr = localStorage.getItem('prism_selected_sources');
+            if (savedStr) {
+                const saved = JSON.parse(savedStr);
+                if (Array.isArray(saved) && saved.length > 0) {
+                    return new Set(saved);
+                }
+            }
+        } catch (e) {
+            console.warn("Failed to load selected sources from local storage", e);
+        }
         return new Set(['local', 'llm-d-results:google_drive', 'llmd_drive']);
     });
+
+    useEffect(() => {
+        try {
+            localStorage.setItem('prism_selected_sources', JSON.stringify(Array.from(selectedSources)));
+
+            if (typeof window !== 'undefined') {
+                const params = new URLSearchParams(window.location.search);
+                params.delete('src');
+                if (selectedSources && selectedSources.size > 0) {
+                    Array.from(selectedSources).forEach(val => params.append('src', val));
+                }
+                const newSearch = params.toString();
+                const newUrl = `${window.location.pathname}${newSearch ? '?' + newSearch : ''}`;
+                if (window.location.search !== (newSearch ? `?${newSearch}` : '')) {
+                    window.history.replaceState(null, '', newUrl);
+                }
+            }
+        } catch (e) {
+            console.warn("Failed to save selected sources to local storage or sync URL", e);
+        }
+    }, [selectedSources]);
     const [bucketConfigs, setBucketConfigs] = useState(() => {
         try {
             const saved = JSON.parse(localStorage.getItem('prism_saved_sources') || '{}');
