@@ -191,9 +191,9 @@ function App() {
 
   return (
     <ErrorBoundary>
-      <div className="min-h-screen bg-slate-950 w-full overflow-hidden font-sans relative flex flex-col">
+      <div className="min-h-screen bg-slate-950 w-full font-sans relative flex flex-col">
         <LeftNavigation currentView={currentView} onNavigate={handleNavigate} isMobileOpen={isMobileNavOpen} />
-        <main ref={mainRef} className="flex-1 overflow-y-auto flex flex-col relative w-full h-screen">
+        <main ref={mainRef} className="flex-1 flex flex-col relative w-full min-h-screen">
           {/* Top Spark Progress Bar */}
           {showOverlays && (
             <div className="fixed top-0 left-0 right-0 h-1 bg-slate-900 z-[9999] pointer-events-none">
@@ -241,9 +241,9 @@ function App() {
             {currentView === 'guided-analysis' && <div className="p-8 text-center text-slate-400 mt-20">Guided Analysis Coming Soon... <button onClick={() => handleNavigate('home')} className="underline ml-2 text-indigo-400">Back</button></div>}
           </>
 
-          {/* Bottom-Right Persistent Status Toast */}
+          {/* Top-Right Persistent Status Toast */}
           {showOverlays && (
-            <div className="fixed bottom-6 right-6 z-[100] w-96 bg-slate-900/95 border border-slate-800 rounded-2xl p-4 shadow-2xl backdrop-blur-md flex flex-col space-y-3 text-sm select-none border-slate-700/50 animate-in slide-in-from-bottom duration-300">
+            <div className="fixed top-20 right-6 z-[100] w-96 bg-slate-900/95 border border-slate-800 rounded-2xl p-4 shadow-2xl backdrop-blur-md flex flex-col space-y-3 text-sm select-none border-slate-700/50 animate-in slide-in-from-top duration-300">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Loader className="w-4 h-4 animate-spin text-blue-500" />
