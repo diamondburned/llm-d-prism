@@ -4,7 +4,14 @@ on:
   push:
     branches:
       - main
+  schedule:
+    # Run periodically to reconcile any commits merged via Prow or bot automations
+    - cron: "*/30 * * * *"
   workflow_dispatch: # Allow manual triggers
+
+concurrency:
+    group: deploy-cloud-run
+    cancel-in-progress: false
 
 permissions:
   contents: read
@@ -28,16 +35,43 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v3
 
+      - name: Check deployed commit
+        id: check-diff
+        run: |
+          source deploy/prod.env
+          CURRENT_SHA="${{ github.sha }}"
+          echo "Current commit SHA: $CURRENT_SHA"
+
+          # Fetch the deployed commit SHA label from Cloud Run
+          DEPLOYED_SHA=$(gcloud run services describe "$SERVICE_NAME" \
+            --platform managed \
+            --region "$REGION" \
+            --project "$PROJECT_ID" \
+            --format='value(metadata.labels["git-commit"])' || echo "")
+
+          echo "Currently deployed commit SHA: $DEPLOYED_SHA"
+
+          # Skip deployment if SHAs match and not a manual workflow_dispatch
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ] && [ -n "$DEPLOYED_SHA" ] && [ "$DEPLOYED_SHA" = "$CURRENT_SHA" ]; then
+            echo "Cloud Run is already running commit $CURRENT_SHA. Skipping deployment."
+            echo "skip_deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Deployment needed. Proceeding with deployment..."
+            echo "skip_deploy=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Deploy to Cloud Run
+        if: steps.check-diff.outputs.skip_deploy != 'true'
         run: |
           chmod +x ./deploy.sh
-          ./deploy.sh --config deploy/prod.env
+          ./deploy.sh --config deploy/prod.env --commit "${{ github.sha }}"
         env:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           GITHUB_CLIENT_ID: ${{ secrets.PRISM_GITHUB_CLIENT_ID }}
           GITHUB_CLIENT_SECRET: ${{ secrets.PRISM_GITHUB_CLIENT_SECRET }}
 
       - name: Verify deployment
+        if: steps.check-diff.outputs.skip_deploy != 'true'
         run: |
           source deploy/prod.env
           SERVICE_URL=$(gcloud run services describe "$SERVICE_NAME" \

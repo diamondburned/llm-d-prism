@@ -14,6 +14,7 @@ GITHUB_CLIENT_ID="${GITHUB_CLIENT_ID:-}"
 GITHUB_CLIENT_SECRET="${GITHUB_CLIENT_SECRET:-}"
 ALLOW_UNAUTHENTICATED="true"
 PUBLIC_URL=""
+COMMIT_SHA="${COMMIT_SHA:-}"
 
 # Helper function to print usage
 usage() {
@@ -27,6 +28,7 @@ usage() {
   echo "  -c, --contact <URL>           Contact Us URL/Email"
   echo "  -giq, --giq-projects <IDS>    Comma-separated list of GIQ project IDs"
   echo "  -b, --gcs-buckets <NAMES>     Comma-separated list of GCS buckets"
+  echo "  -k, --commit <SHA>            Git commit SHA to label the deployment with"
   echo "  --[no-]allow-unauthenticated Control whether the service is publicly accessible"
   echo "  -h, --help                    Show this help message"
   exit 1
@@ -65,6 +67,7 @@ while [[ "$#" -gt 0 ]]; do
         -giq|--giq-projects) GIQ_PROJECTS="$2"; shift ;;
         -b|--gcs-buckets) GCS_BUCKETS="$2"; shift ;;
         -u|--public-url) PUBLIC_URL="$2"; shift ;;
+        -k|--commit) COMMIT_SHA="$2"; shift ;;
         --no-allow-unauthenticated) ALLOW_UNAUTHENTICATED="false" ;;
         --allow-unauthenticated) ALLOW_UNAUTHENTICATED="true" ;;
         -h|--help) usage ;;
@@ -72,6 +75,11 @@ while [[ "$#" -gt 0 ]]; do
     esac
     shift
 done
+
+# Auto-detect commit SHA from git if not explicitly passed
+if [ -z "$COMMIT_SHA" ]; then
+    COMMIT_SHA=$(git rev-parse HEAD || echo "")
+fi
 
 # Auto-detect API Key from .env.local if not set
 if [ -z "$GOOGLE_API_KEY" ] && [ -f ".env.local" ]; then
@@ -138,6 +146,7 @@ fi
 [ -n "$MIN_INSTANCES" ] && DEPLOY_ARGS+=(--min-instances "$MIN_INSTANCES")
 [ -n "$MAX_INSTANCES" ] && DEPLOY_ARGS+=(--max-instances "$MAX_INSTANCES")
 [ -n "$CONCURRENCY" ] && DEPLOY_ARGS+=(--concurrency "$CONCURRENCY")
+[ -n "$COMMIT_SHA" ] && DEPLOY_ARGS+=(--update-labels "git-commit=$COMMIT_SHA")
 
 gcloud "${DEPLOY_ARGS[@]}"
 
