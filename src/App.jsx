@@ -151,7 +151,7 @@ function App() {
     }
     setNavigationParams(resolvedParams);
 
-    window.history.pushState({}, '', `${window.location.pathname}?${params.toString()}`);
+    window.history.pushState({}, '', `${window.location.pathname}?${params.toString()}${window.location.hash || ''}`);
     
     // Reset scroll position on navigation
     window.scrollTo(0, 0);

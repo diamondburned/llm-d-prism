@@ -253,7 +253,7 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
             params.delete('search');
         }
         
-        const newUrl = `${window.location.pathname}?${params.toString()}`;
+        const newUrl = `${window.location.pathname}?${params.toString()}${window.location.hash || ''}`;
         if (window.location.search !== `?${params.toString()}`) {
             window.history.replaceState(null, '', newUrl);
         }
@@ -279,7 +279,7 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
 
             if (benchmarksParam === '') {
                 params.delete('benchmarks');
-                const newUrl = `${window.location.pathname}${params.toString() ? '?' + params.toString() : ''}`;
+                const newUrl = `${window.location.pathname}${params.toString() ? '?' + params.toString() : ''}${window.location.hash || ''}`;
                 window.history.replaceState(null, '', newUrl);
                 return;
             }
@@ -293,14 +293,14 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
                     dashboardData.addToast('Invalid share link format', 'error');
                 }
                 params.delete('benchmarks');
-                const newUrl = `${window.location.pathname}${params.toString() ? '?' + params.toString() : ''}`;
+                const newUrl = `${window.location.pathname}${params.toString() ? '?' + params.toString() : ''}${window.location.hash || ''}`;
                 window.history.replaceState(null, '', newUrl);
                 return;
             }
 
             if (targetUuids.length === 0) {
                 params.delete('benchmarks');
-                const newUrl = `${window.location.pathname}${params.toString() ? '?' + params.toString() : ''}`;
+                const newUrl = `${window.location.pathname}${params.toString() ? '?' + params.toString() : ''}${window.location.hash || ''}`;
                 window.history.replaceState(null, '', newUrl);
                 return;
             }
@@ -410,7 +410,7 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
             }
 
             params.delete('benchmarks');
-            const newUrl = `${window.location.pathname}${params.toString() ? '?' + params.toString() : ''}`;
+            const newUrl = `${window.location.pathname}${params.toString() ? '?' + params.toString() : ''}${window.location.hash || ''}`;
             window.history.replaceState(null, '', newUrl);
         };
 

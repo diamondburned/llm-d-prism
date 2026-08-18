@@ -2075,7 +2075,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
         try {
             const params = new URLSearchParams(window.location.search);
             params.delete('intent');
-            window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
+            window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}${window.location.hash || ''}`);
         } catch { /* ignore */ }
     };
 
