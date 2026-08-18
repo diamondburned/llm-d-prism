@@ -19,6 +19,57 @@ const generateUUID = () => {
     return uuidv4();
 };
 
+/**
+ * Decodes a data: URI into string content.
+ * Handles both base64-encoded and percent-encoded (URL-encoded) data URIs.
+ */
+export function parseDataUri(dataUri) {
+    if (!dataUri || typeof dataUri !== 'string' || !dataUri.startsWith('data:')) return null;
+
+    const commaIdx = dataUri.indexOf(',');
+    if (commaIdx === -1) return null;
+
+    const meta = dataUri.substring(5, commaIdx);
+    const rawData = dataUri.substring(commaIdx + 1);
+
+    try {
+        if (meta.includes(';base64')) {
+            if (typeof globalThis !== 'undefined' && typeof globalThis.Buffer !== 'undefined') {
+                return globalThis.Buffer.from(rawData, 'base64').toString('utf-8');
+            } else {
+                return decodeURIComponent(escape(atob(rawData)));
+            }
+        } else {
+            return decodeURIComponent(rawData);
+        }
+    } catch (e) {
+        console.warn('Failed to decode data URI:', e);
+        return null;
+    }
+}
+
+/**
+ * Encodes string content into an optimal data: URI.
+ * Compares Base64 vs Percent-Encoding (encodeURIComponent) and returns whichever string is shorter.
+ */
+export function toOptimalDataUri(content, mimeType = 'text/plain') {
+    const text = typeof content === 'string' ? content : String(content);
+
+    let base64Str = '';
+    if (typeof globalThis !== 'undefined' && typeof globalThis.Buffer !== 'undefined') {
+        base64Str = globalThis.Buffer.from(text, 'utf-8').toString('base64');
+    } else {
+        base64Str = btoa(unescape(encodeURIComponent(text)));
+    }
+    const base64Uri = `data:${mimeType};base64,${base64Str}`;
+
+    const percentStr = encodeURIComponent(text);
+    const percentUri = `data:${mimeType};charset=utf-8,${percentStr}`;
+
+    return percentUri.length < base64Uri.length ? percentUri : base64Uri;
+}
+
+
 // This module converts disparate benchmark formats (GIQ API, Log Files)
 // into a single "NormalizedBenchmarkEntry" schema for the visualization layer.
 

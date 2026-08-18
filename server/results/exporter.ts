@@ -105,7 +105,48 @@ export function serializeRawReportToYaml(rawReport: unknown): string {
 }
 
 /**
- * Packs all constituent stage entries of a PrismResultPayload into a ZIP buffer containing BRV0.2 .yaml files.
+ * Decodes a data: URI into string content.
+ * Handles both base64-encoded and percent-encoded (URL-encoded) data URIs.
+ */
+export function parseDataUri(dataUri: string): string | null {
+    if (!dataUri || typeof dataUri !== 'string' || !dataUri.startsWith('data:')) return null;
+
+    const commaIdx = dataUri.indexOf(',');
+    if (commaIdx === -1) return null;
+
+    const meta = dataUri.substring(5, commaIdx);
+    const rawData = dataUri.substring(commaIdx + 1);
+
+    try {
+        if (meta.includes(';base64')) {
+            return Buffer.from(rawData, 'base64').toString('utf-8');
+        } else {
+            return decodeURIComponent(rawData);
+        }
+    } catch (e) {
+        console.warn('Failed to decode data URI:', e);
+        return null;
+    }
+}
+
+/**
+ * Encodes string content into an optimal data: URI.
+ * Compares Base64 vs Percent-Encoding (encodeURIComponent) and returns whichever string is shorter.
+ */
+export function toOptimalDataUri(content: string, mimeType = 'text/plain'): string {
+    const text = typeof content === 'string' ? content : String(content);
+    const base64Str = Buffer.from(text, 'utf-8').toString('base64');
+    const base64Uri = `data:${mimeType};base64,${base64Str}`;
+
+    const percentStr = encodeURIComponent(text);
+    const percentUri = `data:${mimeType};charset=utf-8,${percentStr}`;
+
+    return percentUri.length < base64Uri.length ? percentUri : base64Uri;
+}
+
+/**
+ * Packs all constituent stage entries of a PrismResultPayload into a ZIP buffer containing BRV0.2 .yaml files,
+ * as well as unpacking data: URIs in manifests (to root) and evidence (to evidence/ subfolder).
  */
 export function createRunZipBuffer(payload: PrismResultPayload): { buffer: Buffer; filename: string } {
     const rawLabel = resolvePayloadRunLabel(payload);
@@ -124,9 +165,34 @@ export function createRunZipBuffer(payload: PrismResultPayload): { buffer: Buffe
         zipFiles[fullPath] = strToU8(rawYaml);
     });
 
+    // Unpack inline data: URIs from manifests into root folder of ZIP
+    if (payload.manifests) {
+        Object.entries(payload.manifests).forEach(([filename, val]) => {
+            if (val && typeof val === 'string' && val.startsWith('data:')) {
+                const text = parseDataUri(val);
+                if (text !== null) {
+                    zipFiles[`${archiveName}/${filename}`] = strToU8(text);
+                }
+            }
+        });
+    }
+
+    // Unpack inline data: URIs from evidence into evidence/ subfolder of ZIP
+    if (payload.evidence) {
+        Object.entries(payload.evidence).forEach(([filename, val]) => {
+            if (val && typeof val === 'string' && val.startsWith('data:')) {
+                const text = parseDataUri(val);
+                if (text !== null) {
+                    zipFiles[`${archiveName}/evidence/${filename}`] = strToU8(text);
+                }
+            }
+        });
+    }
+
     const zipped = zipSync(zipFiles);
     return {
         buffer: Buffer.from(zipped),
         filename: `${archiveName}.zip`,
     };
 }
+

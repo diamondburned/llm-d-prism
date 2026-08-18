@@ -25,7 +25,9 @@ payload contains:
 1. **Root-Level Metadata:** Descriptive parameters about the overall benchmark
    run (e.g., model name, hardware accelerator, run identifiers).
 2. **Supplemental Manifests & Logs:** Secondary configuration, environment, and
-   verification files (e.g., GKE deployment YAML manifests, execution logs).
+   verification files (e.g., GKE deployment YAML manifests, execution logs). For
+   auto-detection, `data:` URI encoding, and ZIP export unpacking details, refer
+   to the dedicated [Auto-Handling Specification](auto_log_handling.md).
 3. **Stages Array (`entries`):** One or more benchmarking runs corresponding to
    sequential execution stages of the target scenario (formatted under
    **Benchmark Report v0.2**).

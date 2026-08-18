@@ -14,6 +14,8 @@
 
 import yaml from 'js-yaml';
 import { zipSync, strToU8 } from 'fflate';
+import { parseDataUri } from './dataParser.js';
+
 
 /**
  * Sanitizes a string for safe filename usage while preserving commas.
@@ -223,7 +225,35 @@ export function downloadRunBRV02(runPayloadOrStat, benchmarkData = []) {
 
     const runLabel = resolveRunLabel(runPayloadOrStat, benchmarkData, stages);
 
-    if (stages.length === 1) {
+    // Extract manifests and evidence from all potential properties on runPayloadOrStat or benchmarkData
+    const manifests = runPayloadOrStat?.manifests 
+        || runPayloadOrStat?.payload?.manifests 
+        || runPayloadOrStat?.bundle?.payload?.manifests
+        || (Array.isArray(benchmarkData) && benchmarkData[0]?.payload?.manifests)
+        || {};
+
+    const evidence = runPayloadOrStat?.evidence 
+        || runPayloadOrStat?.payload?.evidence 
+        || runPayloadOrStat?.bundle?.payload?.evidence
+        || (Array.isArray(benchmarkData) && benchmarkData[0]?.payload?.evidence)
+        || {};
+
+    const attachedManifests = runPayloadOrStat?.attachedManifests 
+        || runPayloadOrStat?.bundle?.attachedManifests 
+        || [];
+
+    const attachedEvidence = runPayloadOrStat?.attachedEvidence 
+        || runPayloadOrStat?.bundle?.attachedEvidence 
+        || [];
+
+    const hasExtraFiles = 
+        Object.keys(manifests).length > 0 || 
+        Object.keys(evidence).length > 0 || 
+        attachedManifests.length > 0 || 
+        attachedEvidence.length > 0;
+
+    // Only skip ZIP creation if there's strictly 1 stage AND no extra manifest/evidence files attached
+    if (stages.length === 1 && !hasExtraFiles) {
         const singleStage = stages[0];
         const rawYaml = serializeRawReportToYaml(singleStage.rawReport);
         const stageNum = singleStage.stageIndex ?? 0;
@@ -245,6 +275,135 @@ export function downloadRunBRV02(runPayloadOrStat, benchmarkData = []) {
         zipFiles[fullPath] = strToU8(rawYaml);
     });
 
+    // Unpack locally attached manifest files
+    attachedManifests.forEach((file) => {
+        if (file.name && file.content) {
+            zipFiles[`${archiveName}/${file.name}`] = strToU8(file.content);
+        }
+    });
+
+    // Unpack inline data: URIs or raw text from manifests into root of ZIP
+    Object.entries(manifests).forEach(([filename, val]) => {
+        if (val && typeof val === 'string') {
+            if (val.startsWith('data:')) {
+                const text = parseDataUri(val);
+                if (text !== null) {
+                    zipFiles[`${archiveName}/${filename}`] = strToU8(text);
+                }
+            } else if (!val.startsWith('http://') && !val.startsWith('https://') && !val.startsWith('gs://')) {
+                zipFiles[`${archiveName}/${filename}`] = strToU8(val);
+            }
+        }
+    });
+
+    // Unpack locally attached evidence files
+    attachedEvidence.forEach((file) => {
+        if (file.name && file.content) {
+            zipFiles[`${archiveName}/evidence/${file.name}`] = strToU8(file.content);
+        }
+    });
+
+    // Unpack inline data: URIs or raw text from evidence into evidence/ subfolder of ZIP
+    Object.entries(evidence).forEach(([filename, val]) => {
+        if (val && typeof val === 'string') {
+            if (val.startsWith('data:')) {
+                const text = parseDataUri(val);
+                if (text !== null) {
+                    zipFiles[`${archiveName}/evidence/${filename}`] = strToU8(text);
+                }
+            } else if (!val.startsWith('http://') && !val.startsWith('https://') && !val.startsWith('gs://')) {
+                zipFiles[`${archiveName}/evidence/${filename}`] = strToU8(val);
+            }
+        }
+    });
+
     const zipped = zipSync(zipFiles);
     triggerFileDownload(zipped, `${archiveName}.zip`, 'application/zip');
 }
+
+/**
+ * Resolves or reconstructs the canonical PrismResultPayload structure for a benchmark run item.
+ */
+export function getRawPrismCloudPayload(runPayloadOrStat, benchmarkData = []) {
+    if (!runPayloadOrStat) return null;
+
+    if (runPayloadOrStat.payload && runPayloadOrStat.payload.entries) {
+        return runPayloadOrStat.payload;
+    }
+    if (runPayloadOrStat.bundle?.payload && runPayloadOrStat.bundle.payload.entries) {
+        return runPayloadOrStat.bundle.payload;
+    }
+    if (runPayloadOrStat.entries && Array.isArray(runPayloadOrStat.entries)) {
+        return runPayloadOrStat;
+    }
+
+    const dataArr = Array.isArray(benchmarkData) && benchmarkData.length > 0
+        ? benchmarkData
+        : (runPayloadOrStat.data || (Array.isArray(runPayloadOrStat) ? runPayloadOrStat : [runPayloadOrStat]));
+
+    const first = dataArr[0] || {};
+
+    if (first.payload && first.payload.entries) {
+        return first.payload;
+    }
+    if (first.bundle?.payload && first.bundle.payload.entries) {
+        return first.bundle.payload;
+    }
+
+    const rawRunId = runPayloadOrStat.runId || runPayloadOrStat.run_id || first.run_id || first.runId || first.source_info?.run_id || '';
+    const runLabel = resolveRunLabel(runPayloadOrStat, benchmarkData, []);
+
+    const modelName = runPayloadOrStat.model || runPayloadOrStat.model_name || first.model || first.rawReport?.scenario?.model || 'Unknown Model';
+    const hardwareName = runPayloadOrStat.hardware || runPayloadOrStat.hardware_name || first.hardware || first.rawReport?.system?.accelerator?.name || 'Unknown Hardware';
+    const acceleratorCount = runPayloadOrStat.accelerator_count || first.accelerator_count || first.rawReport?.system?.accelerator?.count || undefined;
+
+    const manifests = runPayloadOrStat?.manifests 
+        || runPayloadOrStat?.payload?.manifests 
+        || runPayloadOrStat?.bundle?.payload?.manifests
+        || first?.manifests 
+        || first?.payload?.manifests
+        || null;
+
+    const evidence = runPayloadOrStat?.evidence 
+        || runPayloadOrStat?.payload?.evidence 
+        || runPayloadOrStat?.bundle?.payload?.evidence
+        || first?.evidence 
+        || first?.payload?.evidence
+        || null;
+
+    const entries = dataArr.map((d, idx) => {
+        const rawReport = d.rawReport || d.raw_report || d.payload?.entries?.[0]?.raw_report || d;
+        const stageIndex = d.workload?.stage ?? d.prism_stage_index ?? idx;
+        const filename = d.filename || getBRV02StageFilename(stageIndex);
+        return {
+            run_id: rawRunId,
+            run_description: runLabel,
+            filename,
+            prism_stage_index: stageIndex,
+            raw_report: rawReport
+        };
+    });
+
+    return {
+        runId: rawRunId,
+        runLabel,
+        model_name: modelName,
+        hardware: {
+            hardware_name: hardwareName,
+            ...(acceleratorCount ? { accelerator_count: Number(acceleratorCount) } : {})
+        },
+        format: 'brv02',
+        well_lit_path: runPayloadOrStat.well_lit_path || first.well_lit_path || null,
+        inference_tool: runPayloadOrStat.inference_tool || first.inference_tool || null,
+        inference_tool_version: runPayloadOrStat.inference_tool_version || first.inference_tool_version || null,
+        other_tools: runPayloadOrStat.other_tools || first.other_tools || null,
+        manifests,
+        evidence,
+        run_metadata: runPayloadOrStat.run_metadata || runPayloadOrStat.payload?.run_metadata || first.run_metadata || first.payload?.run_metadata || null,
+        metadata: runPayloadOrStat.metadata || runPayloadOrStat.payload?.metadata || first.metadata || first.payload?.metadata || null,
+        submitter: runPayloadOrStat.submitter || runPayloadOrStat.payload?.submitter || first.submitter || null,
+        submitted_at: runPayloadOrStat.submitted_at || runPayloadOrStat.payload?.submitted_at || first.submitted_at || null,
+        entries
+    };
+}
+

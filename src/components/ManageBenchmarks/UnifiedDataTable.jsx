@@ -14,7 +14,7 @@
 
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { RotateCcw, ChevronDown, ChevronUp, Star, Pin, CheckSquare, Square, Check, Pencil, Trash2, Code2, Copy, Share2, X, Database, Eye, EyeOff, ShieldCheck, AlertCircle, TrendingUp, AlertTriangle, Search, FileText, FileClock, Sliders, Activity, Send, Play, Loader, Download } from 'lucide-react';
+import { RotateCcw, ChevronDown, ChevronUp, Star, Pin, CheckSquare, Square, Check, Pencil, Trash2, Code2, Copy, Share2, X, Database, Eye, EyeOff, ShieldCheck, AlertCircle, TrendingUp, AlertTriangle, Search, FileText, FileClock, Sliders, Activity, Send, Play, Loader, Download, ExternalLink } from 'lucide-react';
 import { RunComparisonChart } from '../Dashboard/RunComparisonChart';
 import { ThroughputCostChart } from '../Dashboard/ThroughputCostChart';
 import { Button, Badge, StatusChip, Modal, Textarea } from '../ui';
@@ -25,7 +25,8 @@ import { useGitHubAuth } from '../../hooks/useGitHubAuth';
 import { validateBenchmark } from '../../utils/benchmarkValidator';
 import { encodeShareLink, isValidUuid } from '../../utils/shareLinkEncoder';
 import { v4 as uuidv4 } from 'uuid';
-import { downloadRunBRV02, downloadSingleStageYaml } from '../../utils/brv02Exporter';
+import { downloadRunBRV02, downloadSingleStageYaml, getRawPrismCloudPayload } from '../../utils/brv02Exporter';
+import { parseDataUri } from '../../utils/dataParser';
 
 const getCleanModelName = (name) => {
     if (!name) return '';
@@ -204,6 +205,22 @@ export const UnifiedDataTable = (props) => {
     const drawerLastMouseRef = React.useRef({ x: 0, y: 0 });
 
     const [viewingPayloadRun, setViewingPayloadRun] = useState(null);
+    const [activeExtraFilesPopoverRunId, setActiveExtraFilesPopoverRunId] = useState(null);
+    const [inspectFileModalState, setInspectFileModalState] = useState({ isOpen: false, filename: '', content: '' });
+    const extraFilesPopoverRef = React.useRef(null);
+
+    React.useEffect(() => {
+        const handleOutsideClick = (e) => {
+            if (extraFilesPopoverRef.current && !extraFilesPopoverRef.current.contains(e.target)) {
+                setActiveExtraFilesPopoverRunId(null);
+            }
+        };
+        if (activeExtraFilesPopoverRunId) {
+            document.addEventListener('mousedown', handleOutsideClick);
+            return () => document.removeEventListener('mousedown', handleOutsideClick);
+        }
+    }, [activeExtraFilesPopoverRunId]);
+
     const [rejectingRunId, setRejectingRunId] = useState(null);
     const [rejectionFeedback, setRejectionFeedback] = useState('');
 
@@ -1820,6 +1837,10 @@ export const UnifiedDataTable = (props) => {
                                             rejectionFeedback={rejectionFeedback}
                                             setRejectingRunId={setRejectingRunId}
                                             setRejectionFeedback={setRejectionFeedback}
+                                            activeExtraFilesPopoverRunId={activeExtraFilesPopoverRunId}
+                                            setActiveExtraFilesPopoverRunId={setActiveExtraFilesPopoverRunId}
+                                            extraFilesPopoverRef={extraFilesPopoverRef}
+                                            setInspectFileModalState={setInspectFileModalState}
                                             setViewingPayloadRun={setViewingPayloadRun}
                                             setRawYamlContent={setRawYamlContent}
                                             setRawYamlTitle={setRawYamlTitle}
@@ -1907,7 +1928,7 @@ export const UnifiedDataTable = (props) => {
                             Raw Manifest Payload (YAML): {viewingPayloadRun.benchmarkKey || viewingPayloadRun.model || 'Configuration'}
                         </span>
                     }
-                    className="max-w-3xl"
+                    className="max-w-4xl"
                     footer={
                         <div className="flex items-center gap-2">
                             {(() => {
@@ -1936,7 +1957,7 @@ export const UnifiedDataTable = (props) => {
                             <button
                                 onClick={() => {
                                     try {
-                                        const dataToDump = viewingPayloadRun.payload || viewingPayloadRun.data?.[0] || viewingPayloadRun;
+                                        const dataToDump = getRawPrismCloudPayload(viewingPayloadRun);
                                         const yamlStr = yaml.dump(dataToDump, { noRefs: true });
                                         navigator.clipboard.writeText(yamlStr);
                                         alert('Manifest copied to clipboard');
@@ -1952,16 +1973,47 @@ export const UnifiedDataTable = (props) => {
                         </div>
                     }
                 >
-                    <pre className="m-0 font-mono text-xs leading-relaxed whitespace-pre-wrap">
+                    <pre className="m-0 p-4 font-mono text-xs leading-relaxed whitespace-pre overflow-scroll regular-scrollbar max-h-[65vh] bg-slate-950 text-slate-200 border border-slate-800 rounded-lg select-text">
                         {(() => {
                             try {
-                                const dataToDump = viewingPayloadRun.payload || viewingPayloadRun.data?.[0] || viewingPayloadRun;
+                                const dataToDump = getRawPrismCloudPayload(viewingPayloadRun);
                                 return yaml.dump(dataToDump, { noRefs: true });
                             } catch (err) {
                                 console.error("Failed to dump to YAML:", err);
                                 return "Error rendering YAML.";
                             }
                         })()}
+                    </pre>
+                </Modal>,
+                document.body
+            )}
+
+            {/* Individual Attached File Inspection Modal */}
+            {inspectFileModalState.isOpen && createPortal(
+                <Modal
+                    isOpen
+                    onClose={() => setInspectFileModalState({ isOpen: false, filename: '', content: '' })}
+                    title={
+                        <span className="flex items-center gap-2 text-slate-100 font-semibold">
+                            <FileText className="w-5 h-5 text-cyan-400" />
+                            Inspect File: {inspectFileModalState.filename}
+                        </span>
+                    }
+                    className="max-w-4xl"
+                    footer={
+                        <button
+                            onClick={() => {
+                                navigator.clipboard.writeText(inspectFileModalState.content);
+                                alert('File content copied to clipboard');
+                            }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 rounded-lg transition-colors cursor-pointer"
+                        >
+                            <Copy className="w-3.5 h-3.5" /> Copy Content
+                        </button>
+                    }
+                >
+                    <pre className="m-0 p-4 font-mono text-xs leading-relaxed whitespace-pre overflow-scroll regular-scrollbar max-h-[65vh] bg-slate-950 text-slate-200 border border-slate-800 rounded-lg select-text">
+                        {inspectFileModalState.content}
                     </pre>
                 </Modal>,
                 document.body
@@ -2109,6 +2161,10 @@ export const UnifiedDataTable = (props) => {
                                                 rejectionFeedback={rejectionFeedback}
                                                 setRejectingRunId={setRejectingRunId}
                                                 setRejectionFeedback={setRejectionFeedback}
+                                                activeExtraFilesPopoverRunId={activeExtraFilesPopoverRunId}
+                                                setActiveExtraFilesPopoverRunId={setActiveExtraFilesPopoverRunId}
+                                                extraFilesPopoverRef={extraFilesPopoverRef}
+                                                setInspectFileModalState={setInspectFileModalState}
                                                 setViewingPayloadRun={setViewingPayloadRun}
                                                 setRawYamlContent={setRawYamlContent}
                                                 setRawYamlTitle={setRawYamlTitle}
@@ -2202,6 +2258,10 @@ const BenchmarkRow = React.memo(({
     rejectionFeedback,
     setRejectingRunId,
     setRejectionFeedback,
+    activeExtraFilesPopoverRunId,
+    setActiveExtraFilesPopoverRunId,
+    extraFilesPopoverRef,
+    setInspectFileModalState,
     setViewingPayloadRun,
     setRawYamlContent,
     setRawYamlTitle,
@@ -2310,10 +2370,204 @@ const BenchmarkRow = React.memo(({
     const cardBorderClass = isSelected 
         ? 'border-blue-400 dark:border-blue-600 ring-1 ring-blue-400 dark:ring-blue-600/50' 
         : statusAccent.borderClass;
-    const cardBgClass = isSelected ? '' : (statusAccent.bgClass || '');
+    const cardBgClass = statusAccent.bgClass || '';
+    const popoverTargetId = runId || stat.benchmarkKey || stat.model || key;
+    const rawPayload = getRawPrismCloudPayload(stat, benchmarkData);
+    const manifestsObj = rawPayload?.manifests || stat.manifests || {};
+    const evidenceObj = rawPayload?.evidence || stat.evidence || {};
 
+    const manifestItems = Object.entries(manifestsObj).filter(([k, v]) => k && v);
+    const evidenceItems = Object.entries(evidenceObj).filter(([k, v]) => k && v);
+    const hasExtraFiles = manifestItems.length > 0 || evidenceItems.length > 0;
+    const isExtraFilesPopoverOpen = !!(popoverTargetId && activeExtraFilesPopoverRunId === popoverTargetId);
 
-                                    return (
+    const renderSubmissionActions = () => {
+        if (!isBrv02 || readOnly) return null;
+        const sub = submissionsMap ? submissionsMap[runId] : null;
+        const status = sub?.status || benchmarkData[0]?.source_info?.submission_state || 'staged';
+        
+        if (canResubmit && status === 'staged') {
+            return user?.permission === 'none' ? (
+                <div className="relative group/tooltip inline-block">
+                    <button
+                        disabled
+                        className="px-2.5 py-1 rounded-xl border border-slate-800 bg-slate-900/40 text-slate-500 text-[9px] font-bold uppercase tracking-wider transition-colors cursor-not-allowed select-none flex items-center gap-1 opacity-60 whitespace-nowrap"
+                    >
+                        <Send className="w-2.5 h-2.5" /> Submit for Review
+                    </button>
+                    <div className="absolute right-0 bottom-full mb-2 px-3 py-2 bg-slate-900 border border-slate-800 text-slate-350 text-xs font-medium rounded-xl opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all duration-200 shadow-2xl z-[9999] w-64 pointer-events-none leading-relaxed text-center normal-case tracking-normal">
+                        You are not in the Results Store closed-beta. Check back later once the feature is released.
+                    </div>
+                </div>
+            ) : (
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        const run = brv02Runs.find(r => r.runId === runId);
+                        if (run) {
+                            handleSubmitStagedRunForReview(run);
+                        }
+                    }}
+                    disabled={isLoadingSubmissions || isLocalActionPending}
+                    title="Submit this benchmark to staging GCS bucket for automated format checks"
+                    className="px-2.5 py-1 rounded-xl border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 disabled:opacity-50 disabled:cursor-not-allowed text-purple-400 text-[9px] font-bold uppercase tracking-wider transition-colors cursor-pointer select-none flex items-center gap-1 whitespace-nowrap"
+                >
+                    <Send className="w-2.5 h-2.5" /> Submit for Review
+                </button>
+            );
+        }
+        if (status === 'unlisted') {
+            const authorUsername = sub?.github_author?.username || benchmarkData[0]?.github_author?.username || benchmarkData[0]?.source_info?.github_user;
+            const isOwner = !!(user?.username && authorUsername && authorUsername.toLowerCase() === user.username.toLowerCase());
+            const canPromote = isOwner;
+            const canDelete = isOwner || isAdmin;
+
+            if (!canPromote && !canDelete) return null;
+
+            return (
+                <div className="flex items-center gap-1.5">
+                    {canPromote && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                handleActionClick(async () => {
+                                    if (updateSubmissionStatus) {
+                                        await updateSubmissionStatus(runId, 'submitted_pending_review', '', stat.model, stat.hardware);
+                                    }
+                                });
+                            }}
+                            disabled={isLoadingSubmissions || isLocalActionPending}
+                            title="Promote unlisted benchmark to the admin review queue"
+                            className="px-2.5 py-1 rounded-xl border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 disabled:opacity-50 disabled:cursor-not-allowed text-purple-400 text-[9px] font-bold uppercase tracking-wider transition-colors cursor-pointer select-none flex items-center gap-1 whitespace-nowrap"
+                        >
+                            <Play className="w-2.5 h-2.5 fill-current" /> Promote to Review
+                        </button>
+                    )}
+                    {canDelete && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                handleActionClick(async () => {
+                                    if (window.confirm(`Are you sure you want to permanently delete unlisted benchmark ${runId} from the Results Store? This action cannot be undone.`)) {
+                                        if (deleteSubmission) {
+                                            await deleteSubmission(runId);
+                                        }
+                                    }
+                                });
+                            }}
+                            disabled={isLoadingSubmissions || isLocalActionPending}
+                            title="Permanently delete this unlisted benchmark off GCS storage"
+                            className="px-2.5 py-1 rounded-xl border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed text-red-400 text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer select-none flex items-center gap-1 whitespace-nowrap"
+                        >
+                            <Trash2 className="w-2.5 h-2.5" /> Delete
+                        </button>
+                    )}
+                </div>
+            );
+        }
+        if (canResubmit && status === 'submitted_pending_processing') {
+            return (
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        handleActionClick(async () => {
+                            if (updateSubmissionStatus) {
+                                await updateSubmissionStatus(runId, 'submitted_pending_review', '', stat.model, stat.hardware);
+                            }
+                        });
+                    }}
+                    disabled={isLoadingSubmissions || isLocalActionPending}
+                    title="Promote benchmark to the admin review queue"
+                    className="px-2.5 py-1 rounded-xl border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 disabled:opacity-50 disabled:cursor-not-allowed text-purple-400 text-[9px] font-bold uppercase tracking-wider transition-colors cursor-pointer select-none flex items-center gap-1 whitespace-nowrap"
+                >
+                    <Play className="w-2.5 h-2.5 fill-current" /> Promote to Review
+                </button>
+            );
+        }
+        if (isAdmin && (status === 'submitted_pending_review' || status === 'in_review')) {
+            return (
+                <>
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            handleActionClick(async () => {
+                                if (updateSubmissionStatus) {
+                                    await updateSubmissionStatus(runId, 'public', '', stat.model, stat.hardware);
+                                }
+                            });
+                        }}
+                        disabled={isLoadingSubmissions || isLocalActionPending}
+                        title="Approve this run and publish it to the global Results store"
+                        className="px-2.5 py-1 rounded-xl border border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/10 disabled:opacity-50 disabled:cursor-not-allowed text-emerald-455 text-[9px] font-bold uppercase tracking-wider transition-colors cursor-pointer select-none flex items-center gap-1 whitespace-nowrap"
+                    >
+                        <Check className="w-2.5 h-2.5 stroke-[3]" /> Approve
+                    </button>
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setRejectingRunId(runId);
+                            setRejectionFeedback('');
+                        }}
+                        disabled={isLoadingSubmissions || isLocalActionPending}
+                        title="Reject compliance or request changes with custom feedback"
+                        className="px-2.5 py-1 rounded-xl border border-red-500/20 bg-red-500/5 hover:bg-red-500/10 disabled:opacity-50 disabled:cursor-not-allowed text-red-400 text-[9px] font-bold uppercase tracking-wider transition-colors cursor-pointer select-none flex items-center gap-1 whitespace-nowrap"
+                    >
+                        <X className="w-2.5 h-2.5" /> Reject
+                    </button>
+                </>
+            );
+        }
+        if (status === 'rejected' || status === 'changes_requested') {
+            const showResubmit = canResubmit;
+            const showDelete = isAdmin && status === 'rejected';
+
+            if (!showResubmit && !showDelete) return null;
+
+            return (
+                <div className="flex items-center gap-1.5">
+                    {showResubmit && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                handleActionClick(async () => {
+                                    if (updateSubmissionStatus) {
+                                        await updateSubmissionStatus(runId, 'submitted_pending_processing', '', stat.model, stat.hardware);
+                                    }
+                                });
+                            }}
+                            disabled={isLoadingSubmissions || isLocalActionPending}
+                            title="Resubmit this run for automated verification after corrections"
+                            className="px-2.5 py-1 rounded-xl border border-purple-500/25 bg-purple-500/10 hover:bg-purple-500/20 disabled:opacity-50 disabled:cursor-not-allowed text-purple-400 text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer select-none flex items-center gap-1 whitespace-nowrap"
+                        >
+                            <RotateCcw className="w-2.5 h-2.5" /> Resubmit
+                        </button>
+                    )}
+                    {showDelete && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                handleActionClick(async () => {
+                                    if (window.confirm(`Are you sure you want to permanently delete rejected benchmark ${runId} from the Results Store? This action cannot be undone.`)) {
+                                        if (deleteSubmission) {
+                                            await deleteSubmission(runId);
+                                        }
+                                    }
+                                });
+                            }}
+                            disabled={isLoadingSubmissions || isLocalActionPending}
+                            title="Permanently delete this rejected benchmark from cloud storage"
+                            className="px-2.5 py-1 rounded-xl border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed text-red-400 text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer select-none flex items-center gap-1 whitespace-nowrap"
+                        >
+                            <Trash2 className="w-2.5 h-2.5" /> Delete
+                        </button>
+                    )}
+                </div>
+            );
+        }
+        return null;
+    };
+
+    return (
                                         <div className="flex items-center gap-3 w-full group/benchmark-row">
                                             {readOnly && onToggleGraphVisibility && (
                                                 <button
@@ -2665,191 +2919,10 @@ const BenchmarkRow = React.memo(({
                                                                             {isBrv02 && !readOnly && (
                                                                                 <div className="flex flex-col items-end gap-1.5 relative flex-shrink-0">
                                                                                     <div className="flex items-center gap-2">
-                                                                                        {(() => {
-                                                                                            const sub = submissionsMap ? submissionsMap[runId] : null;
-                                                                                            const status = sub?.status || benchmarkData[0]?.source_info?.submission_state || 'staged';
-                                                                                            
-                                                                                            if (canResubmit && status === 'staged') {
-                                                                                                return user?.permission === 'none' ? (
-                                                                                                    <div className="relative group/tooltip inline-block">
-                                                                                                        <button
-                                                                                                            disabled
-                                                                                                            className="px-2.5 py-1 rounded-xl border border-slate-800 bg-slate-900/40 text-slate-500 text-[9px] font-bold uppercase tracking-wider transition-colors cursor-not-allowed select-none flex items-center gap-1 opacity-60 whitespace-nowrap"
-                                                                                                        >
-                                                                                                            <Send className="w-2.5 h-2.5" /> Submit for Review
-                                                                                                        </button>
-                                                                                                        <div className="absolute right-0 bottom-full mb-2 px-3 py-2 bg-slate-900 border border-slate-800 text-slate-350 text-xs font-medium rounded-xl opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all duration-200 shadow-2xl z-[9999] w-64 pointer-events-none leading-relaxed text-center normal-case tracking-normal">
-                                                                                                            You are not in the Results Store closed-beta. Check back later once the feature is released.
-                                                                                                        </div>
-                                                                                                    </div>
-                                                                                                ) : (
-                                                                                                    <button
-                                                                                                        onClick={(e) => {
-                                                                                                            e.stopPropagation();
-                                                                                                            const run = brv02Runs.find(r => r.runId === runId);
-                                                                                                            if (run) {
-                                                                                                                handleSubmitStagedRunForReview(run);
-                                                                                                            }
-                                                                                                        }}
-                                                                                                        disabled={isLoadingSubmissions || isLocalActionPending}
-                                                                                                        title="Submit this benchmark to staging GCS bucket for automated format checks"
-                                                                                                        className="px-2.5 py-1 rounded-xl border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 disabled:opacity-50 disabled:cursor-not-allowed text-purple-400 text-[9px] font-bold uppercase tracking-wider transition-colors cursor-pointer select-none flex items-center gap-1 whitespace-nowrap"
-                                                                                                    >
-                                                                                                        <Send className="w-2.5 h-2.5" /> Submit for Review
-                                                                                                    </button>
-                                                                                                );
-                                                                                            }
-                                                                                            if (status === 'unlisted') {
-                                                                                                const authorUsername = sub?.github_author?.username || benchmarkData[0]?.github_author?.username || benchmarkData[0]?.source_info?.github_user;
-                                                                                                const isOwner = !!(user?.username && authorUsername && authorUsername.toLowerCase() === user.username.toLowerCase());
-                                                                                                const canPromote = isOwner;
-                                                                                                const canDelete = isOwner || isAdmin;
-
-                                                                                                if (!canPromote && !canDelete) return null;
-
-                                                                                                return (
-                                                                                                    <div className="flex items-center gap-1.5">
-                                                                                                        {canPromote && (
-                                                                                                            <button
-                                                                                                                onClick={(e) => {
-                                                                                                                    e.stopPropagation();
-                                                                                                                    handleActionClick(async () => {
-                                                                                                                        if (updateSubmissionStatus) {
-                                                                                                                            await updateSubmissionStatus(runId, 'submitted_pending_review', '', stat.model, stat.hardware);
-                                                                                                                        }
-                                                                                                                    });
-                                                                                                                }}
-                                                                                                                disabled={isLoadingSubmissions || isLocalActionPending}
-                                                                                                                title="Promote unlisted benchmark to the admin review queue"
-                                                                                                                className="px-2.5 py-1 rounded-xl border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 disabled:opacity-50 disabled:cursor-not-allowed text-purple-400 text-[9px] font-bold uppercase tracking-wider transition-colors cursor-pointer select-none flex items-center gap-1 whitespace-nowrap"
-                                                                                                            >
-                                                                                                                <Play className="w-2.5 h-2.5 fill-current" /> Promote to Review
-                                                                                                            </button>
-                                                                                                        )}
-                                                                                                        {canDelete && (
-                                                                                                            <button
-                                                                                                                onClick={(e) => {
-                                                                                                                    e.stopPropagation();
-                                                                                                                    handleActionClick(async () => {
-                                                                                                                        if (window.confirm(`Are you sure you want to permanently delete unlisted benchmark ${runId} from the Results Store? This action cannot be undone.`)) {
-                                                                                                                            if (deleteSubmission) {
-                                                                                                                                await deleteSubmission(runId);
-                                                                                                                            }
-                                                                                                                        }
-                                                                                                                    });
-                                                                                                                }}
-                                                                                                                disabled={isLoadingSubmissions || isLocalActionPending}
-                                                                                                                title="Permanently delete this unlisted benchmark off GCS storage"
-                                                                                                                className="px-2.5 py-1 rounded-xl border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed text-red-400 text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer select-none flex items-center gap-1 whitespace-nowrap"
-                                                                                                            >
-                                                                                                                <Trash2 className="w-2.5 h-2.5" /> Delete
-                                                                                                            </button>
-                                                                                                        )}
-                                                                                                    </div>
-                                                                                                );
-                                                                                            }
-                                                                                            if (canResubmit && status === 'submitted_pending_processing') {
-                                                                                                return (
-                                                                                                    <button
-                                                                                                        onClick={(e) => {
-                                                                                                            e.stopPropagation();
-                                                                                                            handleActionClick(async () => {
-                                                                                                                if (updateSubmissionStatus) {
-                                                                                                                    await updateSubmissionStatus(runId, 'submitted_pending_review', '', stat.model, stat.hardware);
-                                                                                                                }
-                                                                                                            });
-                                                                                                        }}
-                                                                                                        disabled={isLoadingSubmissions || isLocalActionPending}
-                                                                                                        title="Promote benchmark to the admin review queue"
-                                                                                                        className="px-2.5 py-1 rounded-xl border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 disabled:opacity-50 disabled:cursor-not-allowed text-purple-400 text-[9px] font-bold uppercase tracking-wider transition-colors cursor-pointer select-none flex items-center gap-1 whitespace-nowrap"
-                                                                                                    >
-                                                                                                        <Play className="w-2.5 h-2.5 fill-current" /> Promote to Review
-                                                                                                    </button>
-                                                                                                );
-                                                                                            }
-                                                                                            if (isAdmin && (status === 'submitted_pending_review' || status === 'in_review')) {
-                                                                                                return (
-                                                                                                    <>
-                                                                                                        <button
-                                                                                                            onClick={(e) => {
-                                                                                                                e.stopPropagation();
-                                                                                                                handleActionClick(async () => {
-                                                                                                                    if (updateSubmissionStatus) {
-                                                                                                                        await updateSubmissionStatus(runId, 'public', '', stat.model, stat.hardware);
-                                                                                                                    }
-                                                                                                                });
-                                                                                                            }}
-                                                                                                            disabled={isLoadingSubmissions || isLocalActionPending}
-                                                                                                            title="Approve this run and publish it to the global Results store"
-                                                                                                            className="px-2.5 py-1 rounded-xl border border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/10 disabled:opacity-50 disabled:cursor-not-allowed text-emerald-455 text-[9px] font-bold uppercase tracking-wider transition-colors cursor-pointer select-none flex items-center gap-1 whitespace-nowrap"
-                                                                                                        >
-                                                                                                            <Check className="w-2.5 h-2.5 stroke-[3]" /> Approve
-                                                                                                        </button>
-                                                                                                        <button
-                                                                                                            onClick={(e) => {
-                                                                                                                e.stopPropagation();
-                                                                                                                setRejectingRunId(runId);
-                                                                                                                setRejectionFeedback('');
-                                                                                                            }}
-                                                                                                            disabled={isLoadingSubmissions || isLocalActionPending}
-                                                                                                            title="Reject compliance or request changes with custom feedback"
-                                                                                                            className="px-2.5 py-1 rounded-xl border border-red-500/20 bg-red-500/5 hover:bg-red-500/10 disabled:opacity-50 disabled:cursor-not-allowed text-red-400 text-[9px] font-bold uppercase tracking-wider transition-colors cursor-pointer select-none flex items-center gap-1 whitespace-nowrap"
-                                                                                                        >
-                                                                                                            <X className="w-2.5 h-2.5" /> Reject
-                                                                                                        </button>
-                                                                                                    </>
-                                                                                                );
-                                                                                            }
-                                                                                            if (status === 'rejected' || status === 'changes_requested') {
-                                                                                                const showResubmit = canResubmit;
-                                                                                                const showDelete = isAdmin && status === 'rejected';
-
-                                                                                                if (!showResubmit && !showDelete) return null;
-
-                                                                                                return (
-                                                                                                    <div className="flex items-center gap-1.5">
-                                                                                                        {showResubmit && (
-                                                                                                            <button
-                                                                                                                onClick={(e) => {
-                                                                                                                    e.stopPropagation();
-                                                                                                                    handleActionClick(async () => {
-                                                                                                                        if (updateSubmissionStatus) {
-                                                                                                                            await updateSubmissionStatus(runId, 'submitted_pending_processing', '', stat.model, stat.hardware);
-                                                                                                                        }
-                                                                                                                    });
-                                                                                                                }}
-                                                                                                                disabled={isLoadingSubmissions || isLocalActionPending}
-                                                                                                                title="Resubmit this run for automated verification after corrections"
-                                                                                                                className="px-2.5 py-1 rounded-xl border border-purple-500/25 bg-purple-500/10 hover:bg-purple-500/20 disabled:opacity-50 disabled:cursor-not-allowed text-purple-400 text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer select-none flex items-center gap-1 whitespace-nowrap"
-                                                                                                            >
-                                                                                                                <RotateCcw className="w-2.5 h-2.5" /> Resubmit
-                                                                                                            </button>
-                                                                                                        )}
-                                                                                                        {showDelete && (
-                                                                                                            <button
-                                                                                                                onClick={(e) => {
-                                                                                                                    e.stopPropagation();
-                                                                                                                    handleActionClick(async () => {
-                                                                                                                        if (window.confirm(`Are you sure you want to permanently delete rejected benchmark ${runId} from the Results Store? This action cannot be undone.`)) {
-                                                                                                                            if (deleteSubmission) {
-                                                                                                                                await deleteSubmission(runId);
-                                                                                                                            }
-                                                                                                                        }
-                                                                                                                    });
-                                                                                                                }}
-                                                                                                                disabled={isLoadingSubmissions || isLocalActionPending}
-                                                                                                                title="Permanently delete this rejected benchmark from cloud storage"
-                                                                                                                className="px-2.5 py-1 rounded-xl border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed text-red-400 text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer select-none flex items-center gap-1 whitespace-nowrap"
-                                                                                                            >
-                                                                                                                <Trash2 className="w-2.5 h-2.5" /> Delete
-                                                                                                            </button>
-                                                                                                        )}
-                                                                                                    </div>
-                                                                                                );
-                                                                                            }
-                                                                                            return null;
-                                                                                        })()}
+                                                                                        {renderSubmissionActions()}
                                                                                     </div>
+                                                                                </div>
+                                                                            )}
                                                                                     {rejectingRunId === runId && (
                                                                                         <div onClick={e => e.stopPropagation()} className="p-2.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700/60 rounded-lg shadow-inner w-64 flex flex-col gap-2 mt-1 z-30">
                                                                                             <div className="text-xs font-bold text-red-500 dark:text-red-400 uppercase tracking-wider">Reason for Rejecting Run</div>
@@ -2889,8 +2962,6 @@ const BenchmarkRow = React.memo(({
                                                                                         </div>
                                                                                     )}
                                                                                 </div>
-                                                                            )}
-                                                                        </div>
                                                                         <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 flex-shrink-0">
                                                                             {(() => {
                                                                                 const isResultsStore = benchmarkData[0]?.source_info?.type === 'benchmark_report_v02';
@@ -3112,19 +3183,148 @@ const BenchmarkRow = React.memo(({
                                                                      {benchmarkData.length > 1 ? "Download BRV0.2 (ZIP)" : "Download BRV0.2 (YAML)"}
                                                                  </Button>
                                                              )}
-                                                             <Button
-                                                                 variant="secondary"
-                                                                 size="sm"
-                                                                 onClick={(e) => {
-                                                                     e.stopPropagation();
-                                                                     setViewingPayloadRun(stat);
-                                                                 }}
-                                                                 className="h-full whitespace-nowrap animate-in fade-in duration-200 gap-1.5 flex items-center justify-center"
-                                                                 title="Inspect Raw YAML / JSON Manifest"
-                                                             >
-                                                                 <Code2 size={13} />
-                                                                 Inspect Raw Manifest
-                                                             </Button>
+                                                             <div className="relative flex items-center h-full">
+                                                                 <Button
+                                                                     variant="secondary"
+                                                                     size="sm"
+                                                                     onClick={(e) => {
+                                                                         e.stopPropagation();
+                                                                         setViewingPayloadRun(stat);
+                                                                     }}
+                                                                     className={cn(
+                                                                         "h-full whitespace-nowrap animate-in fade-in duration-200 gap-1.5 flex items-center justify-center",
+                                                                         hasExtraFiles && "rounded-r-none border-r-0"
+                                                                     )}
+                                                                     title="Inspect Raw YAML / JSON Manifest"
+                                                                 >
+                                                                     <Code2 size={13} />
+                                                                     Inspect Raw Manifest
+                                                                 </Button>
+                                                                 {hasExtraFiles && (
+                                                                     <Button
+                                                                         variant="secondary"
+                                                                         size="sm"
+                                                                         onClick={(e) => {
+                                                                             e.stopPropagation();
+                                                                             setActiveExtraFilesPopoverRunId(isExtraFilesPopoverOpen ? null : popoverTargetId);
+                                                                         }}
+                                                                         className="h-full px-1.5 rounded-l-none border-l border-slate-700/60 flex items-center justify-center hover:bg-slate-700/50 text-slate-300"
+                                                                         title="View attached manifest & evidence files"
+                                                                     >
+                                                                         <ChevronDown size={13} className={cn("transition-transform duration-200", isExtraFilesPopoverOpen && "rotate-180")} />
+                                                                     </Button>
+                                                                 )}
+
+                                                                 {isExtraFilesPopoverOpen && (
+                                                                             <div
+                                                                                 ref={extraFilesPopoverRef}
+                                                                                 onClick={(e) => e.stopPropagation()}
+                                                                                 className="absolute right-0 bottom-full mb-2 w-80 bg-slate-950/95 border border-slate-800 rounded-2xl p-3 shadow-2xl backdrop-blur-xl z-[100] animate-in fade-in slide-in-from-bottom-2 duration-150 text-left space-y-3"
+                                                                             >
+                                                                                 <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+                                                                                     <span className="text-[10px] font-black uppercase tracking-wider text-cyan-400">
+                                                                                         Attached Files & Evidence
+                                                                                     </span>
+                                                                                     <button
+                                                                                         onClick={() => setActiveExtraFilesPopoverRunId(null)}
+                                                                                         className="p-1 rounded-lg text-slate-500 hover:text-slate-200 hover:bg-slate-900 transition-colors cursor-pointer"
+                                                                                     >
+                                                                                         <X size={13} />
+                                                                                     </button>
+                                                                                 </div>
+
+                                                                                 {manifestItems.length > 0 && (
+                                                                                     <div className="space-y-1.5">
+                                                                                         <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400 px-1">
+                                                                                             Manifests ({manifestItems.length})
+                                                                                         </div>
+                                                                                         <div className="space-y-1">
+                                                                                             {manifestItems.map(([filename, val]) => {
+                                                                                                 const textContent = typeof val === 'string' && val.startsWith('data:') ? (parseDataUri(val) || val) : String(val);
+                                                                                                 return (
+                                                                                                     <button
+                                                                                                         key={filename}
+                                                                                                         onClick={() => {
+                                                                                                             setActiveExtraFilesPopoverRunId(null);
+                                                                                                             setInspectFileModalState({
+                                                                                                                 isOpen: true,
+                                                                                                                 filename,
+                                                                                                                 content: textContent
+                                                                                                             });
+                                                                                                         }}
+                                                                                                         className="w-full flex items-center gap-2 p-2 rounded-xl bg-slate-900/60 hover:bg-slate-900 border border-slate-800/60 hover:border-cyan-500/30 text-xs text-slate-200 transition-all cursor-pointer group text-left"
+                                                                                                     >
+                                                                                                         <FileText size={13} className="text-cyan-400 shrink-0 group-hover:scale-110 transition-transform" />
+                                                                                                         <span className="truncate flex-1 font-mono text-[11px] text-cyan-200">{filename}</span>
+                                                                                                         <span className="text-[9px] font-medium text-slate-500 bg-slate-800/80 px-1.5 py-0.5 rounded">View</span>
+                                                                                                     </button>
+                                                                                                 );
+                                                                                             })}
+                                                                                         </div>
+                                                                                     </div>
+                                                                                 )}
+
+                                                                                 {evidenceItems.length > 0 && (
+                                                                                     <div className="space-y-1.5">
+                                                                                         <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400 px-1">
+                                                                                             Evidence ({evidenceItems.length})
+                                                                                         </div>
+                                                                                         <div className="space-y-1 max-h-48 overflow-y-auto custom-scrollbar">
+                                                                                             {evidenceItems.map(([filename, val]) => {
+                                                                                                 const valStr = String(val);
+                                                                                                 const isExternal = valStr.startsWith('http://') || valStr.startsWith('https://') || valStr.startsWith('gs://');
+
+                                                                                                 if (isExternal) {
+                                                                                                     const resolvedUrl = valStr.startsWith('gs://') 
+                                                                                                         ? `https://console.cloud.google.com/storage/browser/_details/${valStr.substring(5)}`
+                                                                                                         : valStr;
+
+                                                                                                     return (
+                                                                                                         <a
+                                                                                                             key={filename}
+                                                                                                             href={resolvedUrl}
+                                                                                                             target="_blank"
+                                                                                                             rel="noopener noreferrer"
+                                                                                                             onClick={() => setActiveExtraFilesPopoverRunId(null)}
+                                                                                                             className="w-full flex items-center gap-2 p-2 rounded-xl bg-slate-900/60 hover:bg-slate-900 border border-slate-800/60 hover:border-amber-500/30 text-xs text-slate-200 transition-all cursor-pointer group text-left"
+                                                                                                         >
+                                                                                                             <ExternalLink size={13} className="text-amber-400 shrink-0 group-hover:scale-110 transition-transform" />
+                                                                                                             <div className="truncate flex-1 min-w-0">
+                                                                                                                 <div className="font-mono text-[11px] text-amber-200 truncate">{filename}</div>
+                                                                                                                 <div className="text-[9px] text-slate-500 truncate">{valStr}</div>
+                                                                                                             </div>
+                                                                                                             <span className="text-[9px] font-medium text-amber-400/80 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20 shrink-0">Open</span>
+                                                                                                         </a>
+                                                                                                     );
+                                                                                                 }
+
+                                                                                                 const textContent = valStr.startsWith('data:') ? (parseDataUri(valStr) || valStr) : valStr;
+
+                                                                                                 return (
+                                                                                                     <button
+                                                                                                         key={filename}
+                                                                                                         onClick={() => {
+                                                                                                             setActiveExtraFilesPopoverRunId(null);
+                                                                                                             setInspectFileModalState({
+                                                                                                                 isOpen: true,
+                                                                                                                 filename,
+                                                                                                                 content: textContent
+                                                                                                             });
+                                                                                                         }}
+                                                                                                         className="w-full flex items-center gap-2 p-2 rounded-xl bg-slate-900/60 hover:bg-slate-900 border border-slate-800/60 hover:border-purple-500/30 text-xs text-slate-200 transition-all cursor-pointer group text-left"
+                                                                                                     >
+                                                                                                         <FileText size={13} className="text-purple-400 shrink-0 group-hover:scale-110 transition-transform" />
+                                                                                                         <span className="truncate flex-1 font-mono text-[11px] text-purple-200">{filename}</span>
+                                                                                                         <span className="text-[9px] font-medium text-slate-500 bg-slate-800/80 px-1.5 py-0.5 rounded">View</span>
+                                                                                                     </button>
+                                                                                                 );
+                                                                                             })}
+                                                                                         </div>
+                                                                                     </div>
+                                                                                 )}
+                                                                             </div>
+                                                                         )}
+                                                                     </div>
                                                          </div>
                                                      )}
                                                  </div>

@@ -4,10 +4,12 @@ import { v4 as uuidv4 } from 'uuid';
 import { ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Scatter } from 'recharts';
 import { validateBenchmark, validatePrismUploadStructure } from '../../utils/benchmarkValidator';
 import { parseReportV02, stageToEntry, canonicalStringify, mutateRawReportMetadata, compareOriginalStageOrder } from '../../utils/benchmarkReportV02Parser';
+import { toOptimalDataUri, parseDataUri } from '../../utils/dataParser';
 import yaml from 'js-yaml';
+
 import IntelligentRoutingChart from '../IntelligentRoutingChart';
 import { useGitHubAuth } from '../../hooks/useGitHubAuth';
-import { Badge, Button, Checkbox, Input, Label, Panel, Select, Spinner } from '../ui';
+import { Badge, Button, Checkbox, Input, Label, Modal, Panel, Select, Spinner } from '../ui';
 import { cn } from '../../utils/cn';
 import CoalesceConflictModal from './CoalesceConflictModal';
 
@@ -152,6 +154,33 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
     const [draggedStageIndex, setDraggedStageIndex] = useState(null);
     const [stageSortConfig, setStageSortConfig] = useState({});
     const [hoveredFilenameTooltip, setHoveredFilenameTooltip] = useState(null);
+
+    const [previewModalState, setPreviewModalState] = useState({
+        isOpen: false,
+        title: '',
+        filename: '',
+        content: ''
+    });
+
+    const handlePreviewDataUri = (filename, dataUri) => {
+        const decoded = parseDataUri(dataUri);
+        setPreviewModalState({
+            isOpen: true,
+            title: `Preview: ${filename}`,
+            filename,
+            content: decoded || 'Failed to decode file content.'
+        });
+    };
+
+    const handlePreviewContent = (filename, content) => {
+        setPreviewModalState({
+            isOpen: true,
+            title: `Preview: ${filename}`,
+            filename,
+            content: content || ''
+        });
+    };
+
 
     const handleFilenameMouseEnter = (e, filename) => {
         const rect = e.currentTarget.getBoundingClientRect();
@@ -1175,6 +1204,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
         const standaloneConfigs = [];
         const standaloneMetadata = [];
         const standaloneSummaries = [];
+        const standaloneEvidence = [];
         const standaloneReportFiles = [];
 
         for (const file of standaloneFiles) {
@@ -1208,6 +1238,8 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                 } catch (e) {
                     console.warn("Failed to parse summary_lifecycle_metrics.json:", e);
                 }
+            } else if (/prometheus_metrics\.json$/i.test(filename)) {
+                standaloneEvidence.push({ file, content });
             } else if (/\.(ya?ml|json)$/i.test(filename)) {
                 const validation = validateBenchmark(content, filename);
                 if (validation.format) {
@@ -1215,6 +1247,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                 }
             }
         }
+
 
         // Group the standalone report files
         const brv02StandaloneGroups = [];
@@ -1285,7 +1318,8 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                 preParsedStages: null,
                 standaloneMetadata: null,
                 standaloneConfigs: null,
-                standaloneSummaries: null
+                standaloneSummaries: null,
+                standaloneEvidence: null
             });
         }
 
@@ -1299,7 +1333,8 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                 preParsedStages: sg.parsedStages,
                 standaloneMetadata,
                 standaloneConfigs,
-                standaloneSummaries
+                standaloneSummaries,
+                standaloneEvidence
             });
         }
 
@@ -1310,6 +1345,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
             let runMetadataFile = null;
             let configFile = null;
             let summaryFile = null;
+            const detectedEvidenceFiles = [];
 
             let runMetadata = null;
             let configParsed = null;
@@ -1328,6 +1364,11 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                     summaryFile = group.standaloneSummaries[0].file;
                     summaryParsed = group.standaloneSummaries[0].parsed;
                 }
+                if (group.standaloneEvidence && group.standaloneEvidence.length > 0) {
+                    for (const evItem of group.standaloneEvidence) {
+                        detectedEvidenceFiles.push(evItem);
+                    }
+                }
             } else {
                 for (const file of group.files) {
                     const filename = file.name || '';
@@ -1338,6 +1379,8 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                         configFile = file;
                     } else if (/summary_lifecycle_metrics\.json$/i.test(filename)) {
                         summaryFile = file;
+                    } else if (/prometheus_metrics\.json$/i.test(filename)) {
+                        detectedEvidenceFiles.push({ file, content: null });
                     } else if (/\.(ya?ml|json)$/i.test(filename)) {
                         stageFiles.push(file);
                     }
@@ -1372,6 +1415,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                     }
                 }
             }
+
 
             const parsedStages = [];
             const bundleErrors = [];
@@ -1643,6 +1687,44 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                 });
             }
 
+            const initialManifests = {};
+            const initialEvidence = {};
+
+            if (runMetadataFile) {
+                try {
+                    const text = (group.preParsedStages && group.standaloneMetadata && group.standaloneMetadata.length > 0)
+                        ? group.standaloneMetadata[0].content
+                        : await runMetadataFile.text();
+                    initialManifests['run_metadata.yaml'] = toOptimalDataUri(text, 'application/x-yaml');
+                } catch (e) {
+                    console.warn("Failed to encode run_metadata.yaml as data URI:", e);
+                }
+            }
+
+            if (configFile) {
+                try {
+                    const text = (group.preParsedStages && group.standaloneConfigs && group.standaloneConfigs.length > 0)
+                        ? group.standaloneConfigs[0].content
+                        : await configFile.text();
+                    initialManifests['config.yaml'] = toOptimalDataUri(text, 'application/x-yaml');
+                } catch (e) {
+                    console.warn("Failed to encode config.yaml as data URI:", e);
+                }
+            }
+
+            if (detectedEvidenceFiles && detectedEvidenceFiles.length > 0) {
+                for (const evItem of detectedEvidenceFiles) {
+                    try {
+                        const fileObj = evItem.file;
+                        const text = evItem.content !== null ? evItem.content : await fileObj.text();
+                        const mime = fileObj.name.endsWith('.json') ? 'application/json' : 'text/plain';
+                        initialEvidence[fileObj.name] = toOptimalDataUri(text, mime);
+                    } catch (e) {
+                        console.warn(`Failed to encode evidence file ${evItem.file?.name} as data URI:`, e);
+                    }
+                }
+            }
+
             const payload = {
                 runId: group.id,
                 runLabel: groupName,
@@ -1652,10 +1734,11 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                     accelerator_count: resolvedCount
                 },
                 attribution: null,
-                manifests: {},
-                evidence: {},
+                manifests: initialManifests,
+                evidence: initialEvidence,
                 format: "brv02",
                 run_metadata: runMetadata || undefined,
+
                 entries: payloadEntries,
                 well_lit_path: null,
                 metadata: {},
@@ -3231,36 +3314,63 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                                                   <div className="space-y-1.5 mb-2">
                                                                                       {(bundle.attachedManifests || []).map((file, idx) => (
                                                                                           <div key={`local-${idx}`} className="flex items-center justify-between bg-slate-950/40 border border-slate-900 px-3 py-1.5 rounded-lg max-w-xl">
-                                                                                              <div className="flex items-center gap-2">
-                                                                                                  <span className="text-cyan-400 font-bold text-[11px] font-mono">{file.name}</span>
-                                                                                                  <span className="text-[9px] text-slate-500 font-semibold font-mono">({Math.round(file.content.length / 1024 * 10) / 10} KB)</span>
+                                                                                              <div className="flex items-center gap-2 truncate pr-4 min-w-0">
+                                                                                                  <span className="text-cyan-400 font-bold text-[11px] font-mono truncate">{file.name}</span>
                                                                                               </div>
-                                                                                              {wizardStep === 2 && (
+                                                                                              <div className="flex items-center gap-2 shrink-0 select-none">
+                                                                                                  <span className="text-[10px] text-slate-400 font-normal">({Math.round(file.content.length / 1024 * 10) / 10} KB)</span>
                                                                                                   <button 
-                                                                                                      onClick={() => removeAttachedManifest(bundle.id, file.name)}
-                                                                                                      className="text-slate-500 hover:text-red-400 p-1 rounded hover:bg-slate-900/60 transition-colors"
-                                                                                                      title="Remove manifest file"
+                                                                                                      onClick={() => handlePreviewContent(file.name, file.content)}
+                                                                                                      className="text-slate-400 hover:text-cyan-400 p-1 rounded hover:bg-slate-900/60 transition-colors"
+                                                                                                      title="Preview file content"
                                                                                                   >
-                                                                                                      <Trash2 size={12} />
+                                                                                                      <FileText size={12} />
                                                                                                   </button>
-                                                                                              )}
+                                                                                                  {wizardStep === 2 && (
+                                                                                                      <button 
+                                                                                                          onClick={() => removeAttachedManifest(bundle.id, file.name)}
+                                                                                                          className="text-slate-500 hover:text-red-400 p-1 rounded hover:bg-slate-900/60 transition-colors"
+                                                                                                          title="Remove manifest file"
+                                                                                                      >
+                                                                                                          <Trash2 size={12} />
+                                                                                                      </button>
+                                                                                                  )}
+                                                                                              </div>
                                                                                           </div>
                                                                                       ))}
                                                                                       {Object.entries(bundle.payload.manifests || {}).map(([name, url], idx) => (
                                                                                           <div key={`url-${idx}`} className="flex items-center justify-between bg-slate-950/40 border border-slate-900 px-3 py-1.5 rounded-lg max-w-xl">
-                                                                                              <div className="flex items-center gap-2 truncate pr-4">
-                                                                                                  <span className="text-cyan-400 font-bold text-[11px] font-mono">{name}</span>
-                                                                                                  <a href={url} target="_blank" rel="noopener noreferrer" className="text-[9px] text-slate-500 hover:text-cyan-400 font-mono truncate max-w-xs transition-colors" title={url}>({url})</a>
+                                                                                              <div className="flex items-center gap-2 truncate pr-4 min-w-0">
+                                                                                                  <span className="text-cyan-400 font-bold text-[11px] font-mono truncate">{name}</span>
+                                                                                                  {!url?.startsWith('data:') && (
+                                                                                                      <a href={url} target="_blank" rel="noopener noreferrer" className="text-[9px] text-slate-500 hover:text-cyan-400 font-mono truncate max-w-xs transition-colors" title={url}>({url})</a>
+                                                                                                  )}
                                                                                               </div>
-                                                                                              {wizardStep === 2 && (
-                                                                                                  <button 
-                                                                                                      onClick={() => removeManifestFromBundle(bundle.id, name)}
-                                                                                                      className="text-slate-500 hover:text-red-400 p-1 rounded hover:bg-slate-900/60 transition-colors"
-                                                                                                      title="Remove manifest URL"
-                                                                                                  >
-                                                                                                      <Trash2 size={12} />
-                                                                                                  </button>
-                                                                                              )}
+                                                                                              <div className="flex items-center gap-2 shrink-0 select-none">
+                                                                                                  {url?.startsWith('data:') && (
+                                                                                                      <span className="text-[10px] text-slate-400 font-normal">
+                                                                                                          (Inline data URI: {Math.round(url.length / 1024 * 10) / 10} KB)
+                                                                                                      </span>
+                                                                                                  )}
+                                                                                                  {url?.startsWith('data:') && (
+                                                                                                      <button 
+                                                                                                          onClick={() => handlePreviewDataUri(name, url)}
+                                                                                                          className="text-slate-400 hover:text-cyan-400 p-1 rounded hover:bg-slate-900/60 transition-colors"
+                                                                                                          title="Preview file content"
+                                                                                                      >
+                                                                                                          <FileText size={12} />
+                                                                                                      </button>
+                                                                                                  )}
+                                                                                                  {wizardStep === 2 && (
+                                                                                                      <button 
+                                                                                                          onClick={() => removeManifestFromBundle(bundle.id, name)}
+                                                                                                          className="text-slate-500 hover:text-red-400 p-1 rounded hover:bg-slate-900/60 transition-colors"
+                                                                                                          title="Remove manifest URL"
+                                                                                                      >
+                                                                                                          <Trash2 size={12} />
+                                                                                                      </button>
+                                                                                                  )}
+                                                                                              </div>
                                                                                           </div>
                                                                                       ))}
                                                                                   </div>
@@ -3326,36 +3436,63 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                                                   <div className="space-y-1.5 mb-2">
                                                                                       {(bundle.attachedEvidence || []).map((file, idx) => (
                                                                                           <div key={`local-ev-${idx}`} className="flex items-center justify-between bg-slate-950/40 border border-slate-900 px-3 py-1.5 rounded-lg max-w-xl">
-                                                                                              <div className="flex items-center gap-2">
-                                                                                                  <span className="text-cyan-400 font-bold text-[11px] font-mono">{file.name}</span>
-                                                                                                  <span className="text-[9px] text-slate-500 font-semibold font-mono">({Math.round(file.content.length / 1024 * 10) / 10} KB)</span>
+                                                                                              <div className="flex items-center gap-2 truncate pr-4 min-w-0">
+                                                                                                  <span className="text-cyan-400 font-bold text-[11px] font-mono truncate">{file.name}</span>
                                                                                               </div>
-                                                                                              {wizardStep === 2 && (
+                                                                                              <div className="flex items-center gap-2 shrink-0 select-none">
+                                                                                                  <span className="text-[10px] text-slate-400 font-normal">({Math.round(file.content.length / 1024 * 10) / 10} KB)</span>
                                                                                                   <button 
-                                                                                                      onClick={() => removeAttachedEvidence(bundle.id, file.name)}
-                                                                                                      className="text-slate-500 hover:text-red-400 p-1 rounded hover:bg-slate-900/60 transition-colors"
-                                                                                                      title="Remove evidence file"
+                                                                                                      onClick={() => handlePreviewContent(file.name, file.content)}
+                                                                                                      className="text-slate-400 hover:text-cyan-400 p-1 rounded hover:bg-slate-900/60 transition-colors"
+                                                                                                      title="Preview file content"
                                                                                                   >
-                                                                                                      <Trash2 size={12} />
+                                                                                                      <FileText size={12} />
                                                                                                   </button>
-                                                                                              )}
+                                                                                                  {wizardStep === 2 && (
+                                                                                                      <button 
+                                                                                                          onClick={() => removeAttachedEvidence(bundle.id, file.name)}
+                                                                                                          className="text-slate-500 hover:text-red-400 p-1 rounded hover:bg-slate-900/60 transition-colors"
+                                                                                                          title="Remove evidence file"
+                                                                                                      >
+                                                                                                          <Trash2 size={12} />
+                                                                                                      </button>
+                                                                                                  )}
+                                                                                              </div>
                                                                                           </div>
                                                                                       ))}
                                                                                       {Object.entries(bundle.payload.evidence || {}).map(([name, url], idx) => (
                                                                                           <div key={`url-ev-${idx}`} className="flex items-center justify-between bg-slate-950/40 border border-slate-900 px-3 py-1.5 rounded-lg max-w-xl">
-                                                                                              <div className="flex items-center gap-2 truncate pr-4">
-                                                                                                  <span className="text-cyan-400 font-bold text-[11px] font-mono">{name}</span>
-                                                                                                  <a href={url} target="_blank" rel="noopener noreferrer" className="text-[9px] text-slate-500 hover:text-cyan-400 font-mono truncate max-w-xs transition-colors" title={url}>({url})</a>
+                                                                                              <div className="flex items-center gap-2 truncate pr-4 min-w-0">
+                                                                                                  <span className="text-cyan-400 font-bold text-[11px] font-mono truncate">{name}</span>
+                                                                                                  {!url?.startsWith('data:') && (
+                                                                                                      <a href={url} target="_blank" rel="noopener noreferrer" className="text-[9px] text-slate-500 hover:text-cyan-400 font-mono truncate max-w-xs transition-colors" title={url}>({url})</a>
+                                                                                                  )}
                                                                                               </div>
-                                                                                              {wizardStep === 2 && (
-                                                                                                  <button 
-                                                                                                      onClick={() => removeEvidenceFromBundle(bundle.id, name)}
-                                                                                                      className="text-slate-500 hover:text-red-400 p-1 rounded hover:bg-slate-900/60 transition-colors"
-                                                                                                      title="Remove evidence URL"
-                                                                                                  >
-                                                                                                      <Trash2 size={12} />
-                                                                                                  </button>
-                                                                                              )}
+                                                                                              <div className="flex items-center gap-2 shrink-0 select-none">
+                                                                                                  {url?.startsWith('data:') && (
+                                                                                                      <span className="text-[10px] text-slate-400 font-normal">
+                                                                                                          (Inline data URI: {Math.round(url.length / 1024 * 10) / 10} KB)
+                                                                                                      </span>
+                                                                                                  )}
+                                                                                                  {url?.startsWith('data:') && (
+                                                                                                      <button 
+                                                                                                          onClick={() => handlePreviewDataUri(name, url)}
+                                                                                                          className="text-slate-400 hover:text-cyan-400 p-1 rounded hover:bg-slate-900/60 transition-colors"
+                                                                                                          title="Preview file content"
+                                                                                                      >
+                                                                                                          <FileText size={12} />
+                                                                                                      </button>
+                                                                                                  )}
+                                                                                                  {wizardStep === 2 && (
+                                                                                                      <button 
+                                                                                                          onClick={() => removeEvidenceFromBundle(bundle.id, name)}
+                                                                                                          className="text-slate-500 hover:text-red-400 p-1 rounded hover:bg-slate-900/60 transition-colors"
+                                                                                                          title="Remove evidence URL"
+                                                                                                      >
+                                                                                                          <Trash2 size={12} />
+                                                                                                      </button>
+                                                                                                  )}
+                                                                                              </div>
                                                                                           </div>
                                                                                       ))}
                                                                                   </div>
@@ -3918,18 +4055,35 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                         <ArrowRight size={14} />
                                     </button>
                                 ) : (
-                                    <button 
-                                        onClick={() => setWizardStep(3)}
-                                        disabled={validCount === 0 || stagedFiles.some(f => !f.isSkipped && f.validation.errors.length > 0)}
-                                        className={cn(
-                                            'px-5 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer',
-                                            validCount > 0 && !stagedFiles.some(f => !f.isSkipped && f.validation.errors.length > 0)
-                                            ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white shadow-md'
-                                            : 'bg-slate-900/40 text-slate-500 border border-slate-900/50 cursor-not-allowed'
-                                        )}
-                                    >
-                                        Next <ArrowRight size={14} />
-                                    </button>
+                                    <>
+                                        <button 
+                                            id="wizard-stage-locally-btn"
+                                            onClick={handleStageLocally}
+                                            disabled={validCount === 0 || stagedFiles.some(f => !f.isSkipped && f.validation.errors.length > 0)}
+                                            className={cn(
+                                                'px-4 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer border',
+                                                validCount > 0 && !stagedFiles.some(f => !f.isSkipped && f.validation.errors.length > 0)
+                                                ? 'bg-slate-900/80 hover:bg-slate-800 text-cyan-400 border-cyan-500/30 hover:border-cyan-500/60 shadow-sm'
+                                                : 'bg-slate-900/40 text-slate-500 border-slate-900/50 cursor-not-allowed'
+                                            )}
+                                            title="Stage benchmarks locally in browser without submitting"
+                                        >
+                                            <Layers size={13} />
+                                            Stage Locally
+                                        </button>
+                                        <button 
+                                            onClick={() => setWizardStep(3)}
+                                            disabled={validCount === 0 || stagedFiles.some(f => !f.isSkipped && f.validation.errors.length > 0)}
+                                            className={cn(
+                                                'px-5 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer',
+                                                validCount > 0 && !stagedFiles.some(f => !f.isSkipped && f.validation.errors.length > 0)
+                                                ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white shadow-md'
+                                                : 'bg-slate-900/40 text-slate-500 border border-slate-900/50 cursor-not-allowed'
+                                            )}
+                                        >
+                                            Next <ArrowRight size={14} />
+                                        </button>
+                                    </>
                                 )}
                             </div>
                         )}
@@ -4006,6 +4160,30 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                         executeCoalesce(pendingCoalesceBundles, resolvedMetadata);
                     }}
                 />
+
+                <Modal
+                    isOpen={previewModalState.isOpen}
+                    onClose={() => setPreviewModalState(prev => ({ ...prev, isOpen: false }))}
+                    title={previewModalState.title}
+                    subtitle={`File: ${previewModalState.filename}`}
+                    size="xl"
+                    containerClassName="pl-20 md:pl-28"
+                    footer={
+                        <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => {
+                                navigator.clipboard.writeText(previewModalState.content);
+                            }}
+                        >
+                            Copy Content
+                        </Button>
+                    }
+                >
+                    <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 font-mono text-xs text-slate-200 overflow-scroll whitespace-pre regular-scrollbar max-h-[60vh] select-text">
+                        {previewModalState.content}
+                    </div>
+                </Modal>
 
                 {hoveredFilenameTooltip && (
                     <div

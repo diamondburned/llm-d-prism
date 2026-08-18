@@ -33,6 +33,7 @@ export function Modal({
     closeOnBackdrop = true,
     closeOnEscape = true,
     className,
+    containerClassName,
     children,
 }) {
     useEffect(() => {
@@ -47,7 +48,7 @@ export function Modal({
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+        <div className={cn("fixed inset-0 z-[200] flex items-center justify-center p-4", containerClassName)}>
             <div
                 className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
                 onClick={closeOnBackdrop ? onClose : undefined}
