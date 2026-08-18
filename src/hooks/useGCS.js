@@ -173,9 +173,24 @@ export const useGCS = ({ pendingRequests, addToast, accessToken }) => {
 
                                             const resolvedWellLit = jsonContent.well_lit_path || customMeta.well_lit_path || null;
                                             parsedStage.well_lit_path = resolvedWellLit;
+                                            parsedStage.wellLitPath = resolvedWellLit;
+                                            parsedStage.manifests = jsonContent.manifests || null;
+                                            parsedStage.evidence = jsonContent.evidence || null;
+                                            parsedStage.run_metadata = jsonContent.run_metadata || null;
+                                            parsedStage.metadata = jsonContent.metadata || null;
+                                            parsedStage.inference_tool = jsonContent.inference_tool || null;
+                                            parsedStage.inference_tool_version = jsonContent.inference_tool_version || null;
+                                            parsedStage.other_tools = jsonContent.other_tools || null;
                                             parsedStage.payload = jsonContent;
                                             const entry = stageToEntry(parsedStage);
                                             entry.payload = jsonContent;
+                                            entry.manifests = jsonContent.manifests || null;
+                                            entry.evidence = jsonContent.evidence || null;
+                                            entry.run_metadata = jsonContent.run_metadata || null;
+                                            entry.metadata = jsonContent.metadata || null;
+                                            entry.inference_tool = jsonContent.inference_tool || null;
+                                            entry.inference_tool_version = jsonContent.inference_tool_version || null;
+                                            entry.other_tools = jsonContent.other_tools || null;
                                             entries.push(entry);
                                         }
                                     }

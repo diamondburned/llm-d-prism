@@ -6,6 +6,12 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   envPrefix: ['VITE_', 'REACT_APP_'],
+  css: {
+    devSourcemap: true,
+  },
+  build: {
+    sourcemap: true,
+  },
   server: {
     proxy: {
       // Proxy all API requests to the local Express backend

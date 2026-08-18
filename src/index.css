@@ -142,3 +142,41 @@
   scrollbar-width: thin;
   scrollbar-color: #334155 rgba(15, 23, 42, 0.4);
 }
+
+/* Permanent, non-overlay visible scrollbars for code/manifest viewers */
+.regular-scrollbar {
+  overflow: scroll !important;
+  overflow-x: scroll !important;
+  overflow-y: scroll !important;
+  scrollbar-gutter: stable always !important;
+  scrollbar-width: auto !important;
+  scrollbar-color: #64748b #1e293b !important;
+}
+
+.regular-scrollbar::-webkit-scrollbar {
+  -webkit-appearance: none !important;
+  width: 14px !important;
+  height: 14px !important;
+  display: block !important;
+}
+
+.regular-scrollbar::-webkit-scrollbar-track {
+  background: #1e293b !important;
+  border-radius: 4px !important;
+}
+
+.regular-scrollbar::-webkit-scrollbar-thumb {
+  background: #64748b !important;
+  border-radius: 4px !important;
+  border: 2px solid #1e293b !important;
+  min-height: 30px !important;
+  min-width: 30px !important;
+}
+
+.regular-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8 !important;
+}
+
+.regular-scrollbar::-webkit-scrollbar-corner {
+  background: #1e293b !important;
+}

@@ -361,9 +361,25 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
                                         parsedStage.submitted_at = jsonPayload.submitted_at;
                                         parsedStage.well_lit_path = jsonPayload.well_lit_path || null;
                                         parsedStage.wellLitPath = jsonPayload.well_lit_path || null;
+                                        parsedStage.manifests = jsonPayload.manifests || null;
+                                        parsedStage.evidence = jsonPayload.evidence || null;
+                                        parsedStage.run_metadata = jsonPayload.run_metadata || null;
+                                        parsedStage.metadata = jsonPayload.metadata || null;
+                                        parsedStage.inference_tool = jsonPayload.inference_tool || null;
+                                        parsedStage.inference_tool_version = jsonPayload.inference_tool_version || null;
+                                        parsedStage.other_tools = jsonPayload.other_tools || null;
+                                        parsedStage.payload = jsonPayload;
 
                                         const entry = stageToEntry(parsedStage);
                                         entry.run_id = jsonPayload.runId;
+                                        entry.manifests = jsonPayload.manifests || null;
+                                        entry.evidence = jsonPayload.evidence || null;
+                                        entry.run_metadata = jsonPayload.run_metadata || null;
+                                        entry.metadata = jsonPayload.metadata || null;
+                                        entry.inference_tool = jsonPayload.inference_tool || null;
+                                        entry.inference_tool_version = jsonPayload.inference_tool_version || null;
+                                        entry.other_tools = jsonPayload.other_tools || null;
+                                        entry.payload = jsonPayload;
                                         entry.source = 'gcs:llm-d-benchmarks';
                                         entry.source_info = {
                                             type: 'benchmark_report_v02',

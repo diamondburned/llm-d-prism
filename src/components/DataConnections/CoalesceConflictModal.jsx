@@ -229,6 +229,7 @@ export default function CoalesceConflictModal({
         <Modal
             isOpen={isOpen}
             onClose={onClose}
+            containerClassName="pl-20 md:pl-28"
             title={
                 <div className="flex items-center gap-2.5">
                     <div className="p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">

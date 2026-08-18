@@ -423,6 +423,16 @@ export function groupStagesIntoRuns(stageRecords) {
                 config: record.config || null,
                 summary: record.summary || null,
                 wellLitPath: record.wellLitPath || record.well_lit_path || null,
+                well_lit_path: record.well_lit_path || record.wellLitPath || null,
+                manifests: record.manifests || null,
+                evidence: record.evidence || null,
+                run_metadata: record.run_metadata || null,
+                metadata: record.metadata || null,
+                inference_tool: record.inference_tool || null,
+                inference_tool_version: record.inference_tool_version || null,
+                other_tools: record.other_tools || null,
+                payload: record.payload || null,
+                bundle: record.bundle || null,
                 targetDashboards: record.targetDashboards || []
             };
             runsList.push(targetRun);
@@ -437,6 +447,16 @@ export function groupStagesIntoRuns(stageRecords) {
         if (!targetRun.config && record.config) targetRun.config = record.config;
         if (!targetRun.summary && record.summary) targetRun.summary = record.summary;
         if (!targetRun.wellLitPath && (record.wellLitPath || record.well_lit_path)) targetRun.wellLitPath = record.wellLitPath || record.well_lit_path;
+        if (!targetRun.well_lit_path && (record.well_lit_path || record.wellLitPath)) targetRun.well_lit_path = record.well_lit_path || record.wellLitPath;
+        if (!targetRun.manifests && record.manifests) targetRun.manifests = record.manifests;
+        if (!targetRun.evidence && record.evidence) targetRun.evidence = record.evidence;
+        if (!targetRun.run_metadata && record.run_metadata) targetRun.run_metadata = record.run_metadata;
+        if (!targetRun.metadata && record.metadata) targetRun.metadata = record.metadata;
+        if (!targetRun.inference_tool && record.inference_tool) targetRun.inference_tool = record.inference_tool;
+        if (!targetRun.inference_tool_version && record.inference_tool_version) targetRun.inference_tool_version = record.inference_tool_version;
+        if (!targetRun.other_tools && record.other_tools) targetRun.other_tools = record.other_tools;
+        if (!targetRun.payload && record.payload) targetRun.payload = record.payload;
+        if (!targetRun.bundle && record.bundle) targetRun.bundle = record.bundle;
         if (!targetRun.targetDashboards && record.targetDashboards) targetRun.targetDashboards = record.targetDashboards;
     }
     

@@ -2069,12 +2069,21 @@ export const useDashboardData = (initialState, dashboardState) => {
                                 record.workload.stage = record.prism_stage_index;
                             }
                             // Enrich stage record with bundle metadata
-                            record.model_name = bundle.payload.model_name || null;
-                            record.hardware = bundle.payload.hardware || null;
-                            record.config = config || bundle.payload.config || null;
-                            record.summary = summary || bundle.payload.summary || null;
-                            record.wellLitPath = bundle.payload.well_lit_path;
-                            record.well_lit_path = bundle.payload.well_lit_path;
+                            record.model_name = bundle.payload?.model_name || null;
+                            record.hardware = bundle.payload?.hardware || null;
+                            record.config = config || bundle.payload?.config || null;
+                            record.summary = summary || bundle.payload?.summary || null;
+                            record.wellLitPath = bundle.payload?.well_lit_path || null;
+                            record.well_lit_path = bundle.payload?.well_lit_path || null;
+                            record.manifests = bundle.payload?.manifests || null;
+                            record.evidence = bundle.payload?.evidence || null;
+                            record.run_metadata = bundle.payload?.run_metadata || null;
+                            record.metadata = bundle.payload?.metadata || null;
+                            record.inference_tool = bundle.payload?.inference_tool || null;
+                            record.inference_tool_version = bundle.payload?.inference_tool_version || null;
+                            record.other_tools = bundle.payload?.other_tools || null;
+                            record.bundle = bundle;
+                            record.payload = bundle.payload || null;
                             record.targetDashboards = bundle.targetDashboards;
                             
                             const isDupInBatch = trulyNewStages.some(s => s.filename === record.filename && s.runId === record.runId);
@@ -2095,12 +2104,21 @@ export const useDashboardData = (initialState, dashboardState) => {
                             const matchingEntry = bundle.payload?.entries?.find(e => e.filename === record.filename);
                             record.run_id = matchingEntry?.run_id || uuidv4();
                             // Enrich stage record with bundle metadata
-                            record.model_name = bundle.payload.model_name || null;
-                            record.hardware = bundle.payload.hardware || null;
+                            record.model_name = bundle.payload?.model_name || null;
+                            record.hardware = bundle.payload?.hardware || null;
                             record.config = config;
                             record.summary = summary;
                             record.wellLitPath = bundle.payload?.well_lit_path || null;
                             record.well_lit_path = bundle.payload?.well_lit_path || null;
+                            record.manifests = bundle.payload?.manifests || null;
+                            record.evidence = bundle.payload?.evidence || null;
+                            record.run_metadata = bundle.payload?.run_metadata || null;
+                            record.metadata = bundle.payload?.metadata || null;
+                            record.inference_tool = bundle.payload?.inference_tool || null;
+                            record.inference_tool_version = bundle.payload?.inference_tool_version || null;
+                            record.other_tools = bundle.payload?.other_tools || null;
+                            record.bundle = bundle;
+                            record.payload = bundle.payload || null;
                             record.targetDashboards = bundle.targetDashboards;
                             
                             const isDupInBatch = trulyNewStages.some(s => s.filename === record.filename && s.runId === record.runId);
