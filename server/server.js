@@ -24,7 +24,7 @@ import { fileURLToPath } from 'url';
 import { oauthRouter, validateGitHubToken } from './oauth.ts';
 import { resultsRouter } from './results/index.ts';
 import { storage } from './results/gcs.ts';
-import { getConfiguredBucketEntries, getConfiguredBucketNames } from './buckets.js';
+import { getConfiguredBucketEntries, getConfiguredBucketNames, getResultsStoreBucket } from './buckets.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -61,11 +61,12 @@ const auth = new GoogleAuth();
 
 // --- API: Shared Configuration ---
 app.get('/api/config', (req, res) => {
-    const defaultBuckets = getConfiguredBucketEntries(process.env.DEFAULT_BUCKETS);
+    const defaultBuckets = getConfiguredBucketEntries(process.env.DEFAULT_BUCKETS, process.env.RESULTS_STORE_BUCKET);
     const defaultProjects = process.env.DEFAULT_PROJECTS ? process.env.DEFAULT_PROJECTS.split(',') : [];
 
     res.json({
         buckets: defaultBuckets,
+        resultsStoreBucket: getResultsStoreBucket(),
         projects: defaultProjects.map(p => p.trim()).filter(p => p),
         hostProject: process.env.GOOGLE_CLOUD_PROJECT || null,
         siteName: process.env.SITE_NAME || null,
@@ -581,8 +582,9 @@ app.all('/api/gcs/*', async (req, res) => {
         }
 
         const parsed = parseGcsPath(req.params[0]);
-        const resultsBuckets = getConfiguredBucketNames(process.env.DEFAULT_BUCKETS);
-        const isTargetBucket = parsed && resultsBuckets.includes(parsed.bucket);
+        const resultsBuckets = getConfiguredBucketNames(process.env.DEFAULT_BUCKETS, process.env.RESULTS_STORE_BUCKET);
+        const resultsStoreBucket = getResultsStoreBucket();
+        const isTargetBucket = parsed && (parsed.bucket === resultsStoreBucket || resultsBuckets.includes(parsed.bucket));
 
         let isResultsStore = false;
         let isIam = false;

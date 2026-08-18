@@ -14,7 +14,7 @@
 
 import { GoogleAuth, UserRefreshClient } from 'google-auth-library';
 import fs from 'fs';
-import { getConfiguredBucketNames } from './buckets.js';
+import { getResultsStoreBucket } from './buckets.js';
 
 const auth = new GoogleAuth();
 
@@ -22,14 +22,9 @@ export type PermissionLevel = 'none' | 'user' | 'admin';
 
 /**
  * Resolves the GCS bucket name to read IAM allowlist configurations from.
- * Uses staging bucket if staging is in DEFAULT_BUCKETS, otherwise defaults to production bucket.
  */
 function getIAMBucket(): string {
-    const buckets = getConfiguredBucketNames(process.env.DEFAULT_BUCKETS);
-    if (buckets.includes('llm-d-benchmarks-staging')) {
-        return 'llm-d-benchmarks-staging';
-    }
-    return buckets[0] || 'llm-d-benchmarks';
+    return getResultsStoreBucket();
 }
 
 /**

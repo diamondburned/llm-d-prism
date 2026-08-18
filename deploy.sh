@@ -15,6 +15,7 @@ GITHUB_CLIENT_SECRET="${GITHUB_CLIENT_SECRET:-}"
 ALLOW_UNAUTHENTICATED="true"
 PUBLIC_URL=""
 COMMIT_SHA="${COMMIT_SHA:-}"
+RESULTS_STORE_BUCKET="${RESULTS_STORE_BUCKET:-llm-d-benchmarks}"
 
 # Helper function to print usage
 usage() {
@@ -27,6 +28,7 @@ usage() {
   echo "  -g, --ga-id <ID>              Google Analytics Tracking ID (e.g. 'G-XXXX')"
   echo "  -c, --contact <URL>           Contact Us URL/Email"
   echo "  -giq, --giq-projects <IDS>    Comma-separated list of GIQ project IDs"
+  echo "  -rsb, --results-store-bucket <NAME> Bucket name for the Results Store (default: 'llm-d-benchmarks')"
   echo "  -b, --gcs-buckets <NAMES>     Comma-separated list of GCS buckets"
   echo "  -k, --commit <SHA>            Git commit SHA to label the deployment with"
   echo "  --[no-]allow-unauthenticated Control whether the service is publicly accessible"
@@ -65,6 +67,7 @@ while [[ "$#" -gt 0 ]]; do
         -g|--ga-id) GA_TRACKING_ID="$2"; shift ;;
         -c|--contact) CONTACT_US_URL="$2"; shift ;;
         -giq|--giq-projects) GIQ_PROJECTS="$2"; shift ;;
+        -rsb|--results-store-bucket) RESULTS_STORE_BUCKET="$2"; shift ;;
         -b|--gcs-buckets) GCS_BUCKETS="$2"; shift ;;
         -u|--public-url) PUBLIC_URL="$2"; shift ;;
         -k|--commit) COMMIT_SHA="$2"; shift ;;
@@ -102,7 +105,8 @@ GA_TRACKING_ID="$GA_TRACKING_ID"
 REGION="$REGION"
 CONTACT_US_URL="$CONTACT_US_URL"
 GIQ_PROJECTS="${GIQ_PROJECTS:-$PROJECT_ID}"
-GCS_BUCKETS="${GCS_BUCKETS:-prism-internal-results}"
+RESULTS_STORE_BUCKET="${RESULTS_STORE_BUCKET:-llm-d-benchmarks}"
+GCS_BUCKETS="${GCS_BUCKETS:-$RESULTS_STORE_BUCKET}"
 MIN_INSTANCES="$MIN_INSTANCES"
 MAX_INSTANCES="$MAX_INSTANCES"
 CONCURRENCY="$CONCURRENCY"
@@ -134,7 +138,7 @@ DEPLOY_ARGS=(
   --region $REGION
   --port 8080
   --project $PROJECT_ID
-  --set-env-vars GOOGLE_CLOUD_PROJECT="$PROJECT_ID",DEFAULT_PROJECTS="${GIQ_PROJECTS:-$PROJECT_ID}",DEFAULT_BUCKETS="${GCS_BUCKETS:-prism-internal-results}",SITE_NAME="$SITE_NAME",GA_TRACKING_ID="$GA_TRACKING_ID",CONTACT_US_URL="$CONTACT_US_URL",GOOGLE_API_KEY="$GOOGLE_API_KEY",GITHUB_CLIENT_ID="$GITHUB_CLIENT_ID",GITHUB_CLIENT_SECRET="$GITHUB_CLIENT_SECRET",PUBLIC_URL="$PUBLIC_URL"
+  --set-env-vars GOOGLE_CLOUD_PROJECT="$PROJECT_ID",DEFAULT_PROJECTS="${GIQ_PROJECTS:-$PROJECT_ID}",RESULTS_STORE_BUCKET="$RESULTS_STORE_BUCKET",DEFAULT_BUCKETS="${GCS_BUCKETS:-$RESULTS_STORE_BUCKET}",SITE_NAME="$SITE_NAME",GA_TRACKING_ID="$GA_TRACKING_ID",CONTACT_US_URL="$CONTACT_US_URL",GOOGLE_API_KEY="$GOOGLE_API_KEY",GITHUB_CLIENT_ID="$GITHUB_CLIENT_ID",GITHUB_CLIENT_SECRET="$GITHUB_CLIENT_SECRET",PUBLIC_URL="$PUBLIC_URL"
 )
 
 if [ "$ALLOW_UNAUTHENTICATED" = "false" ]; then

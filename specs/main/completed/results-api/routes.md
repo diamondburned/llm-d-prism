@@ -73,7 +73,7 @@ are documented inline inside the implementation handler files.
 ### `GET /api/results`
 
 Lists benchmark runs from the active Prism results store (defined in
-`DEFAULT_BUCKETS`).
+`RESULTS_STORE_BUCKET`).
 
 - **Headers:** `X-Prism-Github-Token: <access_token>` (optional)
 - **Query Parameters:**

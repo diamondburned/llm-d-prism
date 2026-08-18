@@ -27,7 +27,7 @@ export interface ResultsListQuery {
 /**
  * GET /api/results
  * 
- * Lists benchmark runs from the active Prism results store (defined in DEFAULT_BUCKETS).
+ * Lists benchmark runs from the active Prism results store (defined in RESULTS_STORE_BUCKET).
  * 
  * - **Headers:** `X-Prism-Github-Token: <access_token>` (optional)
  * - **Query Parameters:**

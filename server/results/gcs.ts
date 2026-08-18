@@ -14,7 +14,7 @@
 
 import type { PrismResultPayload, PrismSubmissionState, PrismResultContext } from './api.ts';
 import { Storage } from '@google-cloud/storage';
-import { getConfiguredBucketNames } from '../buckets.js';
+import { getResultsStoreBucket } from '../buckets.js';
 
 export function encodeContextValue(val: string): string {
     return 'e' + Buffer.from(val, 'utf8').toString('base64url');
@@ -38,11 +38,7 @@ export const storage = new Storage(
  * Resolves the primary Google Cloud Storage bucket for storing and listing Prism benchmark results.
  */
 export function getPrismResultsBucket(): string {
-    const buckets = getConfiguredBucketNames(process.env.DEFAULT_BUCKETS);
-    if (buckets.includes('llm-d-benchmarks-staging')) {
-        return 'llm-d-benchmarks-staging';
-    }
-    return buckets[0] || 'llm-d-benchmarks';
+    return getResultsStoreBucket();
 }
 
 export type ResultsListItem = Omit<PrismResultPayload, 'entries'> & {
