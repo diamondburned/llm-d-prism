@@ -279,7 +279,7 @@ export const useDashboardState = () => {
                 });
 
                 const newSearch = params.toString();
-                const newUrl = `${window.location.pathname}${newSearch ? '?' + newSearch : ''}`;
+                const newUrl = `${window.location.pathname}${newSearch ? '?' + newSearch : ''}${window.location.hash || ''}`;
                 if (window.location.search !== (newSearch ? `?${newSearch}` : '')) {
                     window.history.replaceState(null, '', newUrl);
                 }

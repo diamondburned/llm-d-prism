@@ -32,7 +32,7 @@ const WorkloadCatalog = ({ onNavigateBack }) => {
                 } else {
                     params.delete('workload');
                 }
-                window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
+                window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}${window.location.hash || ''}`);
             }
         };
 
