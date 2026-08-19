@@ -2921,9 +2921,7 @@ const BenchmarkRow = React.memo(({
                                                                                     <div className="flex items-center gap-2">
                                                                                         {renderSubmissionActions()}
                                                                                     </div>
-                                                                                </div>
-                                                                            )}
-                                                                                    {rejectingRunId === runId && (
+                                                                                    {Boolean(rejectingRunId) && rejectingRunId === runId && (
                                                                                         <div onClick={e => e.stopPropagation()} className="p-2.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700/60 rounded-lg shadow-inner w-64 flex flex-col gap-2 mt-1 z-30">
                                                                                             <div className="text-xs font-bold text-red-500 dark:text-red-400 uppercase tracking-wider">Reason for Rejecting Run</div>
                                                                                             <Textarea
@@ -2961,6 +2959,8 @@ const BenchmarkRow = React.memo(({
                                                                                             </div>
                                                                                         </div>
                                                                                     )}
+                                                                                </div>
+                                                                            )}
                                                                                 </div>
                                                                         <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 flex-shrink-0">
                                                                             {(() => {
