@@ -95,9 +95,21 @@ async function fetchAllowlist(filename: string): Promise<Set<string>> {
 }
 
 /**
+ * Resolves whether Results Store Playground Mode is active via environment variable.
+ */
+export function isPlaygroundMode(): boolean {
+    const val = String(process.env.RESULTS_STORE_PLAYGROUND_MODE || '').trim().toLowerCase();
+    return val === '1' || val === 'true' || val === 'yes' || val === 'on';
+}
+
+/**
  * Validates a GitHub user's permissions level based on the IAM bucket allowlists.
  */
 export async function validateGitHubUser(username: string): Promise<PermissionLevel> {
+    if (isPlaygroundMode()) {
+        return 'admin';
+    }
+
     const normalizedUsername = username.trim().toLowerCase();
     if (!normalizedUsername) {
         return 'none';

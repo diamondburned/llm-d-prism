@@ -15,6 +15,7 @@
 import type { PrismResultPayload, PrismSubmissionState, PrismResultContext } from './api.ts';
 import { Storage } from '@google-cloud/storage';
 import { getResultsStoreBucket } from '../buckets.js';
+import { isPlaygroundMode } from '../iam.ts';
 
 export function encodeContextValue(val: string): string {
     return 'e' + Buffer.from(val, 'utf8').toString('base64url');
@@ -86,7 +87,7 @@ export async function listResults(options: ListResultsOptions): Promise<ListResu
     const filters: ((state: PrismSubmissionState, user: string) => boolean)[] = [];
 
     // 1. Permission check (non-admins can see public/promoted, explicit status=unlisted, or their own results)
-    if (permission !== 'admin') {
+    if (permission !== 'admin' && !isPlaygroundMode()) {
         filters.push((state, user) => {
             const isApproved = state === 'public' || state === 'promoted';
             const isExplicitUnlisted = state === 'unlisted' && statusFilter === 'unlisted';
@@ -270,6 +271,10 @@ export async function writeResult(
 
     if (payload.well_lit_path) {
         contextsCustom.well_lit_path = { value: encodeContextValue(payload.well_lit_path) };
+    }
+
+    if (isPlaygroundMode() || payload.github_author?.playground) {
+        contextsCustom.playground_submitted = { value: 'true' };
     }
 
     try {

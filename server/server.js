@@ -22,7 +22,9 @@ import rateLimit from 'express-rate-limit';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { oauthRouter, validateGitHubToken } from './oauth.ts';
+import { isPlaygroundMode } from './iam.ts';
 import { resultsRouter } from './results/index.ts';
+import { avatarRouter } from './avatar.ts';
 import { storage } from './results/gcs.ts';
 import { getConfiguredBucketEntries, getConfiguredBucketNames, getResultsStoreBucket } from './buckets.js';
 const __filename = fileURLToPath(import.meta.url);
@@ -42,6 +44,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(oauthRouter);
 app.use(resultsRouter);
+app.use(avatarRouter);
 
 // Trust the first proxy (Cloud Run Load Balancer) to properly resolve X-Forwarded-For
 app.set('trust proxy', 1);
@@ -72,7 +75,8 @@ app.get('/api/config', (req, res) => {
         siteName: process.env.SITE_NAME || null,
         gaTrackingId: process.env.GA_TRACKING_ID || null,
         contactUrl: process.env.CONTACT_US_URL || null,
-        localDir: !!process.env.PRISM_LOCAL_DIR
+        localDir: !!process.env.PRISM_LOCAL_DIR,
+        playgroundMode: isPlaygroundMode()
     });
 });
 
@@ -581,55 +585,81 @@ app.all('/api/gcs/*', async (req, res) => {
             }
         }
 
-        const parsed = parseGcsPath(req.params[0]);
-        const resultsBuckets = getConfiguredBucketNames(process.env.DEFAULT_BUCKETS, process.env.RESULTS_STORE_BUCKET);
-        const resultsStoreBucket = getResultsStoreBucket();
-        const isTargetBucket = parsed && (parsed.bucket === resultsStoreBucket || resultsBuckets.includes(parsed.bucket));
-
-        let isResultsStore = false;
-        let isIam = false;
-
-        if (parsed && isTargetBucket) {
-            const prefix = (parsed.isList ? req.query.prefix : parsed.object) || '';
-            if (prefix.startsWith('prism-results-store/')) {
-                isResultsStore = true;
-            } else if (prefix.startsWith('prism-iam/')) {
-                isIam = true;
+        if (isPlaygroundMode()) {
+            permission = 'admin';
+            if (!username) {
+                username = 'anonymous';
             }
         }
 
-        // Enforce IAM role check
-        if (isIam && permission !== 'admin') {
-            return res.status(403).json({ error: 'Access denied. Only administrators can access IAM allowlists.' });
+        const parsed = parseGcsPath(req.params[0]);
+        if (!parsed) {
+            return res.status(400).json({ error: 'Invalid GCS path format' });
         }
 
-        // Restrict non-read methods to administrators only
+        const resultsBuckets = getConfiguredBucketNames(process.env.DEFAULT_BUCKETS, process.env.RESULTS_STORE_BUCKET);
+        const resultsStoreBucket = getResultsStoreBucket();
+        const isTargetBucket = (parsed.bucket === resultsStoreBucket || resultsBuckets.includes(parsed.bucket));
+
+        if (!isTargetBucket) {
+            return res.status(403).json({ error: 'Access denied. Bucket is not configured in Prism.' });
+        }
+
+        const prefix = (parsed.isList ? req.query.prefix : parsed.object) || '';
+        const isResultsStore = prefix.startsWith('prism-results-store/');
+        const isIam = prefix.startsWith('prism-iam/');
+
         const readMethods = ['GET', 'HEAD'];
-        if (!readMethods.includes(req.method) && permission !== 'admin') {
-            return res.status(403).json({ error: 'Access denied. Write and delete operations are restricted to administrators.' });
-        }
+        const isRead = readMethods.includes(req.method);
 
-        // Enforce results store read access check
-        if (isResultsStore && !parsed.isList && permission !== 'admin') {
-            try {
-                const file = storage.bucket(parsed.bucket).file(parsed.object);
-                const [metadata] = await file.getMetadata();
-                const customContexts = metadata.contexts?.custom || {};
-                const itemUser = String(customContexts.github_user?.value || '');
-                const itemState = String(customContexts.submission_state?.value || 'submitted_pending_processing');
+        // 2. Authorization and boundary enforcement
+        if (!isRead) {
+            // Check write/delete target boundaries
+            if (resultsBuckets.includes(parsed.bucket)) {
+                return res.status(403).json({ error: 'Forbidden. DEFAULT_BUCKETS is strictly read-only.' });
+            }
 
-                const isApproved = itemState === 'public' || itemState === 'promoted';
-                const isOwn = !!(username && itemUser.toLowerCase() === username.toLowerCase());
-
-                if (!isApproved && !isOwn) {
-                    return res.status(403).json({ error: 'Access denied. You do not have permissions to view this result.' });
+            if (parsed.bucket === resultsStoreBucket) {
+                if (isIam) {
+                    return res.status(403).json({ error: 'Access denied. IAM allowlists are protected and cannot be modified.' });
                 }
-            } catch (err) {
-                if (err.code === 404) {
-                    return res.status(404).json({ error: 'Result not found' });
+                if (isPlaygroundMode()) {
+                    if (!isResultsStore) {
+                        return res.status(403).json({ error: 'Access denied. Playground mode only permits modifications under prism-results-store/.' });
+                    }
+                } else if (permission !== 'admin') {
+                    return res.status(403).json({ error: 'Access denied. Write and delete operations are restricted to administrators.' });
                 }
-                console.error('[GCS Proxy Auth Error]', err);
-                return res.status(500).json({ error: 'Failed to authorize GCS access', details: err.message });
+            } else {
+                return res.status(403).json({ error: 'Access denied.' });
+            }
+        } else {
+            // Read operations (GET, HEAD)
+            if (isIam && !isPlaygroundMode() && permission !== 'admin') {
+                return res.status(403).json({ error: 'Access denied. Only administrators can access IAM allowlists.' });
+            }
+
+            if (isResultsStore && !parsed.isList && !isPlaygroundMode() && permission !== 'admin') {
+                try {
+                    const file = storage.bucket(parsed.bucket).file(parsed.object);
+                    const [metadata] = await file.getMetadata();
+                    const customContexts = metadata.contexts?.custom || {};
+                    const itemUser = String(customContexts.github_user?.value || '');
+                    const itemState = String(customContexts.submission_state?.value || 'submitted_pending_processing');
+
+                    const isApproved = itemState === 'public' || itemState === 'promoted';
+                    const isOwn = !!(username && itemUser.toLowerCase() === username.toLowerCase());
+
+                    if (!isApproved && !isOwn) {
+                        return res.status(403).json({ error: 'Access denied. You do not have permissions to view this result.' });
+                    }
+                } catch (err) {
+                    if (err.code === 404) {
+                        return res.status(404).json({ error: 'Result not found' });
+                    }
+                    console.error('[GCS Proxy Auth Error]', err);
+                    return res.status(500).json({ error: 'Failed to authorize GCS access', details: err.message });
+                }
             }
         }
 
@@ -690,7 +720,7 @@ app.all('/api/gcs/*', async (req, res) => {
              return res.status(response.status).send(errText);
         }
 
-        const shouldFilterList = isTargetBucket && parsed && parsed.isList && permission !== 'admin';
+        const shouldFilterList = isTargetBucket && parsed && parsed.isList && !isPlaygroundMode() && permission !== 'admin';
 
         if (shouldFilterList) {
              const data = await response.json();

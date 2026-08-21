@@ -88,9 +88,9 @@ const getCardStatusAccent = (isBrv02, runId, submissionsMap, gcsStatus = null) =
     };
 };
 
-const getKpiFilterLabel = (filter) => {
+const getKpiFilterLabel = (filter, isPlaygroundMode = false) => {
     switch (filter) {
-        case 'my-submissions': return 'My Benchmarks';
+        case 'my-submissions': return isPlaygroundMode ? 'Pending Benchmarks' : 'My Benchmarks';
         case 'verified': return 'Production Ready';
         case 'staged': return 'Locally Staged';
         case 'unlisted': return 'Unlisted';
@@ -107,7 +107,7 @@ const getKpiFilterLabel = (filter) => {
 
 export const UnifiedDataTable = (props) => {
     const { dashboardState, includeUnlisted = false, addToast, dashboardData } = props;
-    const { user } = useGitHubAuth();
+    const { user, isPlaygroundMode } = useGitHubAuth();
     const isAdmin = user?.permission === 'admin';
         const [rawYamlContent, setRawYamlContent] = useState(null);
     const [rawYamlTitle, setRawYamlTitle] = useState('');
@@ -969,6 +969,12 @@ export const UnifiedDataTable = (props) => {
                 const src = firstEntry.source || '';
                 const isBrv02 = src.startsWith('brv02:') || firstEntry.source_info?.type === 'benchmark_report_v02';
                 if (!isBrv02) return false;
+                if (isPlaygroundMode) {
+                    const runId = src.startsWith('brv02:') ? src.replace('brv02:', '') : firstEntry.run_id;
+                    const sub = runId && submissionsMap ? submissionsMap[runId] : null;
+                    const status = sub?.status || firstEntry.source_info?.submission_state || 'staged';
+                    return status !== 'public' && status !== 'promoted' && status !== 'approved';
+                }
                 const isMine = src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username);
                 return isMine;
             });
@@ -984,7 +990,7 @@ export const UnifiedDataTable = (props) => {
                 const src = firstEntry.source || '';
                 const isBrv02 = src.startsWith('brv02:') || firstEntry.source_info?.type === 'benchmark_report_v02';
                 if (!isBrv02) return false;
-                const isMine = src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username);
+                const isMine = isPlaygroundMode ? true : (src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username));
                 const runId = src.startsWith('brv02:') ? src.replace('brv02:', '') : firstEntry.run_id;
                 const sub = runId && submissionsMap ? submissionsMap[runId] : null;
                 const status = sub?.status || firstEntry.source_info?.submission_state || 'staged';
@@ -998,7 +1004,7 @@ export const UnifiedDataTable = (props) => {
                 const src = firstEntry.source || '';
                 const isBrv02 = src.startsWith('brv02:') || firstEntry.source_info?.type === 'benchmark_report_v02';
                 if (!isBrv02) return false;
-                const isMine = src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username);
+                const isMine = isPlaygroundMode ? true : (src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username));
                 const runId = src.startsWith('brv02:') ? src.replace('brv02:', '') : firstEntry.run_id;
                 const sub = runId && submissionsMap ? submissionsMap[runId] : null;
                 const status = sub?.status || firstEntry.source_info?.submission_state || 'staged';
@@ -1011,7 +1017,7 @@ export const UnifiedDataTable = (props) => {
                 const src = firstEntry.source || '';
                 const isBrv02 = src.startsWith('brv02:') || firstEntry.source_info?.type === 'benchmark_report_v02';
                 if (!isBrv02) return false;
-                const isMine = src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username);
+                const isMine = isPlaygroundMode ? true : (src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username));
                 const runId = src.startsWith('brv02:') ? src.replace('brv02:', '') : firstEntry.run_id;
                 const sub = runId && submissionsMap ? submissionsMap[runId] : null;
                 const status = sub?.status || firstEntry.source_info?.submission_state || 'staged';
@@ -1024,7 +1030,7 @@ export const UnifiedDataTable = (props) => {
                 const src = firstEntry.source || '';
                 const isBrv02 = src.startsWith('brv02:') || firstEntry.source_info?.type === 'benchmark_report_v02';
                 if (!isBrv02) return false;
-                const isMine = src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username);
+                const isMine = isPlaygroundMode ? true : (src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username));
                 const runId = src.startsWith('brv02:') ? src.replace('brv02:', '') : firstEntry.run_id;
                 const sub = runId && submissionsMap ? submissionsMap[runId] : null;
                 const status = sub?.status || firstEntry.source_info?.submission_state || 'staged';
@@ -1037,7 +1043,7 @@ export const UnifiedDataTable = (props) => {
                 const src = firstEntry.source || '';
                 const isBrv02 = src.startsWith('brv02:') || firstEntry.source_info?.type === 'benchmark_report_v02';
                 if (!isBrv02) return false;
-                const isMine = src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username);
+                const isMine = isPlaygroundMode ? true : (src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username));
                 const runId = src.startsWith('brv02:') ? src.replace('brv02:', '') : firstEntry.run_id;
                 const sub = runId && submissionsMap ? submissionsMap[runId] : null;
                 const status = sub?.status || firstEntry.source_info?.submission_state || 'staged';
@@ -1050,7 +1056,7 @@ export const UnifiedDataTable = (props) => {
                 const src = firstEntry.source || '';
                 const isBrv02 = src.startsWith('brv02:') || firstEntry.source_info?.type === 'benchmark_report_v02';
                 if (!isBrv02) return false;
-                const isMine = src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username);
+                const isMine = isPlaygroundMode ? true : (src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username));
                 const runId = src.startsWith('brv02:') ? src.replace('brv02:', '') : firstEntry.run_id;
                 const sub = runId && submissionsMap ? submissionsMap[runId] : null;
                 const status = sub?.status || firstEntry.source_info?.submission_state || 'staged';
@@ -1093,7 +1099,7 @@ export const UnifiedDataTable = (props) => {
         }
 
         return stats;
-    }, [modelStats, showSelectedOnly, selectedBenchmarks, kpiFilter, includeUnlisted, searchTerm, paretoKeys, baselineBenchmarkKey, submissionsMap, user]);
+    }, [modelStats, showSelectedOnly, selectedBenchmarks, kpiFilter, includeUnlisted, searchTerm, paretoKeys, baselineBenchmarkKey, submissionsMap, user, isPlaygroundMode]);
 
     const sortedStats = React.useMemo(() => {
         return [...filteredStats].sort((a, b) => {
@@ -1346,8 +1352,10 @@ export const UnifiedDataTable = (props) => {
                     themeColor: 'cyan',
                     glowClass: 'shadow-[0_0_30px_rgba(34,211,238,0.2)] bg-cyan-500/10 border-cyan-500/30 text-cyan-400',
                     radialGlow: 'bg-cyan-500/10',
-                    title: 'No submitted benchmarks found',
-                    description: "You have not submitted any benchmark runs to the Results store yet. Staged and submitted benchmarks will appear here.",
+                    title: isPlaygroundMode ? 'No pending benchmarks found' : 'No submitted benchmarks found',
+                    description: isPlaygroundMode 
+                        ? 'There are currently no benchmark runs in pending, staged, or review states.'
+                        : "You have not submitted any benchmark runs to the Results store yet. Staged and submitted benchmarks will appear here.",
                     action: (
                         <button
                             onClick={() => onOpenSubmitDialog && onOpenSubmitDialog('submit-review')}
@@ -1528,7 +1536,7 @@ export const UnifiedDataTable = (props) => {
                                     kpiFilter === 'pareto' ? 'bg-purple-500/10 text-purple-400 border-purple-500/25' :
                                     kpiFilter === 'regressions' ? 'bg-amber-500/10 text-amber-400 border-amber-500/25' : 'bg-slate-800/60 text-slate-400 border-slate-700'
                                 )}>
-                                    <span>{getKpiFilterLabel(kpiFilter)}</span>
+                                    <span>{getKpiFilterLabel(kpiFilter, isPlaygroundMode)}</span>
                                     {setKpiFilter && (
                                         <button 
                                             onClick={() => setKpiFilter(null)}
@@ -1828,6 +1836,7 @@ export const UnifiedDataTable = (props) => {
                                             isBaseline={isBaseline}
                                             user={user}
                                             isAdmin={isAdmin}
+                                            isPlaygroundMode={isPlaygroundMode}
                                             submissionsMap={submissionsMap}
                                             brv02Runs={brv02Runs}
                                             visibleSpecs={visibleSpecs}
@@ -2152,6 +2161,7 @@ export const UnifiedDataTable = (props) => {
                                                 isBaseline={stat.benchmarkKey === baselineBenchmarkKey}
                                                 user={user}
                                                 isAdmin={isAdmin}
+                                                isPlaygroundMode={isPlaygroundMode}
                                                 submissionsMap={submissionsMap}
                                                 brv02Runs={brv02Runs}
                                                 visibleSpecs={visibleSpecs}
@@ -2249,6 +2259,7 @@ const BenchmarkRow = React.memo(({
     isBaseline,
     user,
     isAdmin,
+    isPlaygroundMode = false,
     submissionsMap,
     brv02Runs,
     visibleSpecs,
@@ -3122,19 +3133,27 @@ const BenchmarkRow = React.memo(({
                                                                  {benchmarkData[0]?.github_author?.username && (
                                                                      <span className="flex items-center gap-1 bg-slate-200/50 dark:bg-slate-800/50 px-1.5 py-0.5 rounded ml-1">
                                                                          <img 
-                                                                             src={`https://github.com/${benchmarkData[0].github_author.username}.png`} 
+                                                                             src={isPlaygroundMode
+                                                                                 ? `/api/avatar/${encodeURIComponent(benchmarkData[0].github_author.username)}`
+                                                                                 : `https://github.com/${benchmarkData[0].github_author.username}.png`} 
                                                                              alt={benchmarkData[0].github_author.username} 
                                                                              className="w-4 h-4 rounded-full border border-slate-300 dark:border-slate-600"
                                                                              onError={(e) => { e.target.style.display = 'none'; }}
                                                                          />
-                                                                         <a 
-                                                                             href={`https://github.com/${benchmarkData[0].github_author.username}`} 
-                                                                             target="_blank" 
-                                                                             rel="noopener noreferrer" 
-                                                                             className="text-indigo-600 dark:text-indigo-400 hover:underline font-semibold"
-                                                                         >
-                                                                             {benchmarkData[0].github_author.username}
-                                                                         </a>
+                                                                         {isPlaygroundMode ? (
+                                                                             <span className="text-indigo-600 dark:text-indigo-400 font-semibold">
+                                                                                 {benchmarkData[0].github_author.username}
+                                                                             </span>
+                                                                         ) : (
+                                                                             <a 
+                                                                                 href={`https://github.com/${benchmarkData[0].github_author.username}`} 
+                                                                                 target="_blank" 
+                                                                                 rel="noopener noreferrer" 
+                                                                                 className="text-indigo-600 dark:text-indigo-400 hover:underline font-semibold"
+                                                                             >
+                                                                                 {benchmarkData[0].github_author.username}
+                                                                             </a>
+                                                                         )}
                                                                      </span>
                                                                  )}
                                                              </div>

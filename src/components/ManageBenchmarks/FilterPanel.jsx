@@ -59,9 +59,9 @@ const FILTER_FIELD_LABELS = {
     acc_count: 'Accelerator Count'
 };
 
-const getKpiFilterLabel = (filter) => {
+const getKpiFilterLabel = (filter, isPlaygroundMode = false) => {
     switch (filter) {
-        case 'my-submissions': return 'My Benchmarks';
+        case 'my-submissions': return isPlaygroundMode ? 'Pending Benchmarks' : 'My Benchmarks';
         case 'staged': return 'Locally Staged';
         case 'unlisted': return 'Unlisted';
         case 'processing': return 'Processing';
@@ -113,7 +113,7 @@ export const FilterPanel = ({
     dashboardData
 }) => {
     const [isAdvancedExpanded, setIsAdvancedExpanded] = useState(false);
-    const { user } = useGitHubAuth();
+    const { user, isPlaygroundMode } = useGitHubAuth();
 
 
     const [openSections, setOpenSections] = useState({
@@ -397,20 +397,6 @@ export const FilterPanel = ({
     }, [visibleSpecs]);
 
     // Calculate totals for KPI category cards
-    const totalCount = modelStats.length;
-    
-    const verifiedCount = modelStats.filter(s => {
-        const firstEntry = s.data?.[0];
-        if (!firstEntry) return false;
-        const src = firstEntry.source || '';
-        const isBrv02 = src.startsWith('brv02:') || firstEntry.source_info?.type === 'benchmark_report_v02';
-        if (!isBrv02) return false;
-        const isMine = src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username);
-        return isMine;
-    }).length;
-
-    const legacyCount = totalCount - verifiedCount;
-
     const statusCounts = React.useMemo(() => {
         let staged = 0;
         let unlisted = 0;
@@ -426,7 +412,9 @@ export const FilterPanel = ({
             const isBrv02 = src.startsWith('brv02:') || firstEntry.source_info?.type === 'benchmark_report_v02';
             
             if (isBrv02) {
-                const isMine = src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username);
+                const isMine = isPlaygroundMode
+                    ? true
+                    : (src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username));
                 if (!isMine) return;
 
                 const runId = src.startsWith('brv02:') ? src.replace('brv02:', '') : firstEntry.run_id;
@@ -443,7 +431,24 @@ export const FilterPanel = ({
         });
 
         return { staged, unlisted, processing, inReview, approved, rejected };
-    }, [modelStats, submissionsMap, user]);
+    }, [modelStats, submissionsMap, user, isPlaygroundMode]);
+
+    // Calculate totals for KPI category cards
+    const totalCount = modelStats.length;
+    
+    const verifiedCount = isPlaygroundMode
+        ? (statusCounts.staged + statusCounts.unlisted + statusCounts.processing + statusCounts.inReview + statusCounts.rejected)
+        : modelStats.filter(s => {
+            const firstEntry = s.data?.[0];
+            if (!firstEntry) return false;
+            const src = firstEntry.source || '';
+            const isBrv02 = src.startsWith('brv02:') || firstEntry.source_info?.type === 'benchmark_report_v02';
+            if (!isBrv02) return false;
+            const isMine = src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username);
+            return isMine;
+        }).length;
+
+    const legacyCount = totalCount - verifiedCount;
 
     const allRuns = React.useMemo(() => {
         const runs = [];
@@ -665,7 +670,7 @@ export const FilterPanel = ({
                                             : 'bg-slate-900/40 border-slate-800/60 hover:border-slate-700/60 hover:bg-slate-800/40'
                                         )}
                                     >
-                                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">My Benchmarks</span>
+                                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">{isPlaygroundMode ? 'Pending Benchmarks' : 'My Benchmarks'}</span>
                                         <span className={cn(
                                             'text-sm font-black transition-colors duration-200',
                                             (kpiFilter === 'my-submissions' || ['staged', 'processing', 'in_review', 'approved', 'action'].includes(kpiFilter)) ? 'text-cyan-400' : 'text-slate-350'
@@ -685,7 +690,7 @@ export const FilterPanel = ({
                                         return (
                                             <div className="flex-1 flex flex-col justify-between bg-slate-900/40 border border-slate-900/80 px-3 py-2 rounded-xl">
                                                 <div className="text-[10px] font-bold text-slate-400/90 uppercase tracking-wider select-none leading-none pt-0.5">
-                                                    My Pipeline — Sub-Stage Tracking
+                                                    {isPlaygroundMode ? 'Pending Pipeline — Sub-Stage Tracking' : 'My Pipeline — Sub-Stage Tracking'}
                                                 </div>
                                                 <div className="flex items-center justify-between gap-1 border border-slate-900/60 p-1 rounded-lg select-none">
                                                     
@@ -1289,7 +1294,7 @@ export const FilterPanel = ({
                                                 <div className="flex items-center justify-between bg-slate-900/60 border border-slate-800/40 rounded-xl px-2.5 py-1 text-[10px]">
                                                     <div className="flex items-center gap-1.5 truncate">
                                                         <span className="text-[8px] text-slate-500 font-bold uppercase select-none">KPI Filter:</span>
-                                                        <span className="font-medium text-cyan-400 truncate">{getKpiFilterLabel(editPresetKpi)}</span>
+                                                        <span className="font-medium text-cyan-400 truncate">{getKpiFilterLabel(editPresetKpi, isPlaygroundMode)}</span>
                                                     </div>
                                                     <button 
                                                         onClick={() => setEditPresetKpi(null)}

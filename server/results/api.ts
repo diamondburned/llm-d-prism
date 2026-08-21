@@ -79,6 +79,8 @@ export const PrismResultPayloadSchema = z.object({
     github_author: z.object({
         /** GitHub username of the contributor. Example: "octocat" */
         username: z.string(),
+        /** Whether the submission was created under Playground Mode */
+        playground: z.boolean().optional(),
     }).nullable().optional(),
     /** Date and time when the benchmark run was submitted, formatted as an ISO 8601 string. Example: "2026-07-07T22:13:42.000Z" */
     submitted_at: z.string().datetime().nullable().optional(),
@@ -128,6 +130,7 @@ export const PrismResultContextSchema = z.object({
     run_label: ContextValueSchema,
     feedback: ContextValueSchema.optional(),
     well_lit_path: ContextValueSchema.optional(),
+    playground_submitted: ContextValueSchema.optional(),
 });
 
 // TypeScript type inference definitions

@@ -20,7 +20,7 @@ import { getEffectiveTp, getBucket, getSourceTag, getSubmissionStatusDetails } f
 import { useGitHubAuth } from '../../hooks/useGitHubAuth';
 
 export const UnifiedDataTable = (props) => {
-    const { user } = useGitHubAuth();
+    const { user, isPlaygroundMode } = useGitHubAuth();
     const {
         modelStats, selectedModels, filteredBySource, showSelectedOnly, setShowSelectedOnly,
         selectedBenchmarks, setSelectedBenchmarks, setActiveFilters, expandedModels,
@@ -381,19 +381,27 @@ export const UnifiedDataTable = (props) => {
                                                                       {benchmarkData[0]?.github_author?.username && (
                                                                           <span className="flex items-center gap-1 bg-slate-200/50 dark:bg-slate-800/50 px-1.5 py-0.5 rounded ml-1">
                                                                               <img 
-                                                                                  src={`https://github.com/${benchmarkData[0].github_author.username}.png`} 
+                                                                                  src={isPlaygroundMode
+                                                                                      ? `/api/avatar/${encodeURIComponent(benchmarkData[0].github_author.username)}`
+                                                                                      : `https://github.com/${benchmarkData[0].github_author.username}.png`} 
                                                                                   alt={benchmarkData[0].github_author.username} 
                                                                                   className="w-4 h-4 rounded-full border border-slate-300 dark:border-slate-600"
                                                                                   onError={(e) => { e.target.style.display = 'none'; }}
                                                                               />
-                                                                              <a 
-                                                                                  href={`https://github.com/${benchmarkData[0].github_author.username}`} 
-                                                                                  target="_blank" 
-                                                                                  rel="noopener noreferrer" 
-                                                                                  className="text-indigo-600 dark:text-indigo-400 hover:underline font-semibold"
-                                                                              >
-                                                                                  {benchmarkData[0].github_author.username}
-                                                                              </a>
+                                                                              {isPlaygroundMode ? (
+                                                                                  <span className="text-indigo-600 dark:text-indigo-400 font-semibold">
+                                                                                      {benchmarkData[0].github_author.username}
+                                                                                  </span>
+                                                                              ) : (
+                                                                                  <a 
+                                                                                      href={`https://github.com/${benchmarkData[0].github_author.username}`} 
+                                                                                      target="_blank" 
+                                                                                      rel="noopener noreferrer" 
+                                                                                      className="text-indigo-600 dark:text-indigo-400 hover:underline font-semibold"
+                                                                                  >
+                                                                                      {benchmarkData[0].github_author.username}
+                                                                                  </a>
+                                                                              )}
                                                                           </span>
                                                                       )}
                                                                   </div>
