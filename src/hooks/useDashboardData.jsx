@@ -2082,6 +2082,7 @@ export const useDashboardData = (initialState, dashboardState) => {
                             record.inference_tool = bundle.payload?.inference_tool || null;
                             record.inference_tool_version = bundle.payload?.inference_tool_version || null;
                             record.other_tools = bundle.payload?.other_tools || null;
+                            record.forked_from = bundle.payload?.forked_from || null;
                             record.bundle = bundle;
                             record.payload = bundle.payload || null;
                             record.targetDashboards = bundle.targetDashboards;
@@ -2117,6 +2118,7 @@ export const useDashboardData = (initialState, dashboardState) => {
                             record.inference_tool = bundle.payload?.inference_tool || null;
                             record.inference_tool_version = bundle.payload?.inference_tool_version || null;
                             record.other_tools = bundle.payload?.other_tools || null;
+                            record.forked_from = bundle.payload?.forked_from || null;
                             record.bundle = bundle;
                             record.payload = bundle.payload || null;
                             record.targetDashboards = bundle.targetDashboards;
@@ -2353,7 +2355,9 @@ export const useDashboardData = (initialState, dashboardState) => {
                 wellLitPath: item.well_lit_path || "none / custom",
                 submittedAt: item.submitted_at ? item.submitted_at.split('T')[0] : "Unknown",
                 status: mapStateToStatus(item.state),
-                feedback: item.feedback || ""
+                feedback: item.feedback || "",
+                forked_from: item.forked_from || null,
+                github_author: item.github_author || null
             }));
 
             const mergedList = [...serverSubmissions];
@@ -2373,7 +2377,9 @@ export const useDashboardData = (initialState, dashboardState) => {
                             wellLitPath: run.wellLitPath || "none / custom",
                             submittedAt: typeof submittedAt === 'string' ? submittedAt.split('T')[0] : new Date().toISOString().split('T')[0],
                             status: "staged",
-                            feedback: ""
+                            feedback: "",
+                            forked_from: run.forked_from || run.payload?.forked_from || null,
+                            github_author: run.github_author || run.payload?.github_author || null
                         });
                     }
                 });

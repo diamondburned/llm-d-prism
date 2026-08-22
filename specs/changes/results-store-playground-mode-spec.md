@@ -439,3 +439,17 @@ In the Results Store header navigation (`ResultsStore.jsx`), instead of renderin
 - Verify the yellow-outline "Playground Mode" button is displayed in the header.
 - Hover over the button and verify the tooltip explains the anonymous writable access.
 - Upload a benchmark bundle, verify it completes without login, and verify approval actions function in the Results Store table.
+
+---
+
+## 10. Related Features & Downstream Extensions
+
+### 10.1 Safe Forking & Republishing of Read-Only Catalog Benchmarks
+
+Playground Mode works synergistically with the **Benchmark Forking** feature ([benchmark-forking-spec.md](benchmark-forking-spec.md)). When Prism is configured with read-only catalog mirrors (such as continuous benchmark test mirrors from an internal Google team in `DEFAULT_BUCKETS` or scoped bucket prefixes like `gs://internal-prism/benchmarks-mirror/prism-results-store`) alongside a writable destination (`RESULTS_STORE_BUCKET=internal-prism/custom`), Playground Mode allows internal developers and analysts to:
+
+1. **Fork Read-Only Benchmarks**: Pull benchmark runs directly from immutable catalog sources into the local browser staging workspace without authentication barriers.
+2. **Modify, Combine, & Coalesce**: Combine related benchmark outputs into a single cohesive benchmark run, edit metadata, and reorder stages.
+3. **Publish to Writable Results Store**: Upload the resulting consolidated benchmark bundles directly into `RESULTS_STORE_BUCKET` anonymously or with custom author handles, making them immediately shareable and visible to teammates.
+
+

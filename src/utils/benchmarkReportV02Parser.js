@@ -433,6 +433,8 @@ export function groupStagesIntoRuns(stageRecords) {
                 other_tools: record.other_tools || null,
                 payload: record.payload || null,
                 bundle: record.bundle || null,
+                forked_from: record.forked_from || record.payload?.forked_from || null,
+                github_author: record.github_author || record.payload?.github_author || null,
                 targetDashboards: record.targetDashboards || []
             };
             runsList.push(targetRun);
@@ -457,6 +459,8 @@ export function groupStagesIntoRuns(stageRecords) {
         if (!targetRun.other_tools && record.other_tools) targetRun.other_tools = record.other_tools;
         if (!targetRun.payload && record.payload) targetRun.payload = record.payload;
         if (!targetRun.bundle && record.bundle) targetRun.bundle = record.bundle;
+        if (!targetRun.forked_from && (record.forked_from || record.payload?.forked_from)) targetRun.forked_from = record.forked_from || record.payload?.forked_from;
+        if (!targetRun.github_author && (record.github_author || record.payload?.github_author)) targetRun.github_author = record.github_author || record.payload?.github_author;
         if (!targetRun.targetDashboards && record.targetDashboards) targetRun.targetDashboards = record.targetDashboards;
     }
     
@@ -570,6 +574,7 @@ export function stageToEntry(stage) {
 
     return createEntry({
         payload: stage.payload || null,
+        forked_from: stage.forked_from || stage.payload?.forked_from || null,
         run_id: stage.runId,
         runLabel: stage.runLabel || '',
         github_author: stage.github_author,

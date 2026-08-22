@@ -368,10 +368,12 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
                                         parsedStage.inference_tool = jsonPayload.inference_tool || null;
                                         parsedStage.inference_tool_version = jsonPayload.inference_tool_version || null;
                                         parsedStage.other_tools = jsonPayload.other_tools || null;
+                                        parsedStage.forked_from = jsonPayload.forked_from || null;
                                         parsedStage.payload = jsonPayload;
 
                                         const entry = stageToEntry(parsedStage);
                                         entry.run_id = jsonPayload.runId;
+                                        entry.forked_from = jsonPayload.forked_from || null;
                                         entry.manifests = jsonPayload.manifests || null;
                                         entry.evidence = jsonPayload.evidence || null;
                                         entry.run_metadata = jsonPayload.run_metadata || null;
@@ -644,6 +646,8 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
             }, groupingData[0] || {});
 
             const payload = groupingData[0]?.payload;
+            const forked_from = payload?.forked_from || groupingData.find(d => d.forked_from)?.forked_from || null;
+            const github_author = payload?.github_author || groupingData.find(d => d.github_author)?.github_author || null;
 
             stats.push({
                 benchmarkKey,
@@ -664,7 +668,9 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
                 uniqueOsl,
                 peakRun,
                 nodesAndParallelismText,
-                payload
+                payload,
+                forked_from,
+                github_author
             });
         });
 

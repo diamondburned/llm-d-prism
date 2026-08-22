@@ -164,6 +164,8 @@ export async function listResults(options: ListResultsOptions): Promise<ListResu
             const feedback = decodeContextValue(String(customContexts.feedback?.value || ''));
             const well_lit_path = decodeContextValue(String(customContexts.well_lit_path?.value || ''));
 
+            const isForked = customContexts.forked?.value === 'true' || customContexts.forked_from?.value !== undefined;
+
             matchedItems.push({
                 runId,
                 runLabel,
@@ -179,7 +181,9 @@ export async function listResults(options: ListResultsOptions): Promise<ListResu
                 },
                 submitted_at: metadata?.timeCreated || metadata?.updated || null,
                 feedback: feedback || undefined,
-                well_lit_path: well_lit_path || undefined
+                well_lit_path: well_lit_path || undefined,
+                forked: isForked || undefined,
+                forked_from: isForked ? true : undefined
             });
         }
 
@@ -271,6 +275,10 @@ export async function writeResult(
 
     if (payload.well_lit_path) {
         contextsCustom.well_lit_path = { value: encodeContextValue(payload.well_lit_path) };
+    }
+
+    if (payload.forked_from || payload.forked) {
+        contextsCustom.forked = { value: 'true' };
     }
 
     if (isPlaygroundMode() || payload.github_author?.playground) {

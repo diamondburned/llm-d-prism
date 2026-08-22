@@ -47,6 +47,30 @@ export const PrismSubmissionStateSchema = z.enum([
 ]);
 
 /**
+ * Represents provenance tracking details when a benchmark is forked.
+ */
+export const ForkDetailSchema = z.object({
+    /** UUID of the benchmark run that was forked */
+    original_run_id: z.string(),
+    /** Human-readable label or description of the original run */
+    original_run_label: z.string(),
+    /** Original author/submitter of the source benchmark */
+    original_author: z.union([
+        z.object({
+            username: z.string(),
+            name: z.string().optional(),
+            email: z.string().optional(),
+            playground: z.boolean().optional(),
+        }).passthrough(),
+        z.string(),
+    ]).nullable().optional(),
+    /** GCS source bucket or prefix where the original benchmark was stored */
+    source_bucket: z.string(),
+    /** ISO 8601 timestamp when the fork was created */
+    forked_at: z.string(),
+}).passthrough();
+
+/**
  * Root container representing the JSON payload content stored inside a result file inside the bucket.
  * Verified by validatePrismUploadStructure.
  */
@@ -75,6 +99,16 @@ export const PrismResultPayloadSchema = z.object({
     }),
     /** Target upload and parsing schema format. Must be exactly "brv02". */
     format: z.literal("brv02"),
+    /**
+     * Provenance tracking. Single ForkDetail for direct forks,
+     * or an array of ForkDetails if forked multiple times or coalesced from multiple forks.
+     */
+    forked_from: z.union([
+        ForkDetailSchema,
+        z.array(ForkDetailSchema)
+    ]).nullable().optional(),
+    /** Summary boolean indicator for forked benchmark runs */
+    forked: z.boolean().optional(),
     /** Author metadata representing the GitHub user who submitted the benchmark. */
     github_author: z.object({
         /** GitHub username of the contributor. Example: "octocat" */
@@ -131,9 +165,11 @@ export const PrismResultContextSchema = z.object({
     feedback: ContextValueSchema.optional(),
     well_lit_path: ContextValueSchema.optional(),
     playground_submitted: ContextValueSchema.optional(),
+    forked: ContextValueSchema.optional(),
 });
 
 // TypeScript type inference definitions
+export type ForkDetail = z.infer<typeof ForkDetailSchema>;
 export type PrismStageEntry = z.infer<typeof PrismStageEntrySchema>;
 export type PrismSubmissionState = z.infer<typeof PrismSubmissionStateSchema>;
 export type PrismResultPayload = z.infer<typeof PrismResultPayloadSchema>;

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, UploadCloud, CheckCircle, AlertCircle, AlertOctagon, AlertTriangle, FileText, ChevronLeft, ChevronRight, ChevronDown, Trash2, Upload, ShieldAlert, Check, ArrowRight, ArrowLeft, GitCompare, Zap, Cpu, Pencil, Layers, Split, GripVertical, Sparkles, Info, RotateCcw } from 'lucide-react';
+import { X, UploadCloud, CheckCircle, AlertCircle, AlertOctagon, AlertTriangle, FileText, ChevronLeft, ChevronRight, ChevronDown, Trash2, Upload, ShieldAlert, Check, ArrowRight, ArrowLeft, GitCompare, Zap, Cpu, Pencil, Layers, Split, GripVertical, Sparkles, Info, RotateCcw, GitFork } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Scatter } from 'recharts';
 import { validateBenchmark, validatePrismUploadStructure } from '../../utils/benchmarkValidator';
@@ -312,6 +312,18 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
             entry.prism_stage_index = idx;
         });
 
+        const allForkedFrom = [];
+        targetBundles.forEach(bundle => {
+            const ff = bundle.payload?.forked_from || bundle.forked_from;
+            if (ff) {
+                if (Array.isArray(ff)) {
+                    allForkedFrom.push(...ff);
+                } else {
+                    allForkedFrom.push(ff);
+                }
+            }
+        });
+
         const newPayload = {
             runId: coalescedId,
             runLabel: resolvedMetadata.runLabel,
@@ -320,6 +332,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                 hardware_name: resolvedMetadata.hardware_name,
                 accelerator_count: resolvedMetadata.accelerator_count
             },
+            ...(allForkedFrom.length > 0 ? { forked_from: allForkedFrom } : {}),
             attribution: targetBundles[0].payload?.attribution || null,
             manifests: targetBundles.reduce((acc, b) => ({ ...acc, ...(b.payload?.manifests || {}) }), {}),
             evidence: targetBundles.reduce((acc, b) => ({ ...acc, ...(b.payload?.evidence || {}) }), {}),
@@ -2049,20 +2062,22 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                     ? { username: customAuthorName.trim() || 'anonymous', playground: true }
                     : (user?.username ? { username: user.username } : undefined);
 
+                const forkedFromVal = bundle.payload?.forked_from || bundle.forked_from;
                 const payload = {
-                    runId: bundle.payload.runId || bundle.id || uuidv4(),
-                    runLabel: bundle.name || bundle.payload.runLabel || 'Unnamed Run',
-                    model_name: bundle.payload.model_name || "Custom Model",
+                    runId: bundle.payload?.runId || bundle.id || uuidv4(),
+                    runLabel: bundle.name || bundle.payload?.runLabel || 'Unnamed Run',
+                    model_name: bundle.payload?.model_name || "Custom Model",
                     ...(effectiveAuthor ? { github_author: effectiveAuthor } : {}),
                     hardware: {
-                        hardware_name: bundle.payload.hardware?.hardware_name || "Unknown Hardware",
-                        accelerator_count: bundle.payload.hardware?.accelerator_count
+                        hardware_name: bundle.payload?.hardware?.hardware_name || "Unknown Hardware",
+                        accelerator_count: bundle.payload?.hardware?.accelerator_count
                     },
-                    well_lit_path: bundle.payload.well_lit_path,
-                    inference_tool: bundle.payload.inference_tool,
-                    inference_tool_version: bundle.payload.inference_tool_version,
-                    run_metadata: bundle.payload.run_metadata,
-                    metadata: bundle.payload.metadata,
+                    ...(forkedFromVal ? { forked_from: forkedFromVal } : {}),
+                    well_lit_path: bundle.payload?.well_lit_path,
+                    inference_tool: bundle.payload?.inference_tool,
+                    inference_tool_version: bundle.payload?.inference_tool_version,
+                    run_metadata: bundle.payload?.run_metadata,
+                    metadata: bundle.payload?.metadata,
                     manifests: {
                         ...(bundle.payload.manifests || {}),
                         ...(bundle.attachedManifests ? Object.fromEntries(
@@ -2356,7 +2371,15 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                 {validBundles.map(b => (
                                     <div key={b.id} className="flex justify-between items-center text-xs bg-slate-950/60 border border-slate-900/40 px-3.5 py-2 rounded-xl">
                                         <span className="font-mono text-slate-400">{b.payload.runId || b.id}</span>
-                                        <span className="text-slate-300 font-semibold">{b.payload.model_name}</span>
+                                        <div className="flex items-center gap-2">
+                                            {Boolean(b.payload?.forked_from || b.forked_from) && (
+                                                <Badge tone="info" size="xs" className="px-1.5 py-0.2 font-bold flex items-center gap-1 text-[10px] bg-blue-500/10 text-blue-400 border-blue-500/30">
+                                                    <GitFork size={10} />
+                                                    <span>Forked</span>
+                                                </Badge>
+                                            )}
+                                            <span className="text-slate-300 font-semibold">{b.payload.model_name}</span>
+                                        </div>
                                     </div>
                                 ))}
                             </div>
@@ -3049,6 +3072,12 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                     <div className="flex flex-col">
                                                         <div className="flex items-center gap-2">
                                                             <span className="text-sm font-bold text-slate-800 dark:text-slate-200 select-all">{bundle.payload.model_name || <span className="text-red-400 italic font-normal">Missing</span>}</span>
+                                                            {Boolean(bundle.payload?.forked_from || bundle.forked_from) && (
+                                                                <Badge tone="info" size="xs" className="px-1.5 py-0.5 font-bold flex items-center gap-1 text-[10px] bg-blue-500/10 text-blue-400 border-blue-500/30">
+                                                                    <GitFork size={10} />
+                                                                    <span>Forked</span>
+                                                                </Badge>
+                                                            )}
                                                             {bundle.isCoalesced && !bundle.isAutoCoalesced && (
                                                                 <Badge tone="info" size="xs" className="px-1.5 py-0.5 font-bold flex items-center gap-1 text-[10px]">
                                                                     <Layers size={10} />

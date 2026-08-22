@@ -384,6 +384,20 @@ export function getRawPrismCloudPayload(runPayloadOrStat, benchmarkData = []) {
         };
     });
 
+    const forked_from = runPayloadOrStat?.forked_from 
+        || runPayloadOrStat?.payload?.forked_from 
+        || runPayloadOrStat?.bundle?.payload?.forked_from
+        || first?.forked_from 
+        || first?.payload?.forked_from
+        || null;
+
+    const github_author = runPayloadOrStat?.github_author 
+        || runPayloadOrStat?.payload?.github_author 
+        || runPayloadOrStat?.bundle?.payload?.github_author
+        || first?.github_author 
+        || first?.payload?.github_author
+        || (runPayloadOrStat?.submitter ? { username: runPayloadOrStat.submitter } : null);
+
     return {
         runId: rawRunId,
         runLabel,
@@ -393,6 +407,8 @@ export function getRawPrismCloudPayload(runPayloadOrStat, benchmarkData = []) {
             ...(acceleratorCount ? { accelerator_count: Number(acceleratorCount) } : {})
         },
         format: 'brv02',
+        ...(forked_from ? { forked_from } : {}),
+        ...(github_author ? { github_author } : {}),
         well_lit_path: runPayloadOrStat.well_lit_path || first.well_lit_path || null,
         inference_tool: runPayloadOrStat.inference_tool || first.inference_tool || null,
         inference_tool_version: runPayloadOrStat.inference_tool_version || first.inference_tool_version || null,
