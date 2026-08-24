@@ -259,17 +259,22 @@ This section describes the storage backend using Google Cloud Storage (GCS).
 
 ### 7.1 Bucket Architecture
 
-- **Staging Bucket (`gs://llm-d-benchmarks-staging/prism-results-store/*`):**
-    - **Local Dev/Staging Environment:** Managed wholly inside this bucket.
-      Stores all benchmark uploads AND approvals (across all states).
-    - **Production Environment:** Never touched.
+The Results Store bucket is configured via the `RESULTS_STORE_BUCKET`
+environment variable (falling back to the first entry of `DEFAULT_BUCKETS` or
+`llm-d-benchmarks` if unset):
+
+- **Staging / Development Bucket
+  (`gs://llm-d-benchmarks-staging/prism-results-store/*`):**
+    - **Local Dev / Staging Environment
+      (`RESULTS_STORE_BUCKET=llm-d-benchmarks-staging`):** Managed wholly inside
+      this bucket. Stores all benchmark uploads AND approvals (across all
+      states).
 - **Production Bucket (`gs://llm-d-benchmarks/prism-results-store/*`):**
-    - **Local Dev/Staging Environment:** Read-only (never written to). Used for
-      reading data and configurations.
-    - **Production Environment:** Managed wholly inside this bucket. Stores all
-      benchmark uploads AND approvals (across all states).
-- **IAM configuration files (`gs://llm-d-benchmarks/prism-iam/*`):**
-    - Dedicated bucket for access control files.
+    - **Production Environment (`RESULTS_STORE_BUCKET=llm-d-benchmarks`):**
+      Managed wholly inside this bucket. Stores all benchmark uploads AND
+      approvals (across all states).
+- **IAM Configuration Files (`gs://<RESULTS_STORE_BUCKET>/prism-iam/*`):**
+    - Stored within the active Results Store bucket for access control files.
 
 ### 7.2 File Pathing
 

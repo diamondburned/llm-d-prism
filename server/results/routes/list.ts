@@ -14,6 +14,7 @@
 
 import { Request, Response } from 'express';
 import { validateGitHubToken } from '../../oauth.ts';
+import { isPlaygroundMode } from '../../iam.ts';
 import { listResults, ListResultsResult as ResultsListResponse } from '../gcs.ts';
 import { PrismSubmissionState } from '../api.ts';
 
@@ -27,7 +28,7 @@ export interface ResultsListQuery {
 /**
  * GET /api/results
  * 
- * Lists benchmark runs from the active Prism results store (defined in DEFAULT_BUCKETS).
+ * Lists benchmark runs from the active Prism results store (defined in RESULTS_STORE_BUCKET).
  * 
  * - **Headers:** `X-Prism-Github-Token: <access_token>` (optional)
  * - **Query Parameters:**
@@ -36,6 +37,7 @@ export interface ResultsListQuery {
  *     - `status`: (Optional) Filter by submission status (staged | submitted_pending_processing | submitted_pending_review | public | promoted).
  *     - `own`: (Optional) Filter to retrieve only the logged-in user's submissions (true | false).
  * - **Authorization Rules:**
+ *     - **Playground Mode:** Default admin permissions for all callers.
  *     - **Admin:** Can list all benchmarks in all statuses.
  *     - **Standard User/Guest:**
  *         - Can list their own benchmarks in any status.
@@ -49,7 +51,7 @@ export async function listResultsHandler(
     // 1. Authenticate user
     const token = req.headers['x-prism-github-token'] as string | undefined;
     let username: string | null = null;
-    let permission = 'none';
+    let permission = isPlaygroundMode() ? 'admin' : 'none';
 
     if (token) {
         try {
@@ -59,6 +61,10 @@ export async function listResultsHandler(
         } catch (e: any) {
             console.warn('[Results API] Invalid session token:', e.message);
         }
+    }
+
+    if (isPlaygroundMode()) {
+        permission = 'admin';
     }
 
     // 2. Parse pagination options & filters

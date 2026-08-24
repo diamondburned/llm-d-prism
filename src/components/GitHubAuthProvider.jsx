@@ -21,6 +21,7 @@ export function GitHubAuthProvider({ children }) {
     const [user, setUser] = useState(null);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [isConfigured, setIsConfigured] = useState(true);
+    const [isPlaygroundMode, setIsPlaygroundMode] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const refreshTimerRef = useRef(null);
 
@@ -91,17 +92,13 @@ export function GitHubAuthProvider({ children }) {
 
     const checkSession = useCallback(async (tokenToVerify) => {
         const token = tokenToVerify || accessToken;
-        if (!token) {
-            setUser(null);
-            setIsAuthenticated(false);
-            setIsLoading(false);
-            return;
-        }
 
         try {
-            const res = await fetch('/api/auth/github/me', {
-                headers: { 'X-Prism-Github-Token': token }
-            });
+            const headers = {};
+            if (token) {
+                headers['X-Prism-Github-Token'] = token;
+            }
+            const res = await fetch('/api/auth/github/me', { headers });
 
             if (res.status === 501) {
                 setIsConfigured(false);
@@ -125,10 +122,16 @@ export function GitHubAuthProvider({ children }) {
 
             const data = await res.json();
             setIsConfigured(data.configured !== false);
-            if (data.authenticated) {
+            if (data.playgroundMode) {
+                setIsPlaygroundMode(true);
+                setUser({ username: data.username || 'anonymous', permission: data.permission || 'admin', avatarUrl: data.avatarUrl || null });
+                setIsAuthenticated(true);
+            } else if (data.authenticated) {
+                setIsPlaygroundMode(false);
                 setUser({ username: data.username, permission: data.permission, avatarUrl: data.avatarUrl });
                 setIsAuthenticated(true);
             } else {
+                setIsPlaygroundMode(false);
                 setUser(null);
                 setIsAuthenticated(false);
             }
@@ -226,6 +229,11 @@ export function GitHubAuthProvider({ children }) {
                 } else if (res.ok) {
                     const data = await res.json();
                     setIsConfigured(data.configured !== false);
+                    if (data.playgroundMode) {
+                        setIsPlaygroundMode(true);
+                        setUser({ username: data.username || 'anonymous', permission: data.permission || 'admin', avatarUrl: data.avatarUrl || null });
+                        setIsAuthenticated(true);
+                    }
                 } else {
                     setIsConfigured(true);
                 }
@@ -251,6 +259,7 @@ export function GitHubAuthProvider({ children }) {
             user,
             isAuthenticated,
             isConfigured,
+            isPlaygroundMode,
             isLoading,
             login,
             logout,

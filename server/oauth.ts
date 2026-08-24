@@ -14,7 +14,7 @@
 
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
-import { validateGitHubUser, PermissionLevel } from './iam';
+import { validateGitHubUser, PermissionLevel, isPlaygroundMode } from './iam';
 
 export const oauthRouter = Router();
 
@@ -40,6 +40,17 @@ const isOAuthConfigured = (): boolean => {
 // Middleware to enforce configuration check
 oauthRouter.use((req: Request, res: Response, next) => {
     if (req.path.startsWith('/api/auth/github')) {
+        if (isPlaygroundMode() && req.path === '/api/auth/github/me') {
+            res.json({
+                authenticated: true,
+                configured: true,
+                username: 'anonymous',
+                permission: 'admin',
+                avatarUrl: null,
+                playgroundMode: true
+            });
+            return;
+        }
         if (!isOAuthConfigured()) {
             if (req.path === '/api/auth/github/me') {
                 res.json({
@@ -80,6 +91,9 @@ oauthRouter.get('/api/auth/github/login', (req: Request, res: Response) => {
  * Fetches the user profile and permissions directly from GitHub API.
  */
 export async function validateGitHubToken(token: string): Promise<{ username: string, permission: PermissionLevel, avatarUrl?: string }> {
+    if (isPlaygroundMode()) {
+        return { username: 'anonymous', permission: 'admin' };
+    }
     if (token === 'mock_token_prism') {
         return { username: 'test-user', permission: 'admin', avatarUrl: 'https://avatars.githubusercontent.com/u/9919?v=4' };
     }
@@ -266,6 +280,17 @@ oauthRouter.post('/api/auth/github/refresh', async (req: Request, res: Response)
  * Expects X-Prism-Github-Token header.
  */
 oauthRouter.get('/api/auth/github/me', async (req: Request, res: Response) => {
+    if (isPlaygroundMode()) {
+        return res.json({
+            authenticated: true,
+            configured: true,
+            username: 'anonymous',
+            permission: 'admin',
+            avatarUrl: '/api/avatar/anonymous',
+            playgroundMode: true
+        });
+    }
+
     const token = req.headers['x-prism-github-token'] as string;
     if (!token) {
         return res.json({

@@ -181,9 +181,11 @@ export const useGCS = ({ pendingRequests, addToast, accessToken }) => {
                                             parsedStage.inference_tool = jsonContent.inference_tool || null;
                                             parsedStage.inference_tool_version = jsonContent.inference_tool_version || null;
                                             parsedStage.other_tools = jsonContent.other_tools || null;
+                                            parsedStage.forked_from = jsonContent.forked_from || null;
                                             parsedStage.payload = jsonContent;
                                             const entry = stageToEntry(parsedStage);
                                             entry.payload = jsonContent;
+                                            entry.forked_from = jsonContent.forked_from || null;
                                             entry.manifests = jsonContent.manifests || null;
                                             entry.evidence = jsonContent.evidence || null;
                                             entry.run_metadata = jsonContent.run_metadata || null;

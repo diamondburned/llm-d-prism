@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import React, { useMemo } from 'react';
-import { Database, Eye, EyeOff, ArrowLeft, ArrowRight, MessageCircle, X, HelpCircle, Upload, UploadCloud, CheckCircle, Send, AlertCircle, Github, Shield, LogOut, ChevronDown, Trash2, Plus } from 'lucide-react';
+import { Database, Eye, EyeOff, ArrowLeft, ArrowRight, MessageCircle, X, HelpCircle, Upload, UploadCloud, CheckCircle, Send, AlertCircle, Github, Shield, LogOut, ChevronDown, Trash2, Plus, Sparkles } from 'lucide-react';
 import { FilterPanel } from './ManageBenchmarks/FilterPanel';
 import { UnifiedDataTable } from './ManageBenchmarks/UnifiedDataTable';
 import { INTEGRATIONS, getSourceTag, getBenchmarkKey, getBucket, getRatioType, getAcceleratorCount, getEffectiveTp, sortBuckets } from '../utils/dashboardHelpers';
@@ -49,7 +49,7 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
         setBaselineBenchmarkKey
     } = dashboardState;
 
-    const { isAuthenticated, user, login, logout, isConfigured, isLoading: authLoading } = useGitHubAuth();
+    const { isAuthenticated, user, login, logout, isConfigured, isPlaygroundMode, isLoading: authLoading } = useGitHubAuth();
     const [showUserDropdown, setShowUserDropdown] = React.useState(false);
     const userDropdownRef = React.useRef(null);
     const [showSourcesPopover, setShowSourcesPopover] = React.useState(false);
@@ -368,10 +368,12 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
                                         parsedStage.inference_tool = jsonPayload.inference_tool || null;
                                         parsedStage.inference_tool_version = jsonPayload.inference_tool_version || null;
                                         parsedStage.other_tools = jsonPayload.other_tools || null;
+                                        parsedStage.forked_from = jsonPayload.forked_from || null;
                                         parsedStage.payload = jsonPayload;
 
                                         const entry = stageToEntry(parsedStage);
                                         entry.run_id = jsonPayload.runId;
+                                        entry.forked_from = jsonPayload.forked_from || null;
                                         entry.manifests = jsonPayload.manifests || null;
                                         entry.evidence = jsonPayload.evidence || null;
                                         entry.run_metadata = jsonPayload.run_metadata || null;
@@ -644,6 +646,8 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
             }, groupingData[0] || {});
 
             const payload = groupingData[0]?.payload;
+            const forked_from = payload?.forked_from || groupingData.find(d => d.forked_from)?.forked_from || null;
+            const github_author = payload?.github_author || groupingData.find(d => d.github_author)?.github_author || null;
 
             stats.push({
                 benchmarkKey,
@@ -664,7 +668,9 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
                 uniqueOsl,
                 peakRun,
                 nodesAndParallelismText,
-                payload
+                payload,
+                forked_from,
+                github_author
             });
         });
 
@@ -1129,6 +1135,17 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
                     {authLoading ? (
                         <div className="flex items-center justify-center w-8 h-8 rounded-full border border-slate-850 bg-slate-900/40">
                             <Spinner size="sm" className="text-slate-400 dark:text-slate-400" />
+                        </div>
+                    ) : isPlaygroundMode ? (
+                        <div className="relative group/tooltip inline-flex items-center">
+                            <div className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500/10 border border-transparent text-amber-300 text-xs font-semibold select-none cursor-help">
+                                <Sparkles size={13} className="text-amber-400 shrink-0" />
+                                <span>Playground Mode</span>
+                            </div>
+                            <div className="absolute right-0 top-full mt-2 px-3 py-2 bg-slate-900 border border-slate-800 text-slate-200 text-xs font-medium rounded-xl opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all duration-200 shadow-2xl z-[9999] w-72 pointer-events-none leading-relaxed text-left">
+                                <p className="font-semibold text-amber-300 mb-1">Playground Mode Active</p>
+                                Authentication is disabled. You can submit, review, approve, promote, and delete benchmarks in the Results Store without signing in.
+                            </div>
                         </div>
                     ) : !isConfigured ? (
                         <div className="relative group/tooltip inline-block">

@@ -14,6 +14,7 @@
 
 import { Request, Response } from 'express';
 import { validateGitHubToken } from '../../oauth.ts';
+import { isPlaygroundMode } from '../../iam.ts';
 import { readResultPayload, readResultMetadata } from '../gcs.ts';
 import { PrismResultPayload } from '../api.ts';
 
@@ -26,6 +27,7 @@ export type ResultsGetResponse = PrismResultPayload;
  * 
  * - **Headers:** `X-Prism-Github-Token: <access_token>` (optional)
  * - **Authorization Rules:**
+ *     - **Playground Mode:** Full access for all callers.
  *     - **Admin:** Full access.
  *     - **Standard User/Guest:**
  *         - Can view their own benchmark run bundle in any state.
@@ -45,7 +47,7 @@ export async function getResultsHandler(req: Request, res: Response<ResultsGetRe
     // 1. Authenticate user
     const token = req.headers['x-prism-github-token'] as string | undefined;
     let username: string | null = null;
-    let permission = 'none';
+    let permission = isPlaygroundMode() ? 'admin' : 'none';
 
     if (token) {
         try {
@@ -55,6 +57,10 @@ export async function getResultsHandler(req: Request, res: Response<ResultsGetRe
         } catch (e: any) {
             console.warn('[Results API] Invalid session token:', e.message);
         }
+    }
+
+    if (isPlaygroundMode()) {
+        permission = 'admin';
     }
 
     try {

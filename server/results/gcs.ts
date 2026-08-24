@@ -14,7 +14,8 @@
 
 import type { PrismResultPayload, PrismSubmissionState, PrismResultContext } from './api.ts';
 import { Storage } from '@google-cloud/storage';
-import { getConfiguredBucketNames } from '../buckets.js';
+import { getResultsStoreBucket } from '../buckets.js';
+import { isPlaygroundMode } from '../iam.ts';
 
 export function encodeContextValue(val: string): string {
     return 'e' + Buffer.from(val, 'utf8').toString('base64url');
@@ -38,11 +39,7 @@ export const storage = new Storage(
  * Resolves the primary Google Cloud Storage bucket for storing and listing Prism benchmark results.
  */
 export function getPrismResultsBucket(): string {
-    const buckets = getConfiguredBucketNames(process.env.DEFAULT_BUCKETS);
-    if (buckets.includes('llm-d-benchmarks-staging')) {
-        return 'llm-d-benchmarks-staging';
-    }
-    return buckets[0] || 'llm-d-benchmarks';
+    return getResultsStoreBucket();
 }
 
 export type ResultsListItem = Omit<PrismResultPayload, 'entries'> & {
@@ -90,7 +87,7 @@ export async function listResults(options: ListResultsOptions): Promise<ListResu
     const filters: ((state: PrismSubmissionState, user: string) => boolean)[] = [];
 
     // 1. Permission check (non-admins can see public/promoted, explicit status=unlisted, or their own results)
-    if (permission !== 'admin') {
+    if (permission !== 'admin' && !isPlaygroundMode()) {
         filters.push((state, user) => {
             const isApproved = state === 'public' || state === 'promoted';
             const isExplicitUnlisted = state === 'unlisted' && statusFilter === 'unlisted';
@@ -167,6 +164,8 @@ export async function listResults(options: ListResultsOptions): Promise<ListResu
             const feedback = decodeContextValue(String(customContexts.feedback?.value || ''));
             const well_lit_path = decodeContextValue(String(customContexts.well_lit_path?.value || ''));
 
+            const isForked = customContexts.forked?.value === 'true' || customContexts.forked_from?.value !== undefined;
+
             matchedItems.push({
                 runId,
                 runLabel,
@@ -182,7 +181,9 @@ export async function listResults(options: ListResultsOptions): Promise<ListResu
                 },
                 submitted_at: metadata?.timeCreated || metadata?.updated || null,
                 feedback: feedback || undefined,
-                well_lit_path: well_lit_path || undefined
+                well_lit_path: well_lit_path || undefined,
+                forked: isForked || undefined,
+                forked_from: isForked ? true : undefined
             });
         }
 
@@ -274,6 +275,14 @@ export async function writeResult(
 
     if (payload.well_lit_path) {
         contextsCustom.well_lit_path = { value: encodeContextValue(payload.well_lit_path) };
+    }
+
+    if (payload.forked_from || payload.forked) {
+        contextsCustom.forked = { value: 'true' };
+    }
+
+    if (isPlaygroundMode() || payload.github_author?.playground) {
+        contextsCustom.playground_submitted = { value: 'true' };
     }
 
     try {

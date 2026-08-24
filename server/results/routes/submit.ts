@@ -15,6 +15,7 @@
 import { Request, Response } from 'express';
 import crypto from 'crypto';
 import { validateGitHubToken } from '../../oauth.ts';
+import { isPlaygroundMode } from '../../iam.ts';
 import { writeResult, deleteResult } from '../gcs.ts';
 import { processSubmission } from '../processing.ts';
 import { PrismSubmissionState, PrismResultPayload } from '../api.ts';
@@ -32,8 +33,8 @@ export interface ResultsSubmitResponse {
  *
  * Submits a benchmark result bundle to the active results store.
  *
- * - **Headers:** `X-Prism-Github-Token: <access_token>` (required)
- * - **Authorization Rules:** Only allowlisted contributors (with role `user` or `admin`) can submit benchmark results.
+ * - **Headers:** `X-Prism-Github-Token: <access_token>` (required, optional in playground mode)
+ * - **Authorization Rules:** Only allowlisted contributors (with role `user` or `admin`) can submit benchmark results (bypassed in playground mode).
  * - **Request Format:** A JSON object representing the benchmark run upload payload matching the `PrismResultPayload` interface (see api.ts).
  * - **Response Format:** A JSON object confirming the submission status. All internal IDs (including top-level `runId` and nested entry `run_id`s) are regenerated on the server to prevent ID collisions. The response includes the new server-generated `runId`, the client-supplied `oldRunId` (if one was sent), the final promoted state (`submitted_pending_review`), and a success message.
  */
@@ -41,34 +42,41 @@ export async function submitResultsHandler(
     req: Request<{}, ResultsSubmitResponse | { error: string; details?: any; warnings?: any; state?: PrismSubmissionState }, PrismResultPayload>,
     res: Response<ResultsSubmitResponse | { error: string; details?: any; warnings?: any; state?: PrismSubmissionState }>
 ) {
-    // 1. Authenticate user
-    const token = req.headers['x-prism-github-token'] as string | undefined;
-    if (!token) {
-        return res.status(401).json({ error: 'Authentication required. Missing session token.' });
-    }
-
-    let username = '';
-    let permission = 'none';
-
-    try {
-        const authResult = await validateGitHubToken(token);
-        username = authResult.username;
-        permission = authResult.permission;
-    } catch (e: any) {
-        return res.status(401).json({ error: 'Invalid or expired session token.', details: e.message });
-    }
-
-    // 2. Authorization check
-    if (permission !== 'user' && permission !== 'admin') {
-        return res.status(403).json({ error: 'Forbidden. Contributor is not allowlisted to submit benchmarks.' });
-    }
-
-    // 3. Prepare request payload
     const uploadData = req.body;
     if (!uploadData) {
         return res.status(400).json({ error: 'Missing upload payload.' });
     }
 
+    // 1. Authenticate user
+    const token = req.headers['x-prism-github-token'] as string | undefined;
+    let username = 'anonymous';
+    let permission = 'none';
+
+    if (isPlaygroundMode()) {
+        permission = 'admin';
+        if (uploadData.github_author?.username) {
+            username = uploadData.github_author.username.trim() || 'anonymous';
+        }
+    } else {
+        if (!token) {
+            return res.status(401).json({ error: 'Authentication required. Missing session token.' });
+        }
+
+        try {
+            const authResult = await validateGitHubToken(token);
+            username = authResult.username;
+            permission = authResult.permission;
+        } catch (e: any) {
+            return res.status(401).json({ error: 'Invalid or expired session token.', details: e.message });
+        }
+
+        // 2. Authorization check
+        if (permission !== 'user' && permission !== 'admin') {
+            return res.status(403).json({ error: 'Forbidden. Contributor is not allowlisted to submit benchmarks.' });
+        }
+    }
+
+    // 3. Prepare request payload
     const clientRunId = uploadData.runId || '';
 
     // Now generate Prism server-side internal IDs (replacing client-supplied IDs)
@@ -86,7 +94,16 @@ export async function submitResultsHandler(
     const rawTargetState = (req.query.targetState as string) || (uploadData as any).targetState;
     const targetState: PrismSubmissionState = rawTargetState === 'unlisted' ? 'unlisted' : 'submitted_pending_review';
 
-    uploadData.github_author = { username };
+    if (isPlaygroundMode()) {
+        uploadData.github_author = {
+            username: (uploadData.github_author?.username && uploadData.github_author.username.trim())
+                ? uploadData.github_author.username.trim()
+                : username,
+            playground: true
+        };
+    } else {
+        uploadData.github_author = { username };
+    }
     uploadData.submitted_at = new Date().toISOString();
 
     try {

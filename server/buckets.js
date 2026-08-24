@@ -12,10 +12,38 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-export const DEFAULT_RESULTS_BUCKETS = 'llm-d-benchmarks-staging,llm-d-benchmarks';
+export const DEFAULT_RESULTS_STORE_BUCKET = 'llm-d-benchmarks';
+export const DEFAULT_RESULTS_BUCKETS = 'llm-d-benchmarks';
 
 /**
- * Parses a single DEFAULT_BUCKETS entry of the form "bucket" or
+ * Returns the canonical bucket name used for the Prism Results Store (and IAM allowlists).
+ * Reads from RESULTS_STORE_BUCKET if configured; otherwise falls back to the first bucket
+ * in DEFAULT_BUCKETS (or DEFAULT_RESULTS_STORE_BUCKET).
+ *
+ * @param {string|undefined} [rawResultsBucket=process.env.RESULTS_STORE_BUCKET]
+ * @param {string|undefined} [rawDefaultBuckets=process.env.DEFAULT_BUCKETS]
+ * @returns {string}
+ */
+export function getResultsStoreBucket(
+    rawResultsBucket = process.env.RESULTS_STORE_BUCKET,
+    rawDefaultBuckets = process.env.DEFAULT_BUCKETS
+) {
+    if (rawResultsBucket) {
+        const parsed = parseBucketEntry(rawResultsBucket).bucket;
+        if (parsed) return parsed;
+    }
+    if (rawDefaultBuckets) {
+        const firstEntry = rawDefaultBuckets.split(',').map(e => e.trim()).filter(Boolean)[0];
+        if (firstEntry) {
+            const parsed = parseBucketEntry(firstEntry).bucket;
+            if (parsed) return parsed;
+        }
+    }
+    return DEFAULT_RESULTS_STORE_BUCKET;
+}
+
+/**
+ * Parses a single DEFAULT_BUCKETS or RESULTS_STORE_BUCKET entry of the form "bucket" or
  * "bucket/path/to/dir" (optionally scheme-prefixed) into its bucket name
  * and normalized object prefix ("" or "path/to/dir/").
  *
@@ -39,27 +67,41 @@ export function parseBucketEntry(entry) {
 }
 
 /**
- * Returns the raw (trimmed) entries configured via DEFAULT_BUCKETS,
- * which may include "bucket/path" scoped entries.
+ * Returns the raw (trimmed) entries configured via DEFAULT_BUCKETS.
+ * If DEFAULT_BUCKETS is not set, falls back to RESULTS_STORE_BUCKET
+ * or DEFAULT_RESULTS_BUCKETS.
  *
- * @param {string|undefined} rawBuckets - typically process.env.DEFAULT_BUCKETS
+ * @param {string|undefined} [rawBuckets=process.env.DEFAULT_BUCKETS]
+ * @param {string|undefined} [rawResultsStoreBucket=process.env.RESULTS_STORE_BUCKET]
  * @returns {string[]}
  */
-export function getConfiguredBucketEntries(rawBuckets) {
-    const raw = rawBuckets || DEFAULT_RESULTS_BUCKETS;
-    return raw.split(',').map(e => e.trim()).filter(Boolean);
+export function getConfiguredBucketEntries(
+    rawBuckets = process.env.DEFAULT_BUCKETS,
+    rawResultsStoreBucket = process.env.RESULTS_STORE_BUCKET
+) {
+    const defaultFallback = rawResultsStoreBucket || DEFAULT_RESULTS_BUCKETS;
+    const raw = rawBuckets !== undefined && rawBuckets !== ''
+        ? rawBuckets
+        : (process.env.DEFAULT_BUCKETS || defaultFallback);
+    return raw
+        .split(',')
+        .map(e => e.trim())
+        .filter(Boolean);
 }
 
 /**
  * Returns the bucket names configured via DEFAULT_BUCKETS with any
- * "/path" scoping suffixes stripped. Use this wherever an entry must be
- * compared against or used as a plain GCS bucket name.
+ * "/path" scoping suffixes stripped.
  *
- * @param {string|undefined} rawBuckets - typically process.env.DEFAULT_BUCKETS
+ * @param {string|undefined} [rawBuckets=process.env.DEFAULT_BUCKETS]
+ * @param {string|undefined} [rawResultsStoreBucket=process.env.RESULTS_STORE_BUCKET]
  * @returns {string[]}
  */
-export function getConfiguredBucketNames(rawBuckets) {
-    return getConfiguredBucketEntries(rawBuckets)
+export function getConfiguredBucketNames(
+    rawBuckets = process.env.DEFAULT_BUCKETS,
+    rawResultsStoreBucket = process.env.RESULTS_STORE_BUCKET
+) {
+    return getConfiguredBucketEntries(rawBuckets, rawResultsStoreBucket)
         .map(e => parseBucketEntry(e).bucket)
         .filter(Boolean);
 }

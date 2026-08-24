@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, UploadCloud, CheckCircle, AlertCircle, AlertOctagon, AlertTriangle, FileText, ChevronLeft, ChevronRight, ChevronDown, Trash2, Upload, ShieldAlert, Check, ArrowRight, ArrowLeft, GitCompare, Zap, Cpu, Pencil, Layers, Split, GripVertical, Sparkles, Info, RotateCcw } from 'lucide-react';
+import { X, UploadCloud, CheckCircle, AlertCircle, AlertOctagon, AlertTriangle, FileText, ChevronLeft, ChevronRight, ChevronDown, Trash2, Upload, ShieldAlert, Check, ArrowRight, ArrowLeft, GitCompare, Zap, Cpu, Pencil, Layers, Split, GripVertical, Sparkles, Info, RotateCcw, GitFork } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Scatter } from 'recharts';
 import { validateBenchmark, validatePrismUploadStructure } from '../../utils/benchmarkValidator';
@@ -133,8 +133,9 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
 
 
     // Wizard navigation & Attribution states
-    const { isAuthenticated, isConfigured, user, login, logout, accessToken } = useGitHubAuth();
+    const { isAuthenticated, isConfigured, isPlaygroundMode, user, login, logout, accessToken } = useGitHubAuth();
     const [wizardStep, setWizardStep] = useState(1);
+    const [customAuthorName, setCustomAuthorName] = useState('');
     const [dcoSigned, setDcoSigned] = useState(false);
     const [selectedReviewers, setSelectedReviewers] = useState([]);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -311,6 +312,18 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
             entry.prism_stage_index = idx;
         });
 
+        const allForkedFrom = [];
+        targetBundles.forEach(bundle => {
+            const ff = bundle.payload?.forked_from || bundle.forked_from;
+            if (ff) {
+                if (Array.isArray(ff)) {
+                    allForkedFrom.push(...ff);
+                } else {
+                    allForkedFrom.push(ff);
+                }
+            }
+        });
+
         const newPayload = {
             runId: coalescedId,
             runLabel: resolvedMetadata.runLabel,
@@ -319,6 +332,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                 hardware_name: resolvedMetadata.hardware_name,
                 accelerator_count: resolvedMetadata.accelerator_count
             },
+            ...(allForkedFrom.length > 0 ? { forked_from: allForkedFrom } : {}),
             attribution: targetBundles[0].payload?.attribution || null,
             manifests: targetBundles.reduce((acc, b) => ({ ...acc, ...(b.payload?.manifests || {}) }), {}),
             evidence: targetBundles.reduce((acc, b) => ({ ...acc, ...(b.payload?.evidence || {}) }), {}),
@@ -1996,7 +2010,18 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
     };
 
     const handleStageLocally = async () => {
-        const validBundles = stagedFiles.filter(b => !b.isSkipped && b.validation.format && b.validation.errors.length === 0);
+        const validBundles = stagedFiles.filter(b => !b.isSkipped && b.validation.format && b.validation.errors.length === 0).map(b => {
+            if (isPlaygroundMode) {
+                return {
+                    ...b,
+                    payload: {
+                        ...b.payload,
+                        github_author: null
+                    }
+                };
+            }
+            return b;
+        });
         localStorage.setItem('prism_active_staged_bundles', JSON.stringify(validBundles));
         await onCommit(validBundles);
         
@@ -2033,19 +2058,26 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
             
             // Post each run package to the production Results Store API `/api/results`
             for (const bundle of validBundles) {
+                const effectiveAuthor = isPlaygroundMode
+                    ? { username: customAuthorName.trim() || 'anonymous', playground: true }
+                    : (user?.username ? { username: user.username } : undefined);
+
+                const forkedFromVal = bundle.payload?.forked_from || bundle.forked_from;
                 const payload = {
-                    runId: bundle.payload.runId || bundle.id || uuidv4(),
-                    runLabel: bundle.name || bundle.payload.runLabel || 'Unnamed Run',
-                    model_name: bundle.payload.model_name || "Custom Model",
+                    runId: bundle.payload?.runId || bundle.id || uuidv4(),
+                    runLabel: bundle.name || bundle.payload?.runLabel || 'Unnamed Run',
+                    model_name: bundle.payload?.model_name || "Custom Model",
+                    ...(effectiveAuthor ? { github_author: effectiveAuthor } : {}),
                     hardware: {
-                        hardware_name: bundle.payload.hardware?.hardware_name || "Unknown Hardware",
-                        accelerator_count: bundle.payload.hardware?.accelerator_count
+                        hardware_name: bundle.payload?.hardware?.hardware_name || "Unknown Hardware",
+                        accelerator_count: bundle.payload?.hardware?.accelerator_count
                     },
-                    well_lit_path: bundle.payload.well_lit_path,
-                    inference_tool: bundle.payload.inference_tool,
-                    inference_tool_version: bundle.payload.inference_tool_version,
-                    run_metadata: bundle.payload.run_metadata,
-                    metadata: bundle.payload.metadata,
+                    ...(forkedFromVal ? { forked_from: forkedFromVal } : {}),
+                    well_lit_path: bundle.payload?.well_lit_path,
+                    inference_tool: bundle.payload?.inference_tool,
+                    inference_tool_version: bundle.payload?.inference_tool_version,
+                    run_metadata: bundle.payload?.run_metadata,
+                    metadata: bundle.payload?.metadata,
                     manifests: {
                         ...(bundle.payload.manifests || {}),
                         ...(bundle.attachedManifests ? Object.fromEntries(
@@ -2094,7 +2126,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-Prism-Github-Token': accessToken
+                        ...(accessToken ? { 'X-Prism-Github-Token': accessToken } : {})
                     },
                     body: JSON.stringify(payload)
                 });
@@ -2153,6 +2185,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
     const resetWizard = () => {
         setStagedFiles([]);
         setWizardStep(1);
+        setCustomAuthorName('');
         setDcoSigned(false);
         setSelectedReviewers([]);
         try {
@@ -2178,12 +2211,38 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                 <div className="max-w-3xl mx-auto w-full space-y-6 text-slate-200">
                     <div>
                         <h3 className="text-base font-extrabold text-slate-100 flex items-center gap-2 select-none">
-                            Contributor Attribution & DCO
+                            {isPlaygroundMode ? 'Contributor Attribution' : 'Contributor Attribution & DCO'}
                         </h3>
-                        <p className="text-xs text-slate-500 mt-1 select-none">Accept the Developer Certificate of Origin (DCO) and verify your identity using GitHub.</p>
+                        <p className="text-xs text-slate-500 mt-1 select-none">
+                            {isPlaygroundMode ? 'Specify author identity for this submission.' : 'Accept the Developer Certificate of Origin (DCO) and verify your identity.'}
+                        </p>
                     </div>
 
-                    {!isAuthenticated ? (
+                    {isPlaygroundMode ? (
+                        <div className="border border-amber-500/30 bg-amber-500/[0.03] rounded-2xl p-5 shadow-sm space-y-4">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2 select-none">
+                                    <Sparkles className="text-amber-400" size={16} />
+                                    <span className="text-xs font-bold text-amber-300 uppercase tracking-wider">Playground Mode Active</span>
+                                </div>
+                                <span className="text-[10px] text-slate-400 font-mono">Authentication Bypassed</span>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label className="uppercase tracking-wider mb-0.5 select-none">Author / Contributor Name</Label>
+                                <Input
+                                    type="text"
+                                    value={customAuthorName}
+                                    onChange={(e) => setCustomAuthorName(e.target.value)}
+                                    placeholder="anonymous"
+                                    className="text-xs font-semibold bg-slate-950/60 border-slate-800"
+                                />
+                                <p className="text-[11px] text-slate-400">
+                                    In Playground Mode, enter an author/contributor name or leave blank to submit as <code className="text-amber-300">anonymous</code>.
+                                </p>
+                            </div>
+                        </div>
+                    ) : !isAuthenticated ? (
                         <div className="border border-slate-900 bg-slate-950/40 rounded-2xl p-8 shadow-inner flex flex-col items-center text-center space-y-4 max-w-xl mx-auto">
                             <div className="p-3.5 bg-slate-900 rounded-full text-slate-400">
                                 <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24">
@@ -2247,28 +2306,30 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                     )}
 
                     {/* DCO Block */}
-                    <div className="space-y-2">
-                        <Label className="uppercase tracking-wider mb-0 select-none">Developer Certificate of Origin (DCO)</Label>
-                        <div className="border border-slate-900/60 bg-slate-950/65 p-4 rounded-xl h-36 overflow-y-auto text-[10px] font-mono leading-relaxed text-slate-400 shadow-inner">
-                            <p className="font-bold mb-2">Developer Certificate of Origin Version 1.1</p>
-                            <p className="mb-2">By making a contribution to this project, I certify that:</p>
-                            <p className="mb-2">(a) The contribution was created in whole or in part by me and I have the right to submit it under the open source license indicated in the file; or</p>
-                            <p className="mb-2">(b) The contribution is based upon previous work that, to the best of my knowledge, I have the right to submit it under the same open source license; or</p>
-                            <p className="mb-2">(c) The contribution was provided directly to me by some other person who certified (a), (b) or (c) and I have not modified it.</p>
-                            <p>(d) I understand and agree that this project and the contribution are public and that a record of the contribution is maintained indefinitely.</p>
+                    {!isPlaygroundMode && (
+                        <div className="space-y-2">
+                            <Label className="uppercase tracking-wider mb-0 select-none">Developer Certificate of Origin (DCO)</Label>
+                            <div className="border border-slate-900/60 bg-slate-950/65 p-4 rounded-xl h-36 overflow-y-auto text-[10px] font-mono leading-relaxed text-slate-400 shadow-inner">
+                                <p className="font-bold mb-2">Developer Certificate of Origin Version 1.1</p>
+                                <p className="mb-2">By making a contribution to this project, I certify that:</p>
+                                <p className="mb-2">(a) The contribution was created in whole or in part by me and I have the right to submit it under the open source license indicated in the file; or</p>
+                                <p className="mb-2">(b) The contribution is based upon previous work that, to the best of my knowledge, I have the right to submit it under the same open source license; or</p>
+                                <p className="mb-2">(c) The contribution was provided directly to me by some other person who certified (a), (b) or (c) and I have not modified it.</p>
+                                <p>(d) I understand and agree that this project and the contribution are public and that a record of the contribution is maintained indefinitely.</p>
+                            </div>
+                            <label className="flex items-start gap-2.5 mt-2 cursor-pointer select-none">
+                                <Checkbox
+                                    checked={dcoSigned}
+                                    disabled={!isAuthenticated}
+                                    onChange={(e) => setDcoSigned(e.target.checked)}
+                                    className="mt-1 cursor-pointer disabled:opacity-40"
+                                />
+                                <span className={cn('text-xs leading-normal', !isAuthenticated ? 'text-slate-600' : 'text-slate-400')}>
+                                    I sign off on the Developer Certificate of Origin (DCO) and certify that these benchmark runs comply with community standards.
+                                </span>
+                            </label>
                         </div>
-                        <label className="flex items-start gap-2.5 mt-2 cursor-pointer select-none">
-                            <Checkbox
-                                checked={dcoSigned}
-                                disabled={!isAuthenticated}
-                                onChange={(e) => setDcoSigned(e.target.checked)}
-                                className="mt-1 cursor-pointer disabled:opacity-40"
-                            />
-                            <span className={cn('text-xs leading-normal', !isAuthenticated ? 'text-slate-600' : 'text-slate-400')}>
-                                I sign off on the Developer Certificate of Origin (DCO) and certify that these benchmark runs comply with community standards.
-                            </span>
-                        </label>
-                    </div>
+                    )}
 
                     {/* Reviewers Selection */}
                     <div>
@@ -2276,7 +2337,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                         <Input
                             type="text"
                             value={selectedReviewers.join(', ')}
-                            disabled={!isAuthenticated}
+                            disabled={!isPlaygroundMode && !isAuthenticated}
                             onChange={(e) => setSelectedReviewers(e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
                             placeholder="username1, username2 (comma separated)"
                             className="text-xs font-semibold"
@@ -2310,7 +2371,15 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                 {validBundles.map(b => (
                                     <div key={b.id} className="flex justify-between items-center text-xs bg-slate-950/60 border border-slate-900/40 px-3.5 py-2 rounded-xl">
                                         <span className="font-mono text-slate-400">{b.payload.runId || b.id}</span>
-                                        <span className="text-slate-300 font-semibold">{b.payload.model_name}</span>
+                                        <div className="flex items-center gap-2">
+                                            {Boolean(b.payload?.forked_from || b.forked_from) && (
+                                                <Badge tone="info" size="xs" className="px-1.5 py-0.2 font-bold flex items-center gap-1 text-[10px] bg-blue-500/10 text-blue-400 border-blue-500/30">
+                                                    <GitFork size={10} />
+                                                    <span>Forked</span>
+                                                </Badge>
+                                            )}
+                                            <span className="text-slate-300 font-semibold">{b.payload.model_name}</span>
+                                        </div>
                                     </div>
                                 ))}
                             </div>
@@ -2321,18 +2390,28 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                             <div className="grid grid-cols-2 gap-4 text-xs">
                                 <div>
                                     <span className="text-slate-550 block mb-0.5 select-none">Contributor</span>
-                                    <span className="font-semibold text-slate-300">@{user?.username || 'Contributor'}</span>
+                                    <span className="font-semibold text-slate-300">
+                                        @{isPlaygroundMode ? (customAuthorName.trim() || 'anonymous') : (user?.username || 'Contributor')}
+                                    </span>
                                 </div>
                                 <div>
                                     <span className="text-slate-550 block mb-0.5 select-none">GitHub User</span>
-                                    <span className="font-semibold text-slate-300">@{user?.username || 'Not specified'}</span>
-                                </div>
-                                <div className="col-span-2">
-                                    <span className="text-slate-550 block mb-0.5 select-none">DCO Signature</span>
-                                    <span className="text-emerald-400 font-bold flex items-center gap-1 text-[11px]">
-                                        <Check size={13} className="text-emerald-500" /> Signed and Verified
+                                    <span className="font-semibold text-slate-300">
+                                        {isPlaygroundMode ? (
+                                            <span className="text-amber-300/90 font-mono text-[11px]">Playground ({customAuthorName.trim() || 'anonymous'})</span>
+                                        ) : (
+                                            `@${user?.username || 'Not specified'}`
+                                        )}
                                     </span>
                                 </div>
+                                {!isPlaygroundMode && (
+                                    <div className="col-span-2">
+                                        <span className="text-slate-550 block mb-0.5 select-none">DCO Signature</span>
+                                        <span className="text-emerald-400 font-bold flex items-center gap-1 text-[11px]">
+                                            <Check size={13} className="text-emerald-500" /> Signed and Verified
+                                        </span>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -2396,7 +2475,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                         </div>
                     </div>
 
-                    {user?.permission === 'none' ? (
+                    {user?.permission === 'none' && !isPlaygroundMode ? (
                         <div className="bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-xl p-4 flex gap-3 text-xs leading-normal shadow-[0_4px_20px_rgba(245,158,11,0.05)] animate-in fade-in duration-200">
                             <AlertCircle className="text-amber-500 shrink-0 mt-0.5" size={16} />
                             <div className="space-y-1 font-medium">
@@ -2644,7 +2723,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                             <ChevronRight size={14} className="text-slate-700 shrink-0" />
                             <span className={cn('flex items-center gap-2 transition-all', wizardStep === 3 ? 'text-cyan-400 font-extrabold scale-105' : 'text-slate-400')}>
                                 <span className={cn('w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-mono font-bold transition-all', wizardStep === 3 ? 'bg-cyan-500/10 text-cyan-400 border-2 border-cyan-500/40 shadow-[0_0_12px_rgba(6,182,212,0.25)]' : 'bg-slate-950/60 border border-slate-900 text-slate-500')}>3</span>
-                                Attribution & DCO
+                                {isPlaygroundMode ? 'Attribution' : 'Attribution & DCO'}
                             </span>
                             <ChevronRight size={14} className="text-slate-700 shrink-0" />
                             <span className={cn('flex items-center gap-2 transition-all', wizardStep === 4 ? 'text-cyan-400 font-extrabold scale-105' : 'text-slate-400')}>
@@ -2993,6 +3072,12 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                     <div className="flex flex-col">
                                                         <div className="flex items-center gap-2">
                                                             <span className="text-sm font-bold text-slate-800 dark:text-slate-200 select-all">{bundle.payload.model_name || <span className="text-red-400 italic font-normal">Missing</span>}</span>
+                                                            {Boolean(bundle.payload?.forked_from || bundle.forked_from) && (
+                                                                <Badge tone="info" size="xs" className="px-1.5 py-0.5 font-bold flex items-center gap-1 text-[10px] bg-blue-500/10 text-blue-400 border-blue-500/30">
+                                                                    <GitFork size={10} />
+                                                                    <span>Forked</span>
+                                                                </Badge>
+                                                            )}
                                                             {bundle.isCoalesced && !bundle.isAutoCoalesced && (
                                                                 <Badge tone="info" size="xs" className="px-1.5 py-0.5 font-bold flex items-center gap-1 text-[10px]">
                                                                     <Layers size={10} />
@@ -4088,57 +4173,63 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                             </div>
                         )}
 
-                        {wizardStep === 3 && (
-                            <div className="flex items-center gap-3">
-                                {(!isAuthenticated || !user?.username || !dcoSigned) && (
-                                    <span className="text-[10px] text-amber-500 font-semibold max-w-[200px] text-right animate-pulse">
-                                        Please authenticate via GitHub and accept DCO to continue.
-                                    </span>
-                                )}
-                                <button 
-                                    onClick={() => setWizardStep(4)}
-                                    disabled={!isAuthenticated || !user?.username || !dcoSigned}
-                                    className={cn(
-                                        'px-5 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer',
-                                        isAuthenticated && user?.username && dcoSigned
-                                        ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white shadow-md'
-                                        : 'bg-slate-900/40 text-slate-500 border border-slate-900/50 cursor-not-allowed'
+                        {wizardStep === 3 && (() => {
+                            const canProceedStep3 = isPlaygroundMode ? true : (isAuthenticated && user?.username && dcoSigned);
+                            return (
+                                <div className="flex items-center gap-3">
+                                    {!canProceedStep3 && (
+                                        <span className="text-[10px] text-amber-500 font-semibold max-w-[200px] text-right animate-pulse">
+                                            Please authenticate via GitHub and accept DCO to continue.
+                                        </span>
                                     )}
-                                >
-                                    Next <ArrowRight size={14} />
-                                </button>
-                            </div>
-                        )}
+                                    <button 
+                                        onClick={() => setWizardStep(4)}
+                                        disabled={!canProceedStep3}
+                                        className={cn(
+                                            'px-5 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer',
+                                            canProceedStep3
+                                            ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white shadow-md'
+                                            : 'bg-slate-900/40 text-slate-500 border border-slate-900/50 cursor-not-allowed'
+                                        )}
+                                    >
+                                        Next <ArrowRight size={14} />
+                                    </button>
+                                </div>
+                            );
+                        })()}
 
-                        {wizardStep === 4 && (
-                            <div className="flex items-center gap-3">
-                                {user?.permission === 'none' && (
-                                    <span className="text-[10px] text-amber-500 font-semibold max-w-[240px] text-right">
-                                        You are not in the Results Store closed-beta. Check back later once the feature is released.
-                                    </span>
-                                )}
-                                <button 
-                                    onClick={() => handleSubmit(targetVisibility)}
-                                    disabled={isSubmitting || user?.permission === 'none'}
-                                    className={`px-5 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all ${
-                                        isSubmitting || user?.permission === 'none'
-                                        ? 'bg-slate-900/40 text-slate-500 border border-slate-900/50 cursor-not-allowed opacity-50 shadow-none'
-                                        : targetVisibility === 'unlisted'
-                                        ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white shadow-md hover:shadow-cyan-500/10 cursor-pointer border border-cyan-500/20'
-                                        : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-md hover:shadow-emerald-500/10 cursor-pointer border border-emerald-500/20'
-                                    }`}
-                                >
-                                    {isSubmitting ? (
-                                        <Spinner size="xs" className="text-white dark:text-white" />
-                                    ) : targetVisibility === 'unlisted' ? (
-                                        <UploadCloud size={14} />
-                                    ) : (
-                                        <Check size={14} />
+                        {wizardStep === 4 && (() => {
+                            const isSubmitBlocked = isSubmitting || (!isPlaygroundMode && user?.permission === 'none');
+                            return (
+                                <div className="flex items-center gap-3">
+                                    {user?.permission === 'none' && !isPlaygroundMode && (
+                                        <span className="text-[10px] text-amber-500 font-semibold max-w-[240px] text-right">
+                                            You are not in the Results Store closed-beta. Check back later once the feature is released.
+                                        </span>
                                     )}
-                                    {targetVisibility === 'unlisted' ? 'Save as Unlisted' : 'Submit for Public Review'}
-                                </button>
-                            </div>
-                        )}
+                                    <button 
+                                        onClick={() => handleSubmit(targetVisibility)}
+                                        disabled={isSubmitBlocked}
+                                        className={`px-5 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all ${
+                                            isSubmitBlocked
+                                            ? 'bg-slate-900/40 text-slate-500 border border-slate-900/50 cursor-not-allowed opacity-50 shadow-none'
+                                            : targetVisibility === 'unlisted'
+                                            ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white shadow-md hover:shadow-cyan-500/10 cursor-pointer border border-cyan-500/20'
+                                            : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-md hover:shadow-emerald-500/10 cursor-pointer border border-emerald-500/20'
+                                        }`}
+                                    >
+                                        {isSubmitting ? (
+                                            <Spinner size="xs" className="text-white dark:text-white" />
+                                        ) : targetVisibility === 'unlisted' ? (
+                                            <UploadCloud size={14} />
+                                        ) : (
+                                            <Check size={14} />
+                                        )}
+                                        {targetVisibility === 'unlisted' ? 'Save as Unlisted' : 'Submit for Public Review'}
+                                    </button>
+                                </div>
+                            );
+                        })()}
 
                         <button 
                             onClick={onNavigateBack}

@@ -14,6 +14,7 @@
 
 import { Request, Response } from 'express';
 import { validateGitHubToken } from '../../oauth.ts';
+import { isPlaygroundMode } from '../../iam.ts';
 import { readResultMetadata, deleteResult } from '../gcs.ts';
 
 export interface DeleteResultsResponse {
@@ -24,16 +25,17 @@ export interface DeleteResultsResponse {
 /**
  * DELETE /api/results/:runId
  *
- * Permanently deletes a rejected benchmark result run bundle from the GCS Results Store.
+ * Permanently deletes a benchmark result run bundle from the GCS Results Store.
  *
- * - **Headers:** `X-Prism-Github-Token: <access_token>` (required)
+ * - **Headers:** `X-Prism-Github-Token: <access_token>` (required, optional in playground mode)
  * - **Authorization Rules:**
- *     - **Admin:** Full access, provided benchmark submission state is `rejected`.
+ *     - **Playground Mode:** Full access to delete any benchmark in RESULTS_STORE_BUCKET anonymously.
+ *     - **Admin:** Full access, provided benchmark submission state is `unlisted` or `rejected`.
+ *     - **Owner:** Full access if benchmark submission state is `unlisted`.
  *     - **Non-Admin Users / Guests:** `403 Forbidden`.
  * - **Benchmark Checks:**
  *     - `runId` must be a valid UUID.
  *     - Benchmark must exist in the GCS Results Store.
- *     - Benchmark state MUST be `rejected`. Deleting benchmarks in any other state returns `403 Forbidden`.
  */
 export async function deleteResultsHandler(
     req: Request<{ runId: string }, DeleteResultsResponse | { error: string; details?: unknown }>,
@@ -49,20 +51,32 @@ export async function deleteResultsHandler(
 
     // 1. Authenticate user
     const token = req.headers['x-prism-github-token'] as string | undefined;
-    if (!token) {
-        return res.status(401).json({ error: 'Authentication required. Missing session token.' });
-    }
-
     let username = '';
     let permission = 'none';
 
-    try {
-        const authResult = await validateGitHubToken(token);
-        username = authResult.username;
-        permission = authResult.permission;
-    } catch (error: unknown) {
-        const msg = error instanceof Error ? error.message : String(error);
-        return res.status(401).json({ error: 'Invalid or expired session token.', details: msg });
+    if (isPlaygroundMode()) {
+        permission = 'admin';
+        if (token) {
+            try {
+                const authResult = await validateGitHubToken(token);
+                username = authResult.username;
+            } catch {
+                // Ignore token errors in playground mode
+            }
+        }
+    } else {
+        if (!token) {
+            return res.status(401).json({ error: 'Authentication required. Missing session token.' });
+        }
+
+        try {
+            const authResult = await validateGitHubToken(token);
+            username = authResult.username;
+            permission = authResult.permission;
+        } catch (error: unknown) {
+            const msg = error instanceof Error ? error.message : String(error);
+            return res.status(401).json({ error: 'Invalid or expired session token.', details: msg });
+        }
     }
 
     try {
@@ -76,7 +90,9 @@ export async function deleteResultsHandler(
         const isOwner = !!(username && itemUser.toLowerCase() === username.toLowerCase());
 
         let allowed = false;
-        if (isOwner && itemState === 'unlisted') {
+        if (isPlaygroundMode()) {
+            allowed = true;
+        } else if (isOwner && itemState === 'unlisted') {
             allowed = true;
         } else if (permission === 'admin' && (itemState === 'unlisted' || itemState === 'rejected')) {
             allowed = true;

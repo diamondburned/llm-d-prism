@@ -71,15 +71,23 @@ user against allowlist text files stored in Google Cloud Storage (GCS). These
 files contain line-separated GitHub usernames.
 
 Depending on the environment configuration, these allowlist files are read from
-the following GCS paths:
+the bucket configured via `RESULTS_STORE_BUCKET` (defaulting to
+`llm-d-benchmarks`):
 
-- **Local Development / Staging Mode** (when `llm-d-benchmarks-staging` is
-  present in `DEFAULT_BUCKETS`):
+- **User Allowlist**:
+  `gs://<RESULTS_STORE_BUCKET>/prism-iam/github-user-allowlist.txt`
+- **Admin Allowlist**:
+  `gs://<RESULTS_STORE_BUCKET>/prism-iam/github-admin-allowlist.txt`
+
+For example:
+
+- **Development / Staging** (e.g.
+  `RESULTS_STORE_BUCKET=llm-d-benchmarks-staging`):
     - **User Allowlist**:
       `gs://llm-d-benchmarks-staging/prism-iam/github-user-allowlist.txt`
     - **Admin Allowlist**:
       `gs://llm-d-benchmarks-staging/prism-iam/github-admin-allowlist.txt`
-- **Production Mode**:
+- **Production** (`RESULTS_STORE_BUCKET=llm-d-benchmarks`):
     - **User Allowlist**:
       `gs://llm-d-benchmarks/prism-iam/github-user-allowlist.txt`
     - **Admin Allowlist**:

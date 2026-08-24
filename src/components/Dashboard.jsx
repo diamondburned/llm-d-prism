@@ -1371,6 +1371,8 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
             });
 
             const payload = groupingData[0]?.payload;
+            const forked_from = payload?.forked_from || groupingData.find(d => d.forked_from)?.forked_from || null;
+            const github_author = payload?.github_author || groupingData.find(d => d.github_author)?.github_author || null;
 
             stats.push({
                 benchmarkKey,
@@ -1387,6 +1389,8 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
                 tp: tensor_parallelism,
                 sourceLinks,
                 payload,
+                forked_from,
+                github_author,
                 // Store reference to the actual data for this benchmark
                 // Fix Duplicates & Sort by QPS
                 data: (() => {

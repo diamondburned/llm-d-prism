@@ -14,7 +14,7 @@
 
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { RotateCcw, ChevronDown, ChevronUp, Star, Pin, CheckSquare, Square, Check, Pencil, Trash2, Code2, Copy, Share2, X, Database, Eye, EyeOff, ShieldCheck, AlertCircle, TrendingUp, AlertTriangle, Search, FileText, FileClock, Sliders, Activity, Send, Play, Loader, Download, ExternalLink } from 'lucide-react';
+import { RotateCcw, ChevronDown, ChevronUp, Star, Pin, CheckSquare, Square, Check, Pencil, Trash2, Code2, Copy, Share2, X, Database, Eye, EyeOff, ShieldCheck, AlertCircle, TrendingUp, AlertTriangle, Search, FileText, FileClock, Sliders, Activity, Send, Play, Loader, Download, ExternalLink, GitFork, Info } from 'lucide-react';
 import { RunComparisonChart } from '../Dashboard/RunComparisonChart';
 import { ThroughputCostChart } from '../Dashboard/ThroughputCostChart';
 import { Button, Badge, StatusChip, Modal, Textarea } from '../ui';
@@ -27,6 +27,35 @@ import { encodeShareLink, isValidUuid } from '../../utils/shareLinkEncoder';
 import { v4 as uuidv4 } from 'uuid';
 import { downloadRunBRV02, downloadSingleStageYaml, getRawPrismCloudPayload } from '../../utils/brv02Exporter';
 import { parseDataUri } from '../../utils/dataParser';
+import { forkBenchmark } from '../../utils/benchmarkForker';
+
+const getStatusTooltipText = (status, sub) => {
+    switch (status) {
+        case 'staged':
+            return "Staged locally on your machine. Not yet submitted to the Results Store.";
+        case 'submitted_pending_processing':
+        case 'processing':
+            return "Staged in the GCS bucket. Automated formatting checks are running.";
+        case 'submitted_pending_review':
+        case 'in_review':
+            return "Pending admin review. Check back later once a reviewer approves it.";
+        case 'approved':
+        case 'approved_pending_publish':
+            return "Approved by admins. Waiting for the next scheduled sync to publish.";
+        case 'public':
+        case 'promoted':
+            return "Published in the Public Results Store and visible to all users.";
+        case 'rejected':
+        case 'changes_requested': {
+            const reason = sub?.feedback || sub?.rejectionFeedback;
+            return reason 
+                ? `Rejected by admins. Reason: "${reason}"`
+                : "Rejected by Results Store admins.";
+        }
+        default:
+            return "Status: " + status;
+    }
+};
 
 const getCleanModelName = (name) => {
     if (!name) return '';
@@ -88,9 +117,9 @@ const getCardStatusAccent = (isBrv02, runId, submissionsMap, gcsStatus = null) =
     };
 };
 
-const getKpiFilterLabel = (filter) => {
+const getKpiFilterLabel = (filter, isPlaygroundMode = false) => {
     switch (filter) {
-        case 'my-submissions': return 'My Benchmarks';
+        case 'my-submissions': return isPlaygroundMode ? 'Pending Benchmarks' : 'My Benchmarks';
         case 'verified': return 'Production Ready';
         case 'staged': return 'Locally Staged';
         case 'unlisted': return 'Unlisted';
@@ -107,7 +136,7 @@ const getKpiFilterLabel = (filter) => {
 
 export const UnifiedDataTable = (props) => {
     const { dashboardState, includeUnlisted = false, addToast, dashboardData } = props;
-    const { user } = useGitHubAuth();
+    const { user, isPlaygroundMode } = useGitHubAuth();
     const isAdmin = user?.permission === 'admin';
         const [rawYamlContent, setRawYamlContent] = useState(null);
     const [rawYamlTitle, setRawYamlTitle] = useState('');
@@ -495,6 +524,40 @@ export const UnifiedDataTable = (props) => {
             dcoChecked: true
         };
 
+        const forkedFromVal = run.forked_from 
+            || run.payload?.forked_from 
+            || run.bundle?.payload?.forked_from 
+            || run.stages?.[0]?.forked_from 
+            || run.stages?.[0]?.payload?.forked_from 
+            || null;
+
+        const githubAuthorVal = run.github_author 
+            || run.payload?.github_author 
+            || run.bundle?.payload?.github_author 
+            || run.stages?.[0]?.github_author 
+            || run.stages?.[0]?.payload?.github_author 
+            || null;
+
+        const inferenceToolVal = run.inference_tool 
+            || run.payload?.inference_tool 
+            || run.stages?.[0]?.inference_tool 
+            || null;
+
+        const inferenceToolVersionVal = run.inference_tool_version 
+            || run.payload?.inference_tool_version 
+            || run.stages?.[0]?.inference_tool_version 
+            || null;
+
+        const manifestsVal = run.manifests 
+            || run.payload?.manifests 
+            || run.bundle?.payload?.manifests 
+            || null;
+
+        const evidenceVal = run.evidence 
+            || run.payload?.evidence 
+            || run.bundle?.payload?.evidence 
+            || null;
+
         return {
             id: Math.random().toString(36).substring(7),
             dirKey: run.runId,
@@ -502,7 +565,9 @@ export const UnifiedDataTable = (props) => {
             stageFiles,
             metadataFiles,
             payload: {
+                ...(run.payload || {}),
                 runId: run.runId,
+                runLabel: run.runLabel,
                 format: 'brv02',
                 model_name: run.model_name || run.stages[0]?.scenario?.model || 'Unknown Model',
                 hardware: { 
@@ -517,7 +582,13 @@ export const UnifiedDataTable = (props) => {
                     stage: stage.stageIndex,
                     runUid: stage.runUid
                 })),
-                well_lit_path: run.wellLitPath
+                well_lit_path: run.wellLitPath || run.well_lit_path || null,
+                ...(forkedFromVal ? { forked_from: forkedFromVal } : {}),
+                ...(githubAuthorVal ? { github_author: githubAuthorVal } : {}),
+                ...(inferenceToolVal ? { inference_tool: inferenceToolVal } : {}),
+                ...(inferenceToolVersionVal ? { inference_tool_version: inferenceToolVersionVal } : {}),
+                ...(manifestsVal ? { manifests: manifestsVal } : {}),
+                ...(evidenceVal ? { evidence: evidenceVal } : {})
             },
             validation: bundleValidation,
             isExpanded: true,
@@ -585,6 +656,92 @@ export const UnifiedDataTable = (props) => {
 
         onOpenSubmitDialog && onOpenSubmitDialog('submit-review');
     }, [buildBundleForRun, onOpenSubmitDialog]);
+
+    const [showPostForkModal, setShowPostForkModal] = useState(false);
+    const [lastForkedCount, setLastForkedCount] = useState(1);
+    const [metadataModalRun, setMetadataModalRun] = useState(null);
+
+    const handleForkSingle = React.useCallback(async (stat, benchmarkData) => {
+        try {
+            const { bundle, newRunId } = forkBenchmark(stat, benchmarkData);
+            if (dashboardData?.handleValidatedUpload) {
+                await dashboardData.handleValidatedUpload([bundle]);
+            } else if (props.handleValidatedUpload) {
+                await props.handleValidatedUpload([bundle]);
+            }
+
+            const stagedKey = `brv02:${newRunId || bundle.payload?.runId}`;
+            if (setSelectedBenchmarks) {
+                setSelectedBenchmarks(new Set([stagedKey]));
+            }
+            if (setKpiFilter) {
+                setKpiFilter('staged');
+            }
+
+            setLastForkedCount(1);
+            setShowPostForkModal(true);
+
+            const msg = "Benchmark successfully forked into local staging.";
+            if (addToast) addToast(msg, 'success');
+            else if (dashboardData?.addToast) dashboardData.addToast(msg, 'success');
+        } catch (err) {
+            console.error("Failed to fork benchmark:", err);
+            const errMsg = "Failed to fork benchmark: " + (err.message || err);
+            if (addToast) addToast(errMsg, 'error');
+            else if (dashboardData?.addToast) dashboardData.addToast(errMsg, 'error');
+            else alert(errMsg);
+        }
+    }, [dashboardData, props, addToast, setSelectedBenchmarks, setKpiFilter]);
+
+    const handleBulkForkSelected = React.useCallback(async () => {
+        if (!selectedBenchmarks || selectedBenchmarks.size === 0) return;
+
+        try {
+            const bundles = [];
+            const newKeys = new Set();
+            for (const key of selectedBenchmarks) {
+                const stat = modelStats.find(s => s.benchmarkKey === key);
+                if (stat) {
+                    const { bundle, newRunId } = forkBenchmark(stat, stat.data || []);
+                    bundles.push(bundle);
+                    newKeys.add(`brv02:${newRunId || bundle.payload?.runId}`);
+                }
+            }
+
+            if (bundles.length === 0) {
+                const warnMsg = "No valid benchmarks found to fork.";
+                if (addToast) addToast(warnMsg, 'warning');
+                else if (dashboardData?.addToast) dashboardData.addToast(warnMsg, 'warning');
+                return;
+            }
+
+            if (dashboardData?.handleValidatedUpload) {
+                await dashboardData.handleValidatedUpload(bundles);
+            } else if (props.handleValidatedUpload) {
+                await props.handleValidatedUpload(bundles);
+            }
+
+            if (setSelectedBenchmarks) {
+                setSelectedBenchmarks(newKeys);
+            }
+            if (setKpiFilter) {
+                setKpiFilter('staged');
+            }
+
+            setLastForkedCount(bundles.length);
+            setShowPostForkModal(true);
+
+            const msg = `Successfully forked ${bundles.length} benchmark${bundles.length > 1 ? 's' : ''} into local staging.`;
+            if (addToast) addToast(msg, 'success');
+            else if (dashboardData?.addToast) dashboardData.addToast(msg, 'success');
+        } catch (err) {
+            console.error("Failed to bulk fork benchmarks:", err);
+            const errMsg = "Failed to bulk fork benchmarks: " + (err.message || err);
+            if (addToast) addToast(errMsg, 'error');
+            else if (dashboardData?.addToast) dashboardData.addToast(errMsg, 'error');
+            else alert(errMsg);
+        }
+    }, [selectedBenchmarks, modelStats, dashboardData, props, addToast, setSelectedBenchmarks, setKpiFilter]);
 
 
     const drawerMetricAvailability = React.useMemo(() => {
@@ -969,6 +1126,12 @@ export const UnifiedDataTable = (props) => {
                 const src = firstEntry.source || '';
                 const isBrv02 = src.startsWith('brv02:') || firstEntry.source_info?.type === 'benchmark_report_v02';
                 if (!isBrv02) return false;
+                if (isPlaygroundMode) {
+                    const runId = src.startsWith('brv02:') ? src.replace('brv02:', '') : firstEntry.run_id;
+                    const sub = runId && submissionsMap ? submissionsMap[runId] : null;
+                    const status = sub?.status || firstEntry.source_info?.submission_state || 'staged';
+                    return status !== 'public' && status !== 'promoted' && status !== 'approved';
+                }
                 const isMine = src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username);
                 return isMine;
             });
@@ -984,7 +1147,7 @@ export const UnifiedDataTable = (props) => {
                 const src = firstEntry.source || '';
                 const isBrv02 = src.startsWith('brv02:') || firstEntry.source_info?.type === 'benchmark_report_v02';
                 if (!isBrv02) return false;
-                const isMine = src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username);
+                const isMine = isPlaygroundMode ? true : (src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username));
                 const runId = src.startsWith('brv02:') ? src.replace('brv02:', '') : firstEntry.run_id;
                 const sub = runId && submissionsMap ? submissionsMap[runId] : null;
                 const status = sub?.status || firstEntry.source_info?.submission_state || 'staged';
@@ -998,7 +1161,7 @@ export const UnifiedDataTable = (props) => {
                 const src = firstEntry.source || '';
                 const isBrv02 = src.startsWith('brv02:') || firstEntry.source_info?.type === 'benchmark_report_v02';
                 if (!isBrv02) return false;
-                const isMine = src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username);
+                const isMine = isPlaygroundMode ? true : (src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username));
                 const runId = src.startsWith('brv02:') ? src.replace('brv02:', '') : firstEntry.run_id;
                 const sub = runId && submissionsMap ? submissionsMap[runId] : null;
                 const status = sub?.status || firstEntry.source_info?.submission_state || 'staged';
@@ -1011,7 +1174,7 @@ export const UnifiedDataTable = (props) => {
                 const src = firstEntry.source || '';
                 const isBrv02 = src.startsWith('brv02:') || firstEntry.source_info?.type === 'benchmark_report_v02';
                 if (!isBrv02) return false;
-                const isMine = src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username);
+                const isMine = isPlaygroundMode ? true : (src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username));
                 const runId = src.startsWith('brv02:') ? src.replace('brv02:', '') : firstEntry.run_id;
                 const sub = runId && submissionsMap ? submissionsMap[runId] : null;
                 const status = sub?.status || firstEntry.source_info?.submission_state || 'staged';
@@ -1024,7 +1187,7 @@ export const UnifiedDataTable = (props) => {
                 const src = firstEntry.source || '';
                 const isBrv02 = src.startsWith('brv02:') || firstEntry.source_info?.type === 'benchmark_report_v02';
                 if (!isBrv02) return false;
-                const isMine = src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username);
+                const isMine = isPlaygroundMode ? true : (src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username));
                 const runId = src.startsWith('brv02:') ? src.replace('brv02:', '') : firstEntry.run_id;
                 const sub = runId && submissionsMap ? submissionsMap[runId] : null;
                 const status = sub?.status || firstEntry.source_info?.submission_state || 'staged';
@@ -1037,7 +1200,7 @@ export const UnifiedDataTable = (props) => {
                 const src = firstEntry.source || '';
                 const isBrv02 = src.startsWith('brv02:') || firstEntry.source_info?.type === 'benchmark_report_v02';
                 if (!isBrv02) return false;
-                const isMine = src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username);
+                const isMine = isPlaygroundMode ? true : (src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username));
                 const runId = src.startsWith('brv02:') ? src.replace('brv02:', '') : firstEntry.run_id;
                 const sub = runId && submissionsMap ? submissionsMap[runId] : null;
                 const status = sub?.status || firstEntry.source_info?.submission_state || 'staged';
@@ -1050,7 +1213,7 @@ export const UnifiedDataTable = (props) => {
                 const src = firstEntry.source || '';
                 const isBrv02 = src.startsWith('brv02:') || firstEntry.source_info?.type === 'benchmark_report_v02';
                 if (!isBrv02) return false;
-                const isMine = src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username);
+                const isMine = isPlaygroundMode ? true : (src.startsWith('brv02:') || (user && firstEntry.github_author?.username === user.username));
                 const runId = src.startsWith('brv02:') ? src.replace('brv02:', '') : firstEntry.run_id;
                 const sub = runId && submissionsMap ? submissionsMap[runId] : null;
                 const status = sub?.status || firstEntry.source_info?.submission_state || 'staged';
@@ -1093,7 +1256,7 @@ export const UnifiedDataTable = (props) => {
         }
 
         return stats;
-    }, [modelStats, showSelectedOnly, selectedBenchmarks, kpiFilter, includeUnlisted, searchTerm, paretoKeys, baselineBenchmarkKey, submissionsMap, user]);
+    }, [modelStats, showSelectedOnly, selectedBenchmarks, kpiFilter, includeUnlisted, searchTerm, paretoKeys, baselineBenchmarkKey, submissionsMap, user, isPlaygroundMode]);
 
     const sortedStats = React.useMemo(() => {
         return [...filteredStats].sort((a, b) => {
@@ -1346,8 +1509,10 @@ export const UnifiedDataTable = (props) => {
                     themeColor: 'cyan',
                     glowClass: 'shadow-[0_0_30px_rgba(34,211,238,0.2)] bg-cyan-500/10 border-cyan-500/30 text-cyan-400',
                     radialGlow: 'bg-cyan-500/10',
-                    title: 'No submitted benchmarks found',
-                    description: "You have not submitted any benchmark runs to the Results store yet. Staged and submitted benchmarks will appear here.",
+                    title: isPlaygroundMode ? 'No pending benchmarks found' : 'No submitted benchmarks found',
+                    description: isPlaygroundMode 
+                        ? 'There are currently no benchmark runs in pending, staged, or review states.'
+                        : "You have not submitted any benchmark runs to the Results store yet. Staged and submitted benchmarks will appear here.",
                     action: (
                         <button
                             onClick={() => onOpenSubmitDialog && onOpenSubmitDialog('submit-review')}
@@ -1528,7 +1693,7 @@ export const UnifiedDataTable = (props) => {
                                     kpiFilter === 'pareto' ? 'bg-purple-500/10 text-purple-400 border-purple-500/25' :
                                     kpiFilter === 'regressions' ? 'bg-amber-500/10 text-amber-400 border-amber-500/25' : 'bg-slate-800/60 text-slate-400 border-slate-700'
                                 )}>
-                                    <span>{getKpiFilterLabel(kpiFilter)}</span>
+                                    <span>{getKpiFilterLabel(kpiFilter, isPlaygroundMode)}</span>
                                     {setKpiFilter && (
                                         <button 
                                             onClick={() => setKpiFilter(null)}
@@ -1654,6 +1819,23 @@ export const UnifiedDataTable = (props) => {
                         >
                             {hasPromotableSelected ? `Compare & Promote (${selectedBenchmarks.size})` : `Compare & Inspect (${selectedBenchmarks.size})`}
                         </button>
+
+                        {/* Fork Selected Benchmarks */}
+                        <div className="relative group/fork-selected-btn">
+                            <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => handleActionClick(handleBulkForkSelected)}
+                                disabled={selectedBenchmarks.size === 0 || isLocalActionPending}
+                                className="gap-1.5"
+                            >
+                                <GitFork className="w-3.5 h-3.5" />
+                                <span>Fork ({selectedBenchmarks.size})</span>
+                            </Button>
+                            <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-3 py-2 bg-slate-900 border border-slate-800 text-slate-350 text-xs font-medium rounded-xl opacity-0 invisible group-hover/fork-selected-btn:opacity-100 group-hover/fork-selected-btn:visible transition-all duration-200 shadow-2xl z-[9999] w-64 pointer-events-none leading-relaxed text-center normal-case tracking-normal animate-in fade-in slide-in-from-top-2 duration-150">
+                                Clone selected benchmarks into local staging to modify, coalesce, or republish.
+                            </div>
+                        </div>
 
                         {/* Copy Link Button */}
                         <div className="relative group/share-link">
@@ -1828,6 +2010,7 @@ export const UnifiedDataTable = (props) => {
                                             isBaseline={isBaseline}
                                             user={user}
                                             isAdmin={isAdmin}
+                                            isPlaygroundMode={isPlaygroundMode}
                                             submissionsMap={submissionsMap}
                                             brv02Runs={brv02Runs}
                                             visibleSpecs={visibleSpecs}
@@ -1852,6 +2035,8 @@ export const UnifiedDataTable = (props) => {
                                             handleCheckboxPointerDown={handleCheckboxPointerDown}
                                             brv02CustomLabels={brv02CustomLabels}
                                             handleEditStagedRun={handleEditStagedRun}
+                                            handleForkSingle={handleForkSingle}
+                                            onOpenMetadataModal={(s, d) => setMetadataModalRun({ stat: s, data: d })}
                                             defaultSources={defaultSources}
                                         />
                                     );
@@ -2019,6 +2204,328 @@ export const UnifiedDataTable = (props) => {
                 document.body
             )}
 
+            {/* Post-Fork Educational Dialog */}
+            {showPostForkModal && createPortal(
+                <Modal
+                    isOpen
+                    onClose={() => setShowPostForkModal(false)}
+                    title={
+                        <span className="flex items-center gap-2 text-slate-100 font-semibold">
+                            <div className="w-8 h-8 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-400">
+                                <GitFork className="w-4 h-4" />
+                            </div>
+                            Benchmark{lastForkedCount > 1 ? 's' : ''} Forked to Local Staging
+                        </span>
+                    }
+                    className="max-w-xl"
+                    footer={
+                        <div className="flex items-center justify-between w-full">
+                            <div className="text-xs text-slate-400">
+                                Ready to curate or coalesce.
+                            </div>
+                            <Button
+                                variant="primary"
+                                size="sm"
+                                onClick={() => setShowPostForkModal(false)}
+                                className="px-5 font-semibold bg-blue-600 hover:bg-blue-500 text-white"
+                            >
+                                Got it
+                            </Button>
+                        </div>
+                    }
+                >
+                    <div className="space-y-4 text-sm text-slate-300 leading-relaxed">
+                        <p>
+                            {lastForkedCount > 1 
+                                ? `${lastForkedCount} benchmarks have been successfully copied into your browser's local staging workspace with fresh identifiers.`
+                                : "The benchmark has been successfully copied into your browser's local staging workspace with a fresh identifier."}
+                        </p>
+
+                        <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-3">
+                            <div className="text-xs font-bold text-blue-400 uppercase tracking-wider">
+                                What you can do next
+                            </div>
+                            <ul className="space-y-2 text-xs text-slate-300">
+                                <li className="flex items-start gap-2">
+                                    <span className="text-blue-400 font-bold">•</span>
+                                    <span><strong>Edit Metadata:</strong> Adjust model names, tags, configurations, or hardware descriptions without modifying the original source.</span>
+                                </li>
+                                <li className="flex items-start gap-2">
+                                    <span className="text-blue-400 font-bold">•</span>
+                                    <span><strong>Coalesce Stages:</strong> Combine disjoint multi-stage benchmark runs into unified performance curves.</span>
+                                </li>
+                                <li className="flex items-start gap-2">
+                                    <span className="text-blue-400 font-bold">•</span>
+                                    <span><strong>Republish:</strong> Submit the refined benchmarks to your writable Results Store bucket with original author provenance preserved.</span>
+                                </li>
+                            </ul>
+                        </div>
+
+                        <p className="text-xs text-slate-400 italic">
+                            Note: The forked run remains in your browser's local staging workspace until you submit it.
+                        </p>
+                    </div>
+                </Modal>,
+                document.body
+            )}
+
+            {/* Benchmark Run Metadata Dialog */}
+            {metadataModalRun && createPortal(
+                <Modal
+                    isOpen
+                    onClose={() => setMetadataModalRun(null)}
+                    title={
+                        <span className="flex items-center gap-2 text-slate-100 font-semibold">
+                            <div className="w-8 h-8 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+                                <Info className="w-4 h-4" />
+                            </div>
+                            <span>Benchmark Run Metadata</span>
+                        </span>
+                    }
+                    className="max-w-2xl"
+                    footer={
+                        <div className="flex items-center justify-between w-full">
+                            <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => {
+                                    const runIdToCopy = metadataModalRun.data?.[0]?.run_id || metadataModalRun.stat?.runId || metadataModalRun.data?.[0]?.source_info?.run_id;
+                                    if (runIdToCopy) {
+                                        navigator.clipboard.writeText(runIdToCopy);
+                                        const copyMsg = 'Run UUID copied to clipboard';
+                                        if (addToast) addToast(copyMsg, 'info');
+                                        else if (dashboardData?.addToast) dashboardData.addToast(copyMsg, 'info');
+                                        else alert(copyMsg);
+                                    }
+                                }}
+                                className="gap-1.5"
+                            >
+                                <Copy size={12} />
+                                <span>Copy Run UUID</span>
+                            </Button>
+                            <Button
+                                variant="primary"
+                                size="sm"
+                                onClick={() => setMetadataModalRun(null)}
+                                className="px-5 font-semibold bg-cyan-600 hover:bg-cyan-500 text-white"
+                            >
+                                Close
+                            </Button>
+                        </div>
+                    }
+                >
+                    {(() => {
+                        const mStat = metadataModalRun.stat || metadataModalRun;
+                        const mData = metadataModalRun.data || mStat.data || [];
+                        const mFirst = mData[0] || {};
+                        const mPayload = getRawPrismCloudPayload(mStat, mData);
+                        const mSourceInfo = mFirst.source_info || {};
+                        const mRunId = mFirst.run_id || mStat.runId || mPayload?.runId;
+                        const mSourceStr = mFirst.source || mStat.source || "";
+                        const mIsBrv02 = mSourceStr.startsWith("brv02:") || mFirst.source_info?.type === "benchmark_report_v02";
+                        const mSub = mIsBrv02 && mRunId && submissionsMap ? submissionsMap[mRunId] : null;
+                        const mStatus = mSub?.status || mSourceInfo.submission_state || mPayload?.submission_state || 'staged';
+                        const mStatusDetails = getSubmissionStatusDetails(mStatus);
+                        const mStatusTooltip = getStatusTooltipText(mStatus, mSub);
+
+                        const mSubmittedAt = mSourceInfo.submitted_at || mFirst.timestamp || mStat.timestamp || mPayload?.submitted_at;
+                        const mApprovedAt = mSourceInfo.approved_at || mPayload?.approved_at;
+                        const mAuthorObj = mFirst.github_author || mStat.github_author || mPayload?.github_author || mSourceInfo.github_user;
+                        const mAuthorUsername = typeof mAuthorObj === 'object' ? mAuthorObj?.username : (typeof mAuthorObj === 'string' ? mAuthorObj : null);
+                        const mAuthorName = typeof mAuthorObj === 'object' ? mAuthorObj?.name : null;
+
+                        const mForkedFrom = mPayload?.forked_from || mStat.payload?.forked_from || mStat.forked_from || mFirst.payload?.forked_from || mFirst.forked_from || mSub?.forked_from;
+                        const mForkList = mForkedFrom ? (Array.isArray(mForkedFrom) ? mForkedFrom : [mForkedFrom]) : [];
+
+                        const mSourceBucket = mSourceInfo.bucket || (mSourceStr.startsWith('gcs:') ? mSourceStr.split(':')[1] : (mSourceStr.startsWith('brv02:') ? 'Browser Local Staging' : mSourceStr)) || 'Unknown';
+
+                        return (
+                            <div className="space-y-4 text-xs font-sans text-slate-300">
+                                {/* Header Summary Card */}
+                                <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-2.5">
+                                    <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <span className="font-semibold text-white truncate text-sm">
+                                                {mStat.model || mPayload?.model_name || 'Benchmark Run'}
+                                            </span>
+                                            {mStat.hardware && (
+                                                <span className="text-slate-400 font-mono text-[11px] bg-slate-800/80 px-1.5 py-0.5 rounded shrink-0">
+                                                    {mStat.accelerator_count ? `${mStat.accelerator_count}x ` : ''}{mStat.hardware}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <span className={cn('px-2 py-0.5 rounded-md border text-[11px] font-bold whitespace-nowrap shrink-0', mStatusDetails.bg, mStatusDetails.text, mStatusDetails.border)}>
+                                            {mStatusDetails.label}
+                                        </span>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                                        <div className="space-y-1">
+                                            <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Run UUID</div>
+                                            <div className="font-mono text-[11px] bg-slate-950/80 border border-slate-800/80 px-2 py-1 rounded-lg text-slate-200 select-all break-all">
+                                                {mRunId || 'N/A'}
+                                            </div>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Status Details</div>
+                                            <div className="text-[11px] text-slate-300 bg-slate-950/80 border border-slate-800/80 px-2 py-1 rounded-lg">
+                                                {mStatusTooltip}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {mSub?.feedback && (
+                                        <div className="p-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-[11px]">
+                                            <span className="font-bold uppercase tracking-wider text-[9px] mr-1 text-red-400">Rejection Feedback:</span>
+                                            <span>"{mSub.feedback}"</span>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Metadata Details Grid */}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    {/* Submission Info */}
+                                    <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800/80 space-y-2">
+                                        <div className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                                            <FileClock size={12} className="text-cyan-400" />
+                                            <span>Submission Details</span>
+                                        </div>
+                                        <div className="space-y-1.5 text-[11px]">
+                                            <div className="flex items-center justify-between text-slate-400">
+                                                <span>Submitted At:</span>
+                                                <span className="text-slate-200 font-medium">
+                                                    {mSubmittedAt ? new Date(mSubmittedAt).toLocaleString() : 'Unknown'}
+                                                </span>
+                                            </div>
+                                            <div className="flex items-center justify-between text-slate-400">
+                                                <span>Author / Submitter:</span>
+                                                {mAuthorUsername ? (
+                                                    <span className="flex items-center gap-1.5 text-slate-200">
+                                                        <img
+                                                            src={isPlaygroundMode
+                                                                ? `/api/avatar/${encodeURIComponent(mAuthorUsername)}`
+                                                                : `https://github.com/${mAuthorUsername}.png`}
+                                                            alt={mAuthorUsername}
+                                                            className="w-3.5 h-3.5 rounded-full border border-slate-700 shrink-0"
+                                                            onError={(e) => { e.target.style.display = 'none'; }}
+                                                        />
+                                                        {isPlaygroundMode ? (
+                                                            <span className="font-semibold text-indigo-400">{mAuthorUsername}</span>
+                                                        ) : (
+                                                            <a
+                                                                href={`https://github.com/${mAuthorUsername}`}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="font-semibold text-indigo-400 hover:underline"
+                                                            >
+                                                                {mAuthorUsername}
+                                                            </a>
+                                                        )}
+                                                        {mAuthorName && <span className="text-slate-400 text-[10px]">({mAuthorName})</span>}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-slate-400 italic">Unknown</span>
+                                                )}
+                                            </div>
+                                            {(mStatus === 'public' || mStatus === 'promoted' || mApprovedAt) && (
+                                                <div className="flex items-center justify-between text-slate-400 pt-1 border-t border-slate-800/60">
+                                                    <span>Approved At:</span>
+                                                    <span className="text-emerald-400 font-medium">
+                                                        {mApprovedAt ? new Date(mApprovedAt).toLocaleString() : (mSubmittedAt ? new Date(mSubmittedAt).toLocaleString() : 'Unknown')}
+                                                    </span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Storage Location & Source Info */}
+                                    <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800/80 space-y-2">
+                                        <div className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                                            <Database size={12} className="text-purple-400" />
+                                            <span>Storage & Location</span>
+                                        </div>
+                                        <div className="space-y-1.5 text-[11px]">
+                                            <div className="flex items-center justify-between text-slate-400">
+                                                <span>GCS Bucket / Origin:</span>
+                                                <span className="font-mono text-cyan-300 font-medium truncate max-w-[170px]" title={mSourceBucket}>
+                                                    {mSourceBucket.startsWith('gs://') ? mSourceBucket : (mSourceBucket === 'Browser Local Staging' ? mSourceBucket : `gs://${mSourceBucket}`)}
+                                                </span>
+                                            </div>
+                                            <div className="flex items-center justify-between text-slate-400">
+                                                <span>Source Format:</span>
+                                                <span className="font-mono text-slate-200">
+                                                    {mPayload?.format || (mSourceStr.startsWith('brv02:') ? 'brv02' : 'BRV0.2')}
+                                                </span>
+                                            </div>
+                                            <div className="flex items-center justify-between text-slate-400">
+                                                <span>Total Stages:</span>
+                                                <span className="text-slate-200 font-medium">
+                                                    {mData.length} stage{mData.length === 1 ? '' : 's'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Forked Lineage Provenance (if forked) */}
+                                {mForkList.length > 0 ? (
+                                    <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 space-y-2">
+                                        <div className="text-[10px] font-black uppercase tracking-wider text-blue-400 flex items-center justify-between">
+                                            <div className="flex items-center gap-1.5">
+                                                <GitFork size={12} className="text-blue-400" />
+                                                <span>Forked Provenance Lineage</span>
+                                            </div>
+                                            <span className="text-[10px] text-blue-300 font-normal">
+                                                {mForkList.length} origin{mForkList.length === 1 ? '' : 's'}
+                                            </span>
+                                        </div>
+                                        <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar">
+                                            {mForkList.map((f, i) => (
+                                                <div key={i} className="text-[11px] space-y-1 bg-slate-900/80 p-2.5 rounded-lg border border-slate-800">
+                                                    <div className="text-white font-semibold flex items-center justify-between">
+                                                        <span>{f.original_run_label || 'Original Benchmark Run'}</span>
+                                                        <span className="font-mono text-[10px] text-slate-400 select-all">{f.original_run_id}</span>
+                                                    </div>
+                                                    <div className="grid grid-cols-2 gap-2 text-slate-400 text-[10px]">
+                                                        <div>
+                                                            <span>Author: </span>
+                                                            <span className="text-slate-200 font-mono">
+                                                                {typeof f.original_author === 'object' ? f.original_author?.username || 'Unknown' : f.original_author || 'Unknown'}
+                                                            </span>
+                                                        </div>
+                                                        <div>
+                                                            <span>Bucket: </span>
+                                                            <span className="text-blue-300 font-mono truncate">{f.source_bucket || 'Unknown'}</span>
+                                                        </div>
+                                                    </div>
+                                                    {f.forked_at && (
+                                                        <div className="text-[10px] text-slate-400">
+                                                            <span>Forked at: </span>
+                                                            <span className="text-slate-300">{new Date(f.forked_at).toLocaleString()}</span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ) : (mForkedFrom && (
+                                    <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 space-y-1">
+                                        <div className="text-[10px] font-black uppercase tracking-wider text-blue-400 flex items-center gap-1.5">
+                                            <GitFork size={12} className="text-blue-400" />
+                                            <span>Forked Benchmark Run</span>
+                                        </div>
+                                        <div className="text-[11px] text-slate-300">
+                                            This benchmark was forked and cloned into this Results Store.
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        );
+                    })()}
+                </Modal>,
+                document.body
+            )}
+
             {/* Slide-Over Comparison Drawer Displayed from Right */}
             {showComparisonDrawer && createPortal(
                 <div 
@@ -2152,6 +2659,7 @@ export const UnifiedDataTable = (props) => {
                                                 isBaseline={stat.benchmarkKey === baselineBenchmarkKey}
                                                 user={user}
                                                 isAdmin={isAdmin}
+                                                isPlaygroundMode={isPlaygroundMode}
                                                 submissionsMap={submissionsMap}
                                                 brv02Runs={brv02Runs}
                                                 visibleSpecs={visibleSpecs}
@@ -2176,6 +2684,8 @@ export const UnifiedDataTable = (props) => {
                                                 handleCheckboxPointerDown={handleCheckboxPointerDown}
                                                 brv02CustomLabels={brv02CustomLabels}
                                                 handleEditStagedRun={handleEditStagedRun}
+                                                handleForkSingle={handleForkSingle}
+                                                onOpenMetadataModal={(s, d) => setMetadataModalRun({ stat: s, data: d })}
                                                 defaultSources={defaultSources}
                                                 readOnly={true}
                                                 canViewRaw={false}
@@ -2249,6 +2759,7 @@ const BenchmarkRow = React.memo(({
     isBaseline,
     user,
     isAdmin,
+    isPlaygroundMode = false,
     submissionsMap,
     brv02Runs,
     visibleSpecs,
@@ -2273,6 +2784,8 @@ const BenchmarkRow = React.memo(({
     handleCheckboxPointerDown,
     brv02CustomLabels,
     handleEditStagedRun,
+    handleForkSingle,
+    onOpenMetadataModal,
     defaultSources,
     readOnly = false,
     canViewRaw = true,
@@ -2323,33 +2836,7 @@ const BenchmarkRow = React.memo(({
         return `Source: ${src}`;
     };
 
-    const getStatusTooltipText = (status, sub) => {
-        switch (status) {
-            case 'staged':
-                return "Staged locally on your machine. Not yet submitted to the Results Store.";
-            case 'submitted_pending_processing':
-            case 'processing':
-                return "Staged in the GCS bucket. Automated formatting checks are running.";
-            case 'submitted_pending_review':
-            case 'in_review':
-                return "Pending admin review. Check back later once a reviewer approves it.";
-            case 'approved':
-            case 'approved_pending_publish':
-                return "Approved by admins. Waiting for the next scheduled sync to publish.";
-            case 'public':
-            case 'promoted':
-                return "Published in the Public Results Store and visible to all users.";
-            case 'rejected':
-            case 'changes_requested': {
-                const reason = sub?.feedback || sub?.rejectionFeedback;
-                return reason 
-                    ? `Rejected by admins. Reason: "${reason}"`
-                    : "Rejected by Results Store admins.";
-            }
-            default:
-                return `Status: ${status}`;
-        }
-    };
+
     const sourceStr = benchmarkData[0]?.source || '';
     const isBrv02 = sourceStr.startsWith('brv02:') || benchmarkData[0]?.source_info?.type === 'benchmark_report_v02';
     const runId = isBrv02 ? (sourceStr.startsWith('brv02:') ? sourceStr.replace('brv02:', '') : benchmarkData[0]?.run_id) : null;
@@ -2371,7 +2858,7 @@ const BenchmarkRow = React.memo(({
         ? 'border-blue-400 dark:border-blue-600 ring-1 ring-blue-400 dark:ring-blue-600/50' 
         : statusAccent.borderClass;
     const cardBgClass = statusAccent.bgClass || '';
-    const popoverTargetId = runId || stat.benchmarkKey || stat.model || key;
+    const popoverTargetId = runId || stat.benchmarkKey || stat.model || 'row';
     const rawPayload = getRawPrismCloudPayload(stat, benchmarkData);
     const manifestsObj = rawPayload?.manifests || stat.manifests || {};
     const evidenceObj = rawPayload?.evidence || stat.evidence || {};
@@ -2964,6 +3451,59 @@ const BenchmarkRow = React.memo(({
                                                                                 </div>
                                                                         <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 flex-shrink-0">
                                                                             {(() => {
+                                                                                const forkedFrom = stat.payload?.forked_from || stat.forked_from || benchmarkData[0]?.payload?.forked_from || benchmarkData[0]?.forked_from || (runId && submissionsMap ? (submissionsMap[runId]?.forked_from || submissionsMap[runId]?.forked) : null);
+                                                                                if (!forkedFrom) return null;
+                                                                                const forkList = Array.isArray(forkedFrom) ? forkedFrom : (typeof forkedFrom === 'object' && forkedFrom !== null ? [forkedFrom] : []);
+                                                                                return (
+                                                                                    <div className="relative group/forked-badge inline-flex items-center">
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            onClick={(e) => e.stopPropagation()}
+                                                                                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/30 hover:bg-blue-500/20 transition-colors cursor-help"
+                                                                                        >
+                                                                                            <GitFork className="w-2.5 h-2.5" />
+                                                                                            <span>Forked</span>
+                                                                                        </button>
+                                                                                        {forkList.length > 0 ? (
+                                                                                            <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1.5 px-3 py-2.5 bg-slate-900 border border-slate-800 text-[11px] text-slate-300 font-medium rounded-xl opacity-0 invisible group-hover/forked-badge:opacity-100 group-hover/forked-badge:visible transition-all duration-150 shadow-2xl z-[9999] w-72 pointer-events-none leading-relaxed text-left normal-case tracking-normal space-y-2">
+                                                                                                <div className="text-[10px] font-black uppercase tracking-wider text-blue-400 border-b border-slate-800 pb-1 flex items-center justify-between">
+                                                                                                    <span>Forked Benchmark Provenance</span>
+                                                                                                    <span className="text-slate-500">{forkList.length} {forkList.length === 1 ? 'origin' : 'origins'}</span>
+                                                                                                </div>
+                                                                                                <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
+                                                                                                    {forkList.map((f, i) => (
+                                                                                                        <div key={i} className="text-[10px] space-y-0.5 border-b border-slate-800/50 pb-1.5 last:border-0 last:pb-0">
+                                                                                                            <div className="text-white font-semibold truncate">{f.original_run_label || f.original_run_id}</div>
+                                                                                                            <div className="text-slate-400 flex items-center justify-between">
+                                                                                                                <span>Author:</span>
+                                                                                                                <span className="text-slate-200 font-mono">
+                                                                                                                    {typeof f.original_author === 'object' ? f.original_author?.username || 'Unknown' : f.original_author || 'Unknown'}
+                                                                                                                </span>
+                                                                                                            </div>
+                                                                                                            <div className="text-slate-400 flex items-center justify-between">
+                                                                                                                <span>Source Bucket:</span>
+                                                                                                                <span className="text-blue-300 font-mono truncate max-w-[140px]">{f.source_bucket || 'Unknown'}</span>
+                                                                                                            </div>
+                                                                                                            {f.forked_at && (
+                                                                                                                <div className="text-slate-400 flex items-center justify-between">
+                                                                                                                    <span>Forked At:</span>
+                                                                                                                    <span className="text-slate-300">{f.forked_at ? new Date(f.forked_at).toLocaleString() : 'Unknown'}</span>
+                                                                                                                </div>
+                                                                                                            )}
+                                                                                                        </div>
+                                                                                                    ))}
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        ) : (
+                                                                                            <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1.5 px-2.5 py-1 bg-slate-900 border border-slate-800 text-[10px] text-slate-300 font-medium rounded-lg opacity-0 invisible group-hover/forked-badge:opacity-100 group-hover/forked-badge:visible transition-all duration-150 shadow-xl z-[9999] whitespace-nowrap pointer-events-none">
+                                                                                                Forked benchmark run
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </div>
+                                                                                );
+                                                                            })()}
+
+                                                                            {(() => {
                                                                                 const isResultsStore = benchmarkData[0]?.source_info?.type === 'benchmark_report_v02';
                                                                                 const isMine = isResultsStore && user && benchmarkData[0]?.github_author?.username === user.username;
                                                                                 if (isMine) {
@@ -3109,60 +3649,108 @@ const BenchmarkRow = React.memo(({
                                              {/* Expanded Table Details */}
                                              {isExpanded && (
                                                  <div className="border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/30 p-4 rounded-b-lg">
-                                                     <div className="flex justify-between items-stretch gap-4 mb-3 w-full">
-                                                         {benchmarkData[0]?.source_info?.type === 'benchmark_report_v02' ? (
-                                                             <div className="flex-1 p-2 bg-slate-100 dark:bg-slate-800/40 rounded border border-slate-200 dark:border-slate-700/80 font-sans flex flex-wrap gap-x-6 gap-y-2.5 text-xs text-slate-600 dark:text-slate-400">
-                                                             <div className="flex items-center gap-1.5">
-                                                                 <span className="font-semibold text-slate-700 dark:text-slate-300">Run UUID:</span>
-                                                                 <span className="font-mono bg-slate-200 dark:bg-slate-800/50 px-1.5 py-0.5 rounded text-[11px] select-all">{benchmarkData[0]?.run_id}</span>
-                                                             </div>
-                                                             <div className="flex items-center gap-1.5">
-                                                                 <span className="font-semibold text-slate-700 dark:text-slate-300">Submitted:</span>
-                                                                 <span>{benchmarkData[0]?.source_info?.submitted_at ? new Date(benchmarkData[0].source_info.submitted_at).toLocaleString() : 'Unknown'}</span>
-                                                                 {benchmarkData[0]?.github_author?.username && (
-                                                                     <span className="flex items-center gap-1 bg-slate-200/50 dark:bg-slate-800/50 px-1.5 py-0.5 rounded ml-1">
-                                                                         <img 
-                                                                             src={`https://github.com/${benchmarkData[0].github_author.username}.png`} 
-                                                                             alt={benchmarkData[0].github_author.username} 
-                                                                             className="w-4 h-4 rounded-full border border-slate-300 dark:border-slate-600"
-                                                                             onError={(e) => { e.target.style.display = 'none'; }}
-                                                                         />
-                                                                         <a 
-                                                                             href={`https://github.com/${benchmarkData[0].github_author.username}`} 
-                                                                             target="_blank" 
-                                                                             rel="noopener noreferrer" 
-                                                                             className="text-indigo-600 dark:text-indigo-400 hover:underline font-semibold"
-                                                                         >
-                                                                             {benchmarkData[0].github_author.username}
-                                                                         </a>
-                                                                     </span>
-                                                                 )}
-                                                             </div>
-                                                             <div className="flex items-center gap-1.5">
-                                                                 <span className="font-semibold text-slate-700 dark:text-slate-300">Status:</span>
-                                                                 {(() => {
-                                                                     const details = getSubmissionStatusDetails(benchmarkData[0]?.source_info?.submission_state);
-                                                                     return (
-                                                                         <span className={cn('px-1.5 py-0.5 rounded border text-[11px] font-bold whitespace-nowrap', details.bg, details.text, details.border)}>
-                                                                             {details.label}
-                                                                         </span>
-                                                                     );
-                                                                 })()}
-                                                             </div>
-                                                             {(benchmarkData[0]?.source_info?.submission_state === 'public' || benchmarkData[0]?.source_info?.submission_state === 'promoted' || benchmarkData[0]?.source_info?.approved_at) && (
-                                                                 <div className="flex items-center gap-1.5">
-                                                                     <span className="font-semibold text-slate-700 dark:text-slate-300">Approved:</span>
-                                                                     <span>{benchmarkData[0].source_info.approved_at ? new Date(benchmarkData[0].source_info.approved_at).toLocaleString() : (benchmarkData[0].source_info.submitted_at ? new Date(benchmarkData[0].source_info.submitted_at).toLocaleString() : 'Unknown')}</span>
-                                                                 </div>
-                                                             )}
-                                                         </div>
-                                                     ) : (
-                                                         <div className="flex-1" />
-                                                     )}
+                                                    <div className="flex justify-between items-center gap-4 mb-3 w-full">
+                                                        {(() => {
+                                                            const firstItem = benchmarkData[0] || {};
+                                                            const sourceInfo = firstItem.source_info || {};
+                                                            const rawSubmittedAt = sourceInfo.submitted_at || firstItem.timestamp || stat.timestamp;
+                                                            const formattedDate = (() => {
+                                                                if (!rawSubmittedAt) return null;
+                                                                const d = new Date(rawSubmittedAt);
+                                                                if (!isNaN(d.getTime())) {
+                                                                    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+                                                                }
+                                                                const m = String(rawSubmittedAt).match(/(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})/);
+                                                                if (m) {
+                                                                    const parsedD = new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}`);
+                                                                    if (!isNaN(parsedD.getTime())) {
+                                                                        return parsedD.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+                                                                    }
+                                                                }
+                                                                return String(rawSubmittedAt);
+                                                            })();
+
+                                                            const authorObj = firstItem.github_author || stat.github_author || sourceInfo.github_user;
+                                                            const authorUsername = typeof authorObj === 'object' ? authorObj?.username : (typeof authorObj === 'string' ? authorObj : null);
+
+                                                            return (
+                                                                <div className="inline-flex items-stretch rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100/90 dark:bg-slate-900/60 text-xs text-slate-600 dark:text-slate-400 font-sans shadow-sm overflow-hidden h-8 flex-shrink-0">
+                                                                    <div className="px-2.5 py-1 flex items-center gap-2 whitespace-nowrap">
+                                                                        {formattedDate ? (
+                                                                            <span className="flex items-center gap-1">
+                                                                                <span className="text-slate-400 dark:text-slate-500 font-medium">Submitted</span>
+                                                                                <span className="font-semibold text-slate-700 dark:text-slate-300">{formattedDate}</span>
+                                                                            </span>
+                                                                        ) : (
+                                                                            <span className="text-slate-400 dark:text-slate-500 font-medium">Benchmark Run</span>
+                                                                        )}
+
+                                                                        {authorUsername && (
+                                                                            <span className="flex items-center gap-1 bg-slate-200/60 dark:bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-300/40 dark:border-slate-700/60">
+                                                                                <img 
+                                                                                    src={isPlaygroundMode
+                                                                                        ? `/api/avatar/${encodeURIComponent(authorUsername)}`
+                                                                                        : `https://github.com/${authorUsername}.png`} 
+                                                                                    alt={authorUsername} 
+                                                                                    className="w-3.5 h-3.5 rounded-full border border-slate-300 dark:border-slate-600 shrink-0"
+                                                                                    onError={(e) => { e.target.style.display = 'none'; }}
+                                                                                />
+                                                                                {isPlaygroundMode ? (
+                                                                                    <span className="text-indigo-600 dark:text-indigo-400 font-semibold text-[11px]">
+                                                                                        {authorUsername}
+                                                                                    </span>
+                                                                                ) : (
+                                                                                    <a 
+                                                                                        href={`https://github.com/${authorUsername}`}
+                                                                                        target="_blank" 
+                                                                                        rel="noopener noreferrer" 
+                                                                                        onClick={(e) => e.stopPropagation()}
+                                                                                        className="text-indigo-600 dark:text-indigo-400 hover:underline font-semibold text-[11px]"
+                                                                                    >
+                                                                                        {authorUsername}
+                                                                                    </a>
+                                                                                )}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            onOpenMetadataModal && onOpenMetadataModal(stat, benchmarkData);
+                                                                        }}
+                                                                        title="View full benchmark run metadata and lineage"
+                                                                        className="px-2.5 border-l border-slate-200 dark:border-slate-800 hover:bg-slate-200/80 dark:hover:bg-slate-800 text-slate-400 hover:text-cyan-400 transition-colors flex items-center justify-center cursor-pointer"
+                                                                    >
+                                                                        <Info size={13} />
+                                                                    </button>
+                                                                </div>
+                                                            );
+                                                        })()}
 
                                                      {canViewRaw && (
                                                          <div className="flex items-stretch gap-2 flex-shrink-0">
                                                              <div className="w-px bg-slate-300/70 dark:bg-slate-700/80 self-stretch my-0.5 mr-0.5" />
+                                                             {isBrv02 && (
+                                                                 <div className="relative group/fork-row-btn">
+                                                                     <Button
+                                                                         variant="secondary"
+                                                                         size="sm"
+                                                                         onClick={(e) => {
+                                                                             e.stopPropagation();
+                                                                             handleActionClick(() => handleForkSingle(stat, benchmarkData));
+                                                                         }}
+                                                                         disabled={isLocalActionPending}
+                                                                         className="h-full whitespace-nowrap animate-in fade-in duration-200 gap-1.5 flex items-center justify-center"
+                                                                     >
+                                                                         <GitFork size={13} />
+                                                                         Fork
+                                                                     </Button>
+                                                                     <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-3 py-2 bg-slate-900 border border-slate-800 text-slate-350 text-xs font-medium rounded-xl opacity-0 invisible group-hover/fork-row-btn:opacity-100 group-hover/fork-row-btn:visible transition-all duration-200 shadow-2xl z-[9999] w-64 pointer-events-none leading-relaxed text-center normal-case tracking-normal animate-in fade-in slide-in-from-bottom-2 duration-150">
+                                                                         Clone this benchmark into local staging to modify, coalesce, or republish.
+                                                                     </div>
+                                                                 </div>
+                                                             )}
                                                              {isBrv02 && (
                                                                  <Button
                                                                      variant="secondary"

@@ -14,7 +14,7 @@
 
 import { GoogleAuth, UserRefreshClient } from 'google-auth-library';
 import fs from 'fs';
-import { getConfiguredBucketNames } from './buckets.js';
+import { getResultsStoreBucket } from './buckets.js';
 
 const auth = new GoogleAuth();
 
@@ -22,14 +22,9 @@ export type PermissionLevel = 'none' | 'user' | 'admin';
 
 /**
  * Resolves the GCS bucket name to read IAM allowlist configurations from.
- * Uses staging bucket if staging is in DEFAULT_BUCKETS, otherwise defaults to production bucket.
  */
 function getIAMBucket(): string {
-    const buckets = getConfiguredBucketNames(process.env.DEFAULT_BUCKETS);
-    if (buckets.includes('llm-d-benchmarks-staging')) {
-        return 'llm-d-benchmarks-staging';
-    }
-    return buckets[0] || 'llm-d-benchmarks';
+    return getResultsStoreBucket();
 }
 
 /**
@@ -100,9 +95,21 @@ async function fetchAllowlist(filename: string): Promise<Set<string>> {
 }
 
 /**
+ * Resolves whether Results Store Playground Mode is active via environment variable.
+ */
+export function isPlaygroundMode(): boolean {
+    const val = String(process.env.RESULTS_STORE_PLAYGROUND_MODE || '').trim().toLowerCase();
+    return val === '1' || val === 'true' || val === 'yes' || val === 'on';
+}
+
+/**
  * Validates a GitHub user's permissions level based on the IAM bucket allowlists.
  */
 export async function validateGitHubUser(username: string): Promise<PermissionLevel> {
+    if (isPlaygroundMode()) {
+        return 'admin';
+    }
+
     const normalizedUsername = username.trim().toLowerCase();
     if (!normalizedUsername) {
         return 'none';

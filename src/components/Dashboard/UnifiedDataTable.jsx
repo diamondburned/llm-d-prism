@@ -13,14 +13,14 @@
 // limitations under the License.
 
 import React from 'react';
-import { RotateCcw, ChevronDown, ChevronUp, Star, Pin } from 'lucide-react';
+import { RotateCcw, ChevronDown, ChevronUp, Star, Pin, GitFork } from 'lucide-react';
 import { Badge, Button, EmptyState, Panel } from '../ui';
 import { cn } from '../../utils/cn';
 import { getEffectiveTp, getBucket, getSourceTag, getSubmissionStatusDetails } from '../../utils/dashboardHelpers';
 import { useGitHubAuth } from '../../hooks/useGitHubAuth';
 
 export const UnifiedDataTable = (props) => {
-    const { user } = useGitHubAuth();
+    const { user, isPlaygroundMode } = useGitHubAuth();
     const {
         modelStats, selectedModels, filteredBySource, showSelectedOnly, setShowSelectedOnly,
         selectedBenchmarks, setSelectedBenchmarks, setActiveFilters, expandedModels,
@@ -340,6 +340,54 @@ export const UnifiedDataTable = (props) => {
                                             <td className="px-2 py-2 text-center">
                                                 <div className="flex items-center justify-center gap-1.5">
                                                     {(() => {
+                                                        const forkedFrom = stat.payload?.forked_from || stat.forked_from || benchmarkData[0]?.payload?.forked_from || benchmarkData[0]?.forked_from;
+                                                        if (!forkedFrom) return null;
+                                                        const forkList = Array.isArray(forkedFrom) ? forkedFrom : (typeof forkedFrom === 'object' && forkedFrom !== null ? [forkedFrom] : []);
+                                                        return (
+                                                            <div className="relative group/forked-badge inline-flex items-center">
+                                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/30 cursor-help">
+                                                                    <GitFork className="w-2.5 h-2.5" />
+                                                                    <span>Forked</span>
+                                                                </span>
+                                                                {forkList.length > 0 ? (
+                                                                    <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1.5 px-3 py-2.5 bg-slate-900 border border-slate-800 text-[11px] text-slate-300 font-medium rounded-xl opacity-0 invisible group-hover/forked-badge:opacity-100 group-hover/forked-badge:visible transition-all duration-150 shadow-2xl z-[9999] w-72 pointer-events-none leading-relaxed text-left normal-case tracking-normal space-y-2">
+                                                                        <div className="text-[10px] font-black uppercase tracking-wider text-blue-400 border-b border-slate-800 pb-1 flex items-center justify-between">
+                                                                            <span>Forked Benchmark Provenance</span>
+                                                                            <span className="text-slate-500">{forkList.length} {forkList.length === 1 ? 'origin' : 'origins'}</span>
+                                                                        </div>
+                                                                        <div className="space-y-2 max-h-48 overflow-y-auto">
+                                                                            {forkList.map((f, i) => (
+                                                                                <div key={i} className="text-[10px] space-y-0.5 border-b border-slate-800/50 pb-1.5 last:border-0 last:pb-0">
+                                                                                    <div className="text-white font-semibold truncate">{f.original_run_label || f.original_run_id}</div>
+                                                                                    <div className="text-slate-400 flex items-center justify-between">
+                                                                                        <span>Author:</span>
+                                                                                        <span className="text-slate-200 font-mono">
+                                                                                            {typeof f.original_author === 'object' ? f.original_author?.username || 'Unknown' : f.original_author || 'Unknown'}
+                                                                                        </span>
+                                                                                    </div>
+                                                                                    <div className="text-slate-400 flex items-center justify-between">
+                                                                                        <span>Source Bucket:</span>
+                                                                                        <span className="text-blue-300 font-mono truncate max-w-[140px]">{f.source_bucket || 'Unknown'}</span>
+                                                                                    </div>
+                                                                                    {f.forked_at && (
+                                                                                        <div className="text-slate-400 flex items-center justify-between">
+                                                                                        <span>Forked At:</span>
+                                                                                        <span className="text-slate-300">{f.forked_at ? new Date(f.forked_at).toLocaleString() : 'Unknown'}</span>
+                                                                                    </div>
+                                                                                    )}
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1.5 px-2.5 py-1 bg-slate-900 border border-slate-800 text-[10px] text-slate-300 font-medium rounded-lg opacity-0 invisible group-hover/forked-badge:opacity-100 group-hover/forked-badge:visible transition-all duration-150 shadow-xl z-[9999] whitespace-nowrap pointer-events-none">
+                                                                        Forked benchmark run
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })()}
+                                                    {(() => {
                                                         const isResultsStore = benchmarkData[0]?.source_info?.type === 'benchmark_report_v02';
                                                         const isMine = isResultsStore && user && benchmarkData[0]?.github_author?.username === user.username;
                                                         if (isMine) {
@@ -381,19 +429,27 @@ export const UnifiedDataTable = (props) => {
                                                                       {benchmarkData[0]?.github_author?.username && (
                                                                           <span className="flex items-center gap-1 bg-slate-200/50 dark:bg-slate-800/50 px-1.5 py-0.5 rounded ml-1">
                                                                               <img 
-                                                                                  src={`https://github.com/${benchmarkData[0].github_author.username}.png`} 
+                                                                                  src={isPlaygroundMode
+                                                                                      ? `/api/avatar/${encodeURIComponent(benchmarkData[0].github_author.username)}`
+                                                                                      : `https://github.com/${benchmarkData[0].github_author.username}.png`} 
                                                                                   alt={benchmarkData[0].github_author.username} 
                                                                                   className="w-4 h-4 rounded-full border border-slate-300 dark:border-slate-600"
                                                                                   onError={(e) => { e.target.style.display = 'none'; }}
                                                                               />
-                                                                              <a 
-                                                                                  href={`https://github.com/${benchmarkData[0].github_author.username}`} 
-                                                                                  target="_blank" 
-                                                                                  rel="noopener noreferrer" 
-                                                                                  className="text-indigo-600 dark:text-indigo-400 hover:underline font-semibold"
-                                                                              >
-                                                                                  {benchmarkData[0].github_author.username}
-                                                                              </a>
+                                                                              {isPlaygroundMode ? (
+                                                                                  <span className="text-indigo-600 dark:text-indigo-400 font-semibold">
+                                                                                      {benchmarkData[0].github_author.username}
+                                                                                  </span>
+                                                                              ) : (
+                                                                                  <a 
+                                                                                      href={`https://github.com/${benchmarkData[0].github_author.username}`} 
+                                                                                      target="_blank" 
+                                                                                      rel="noopener noreferrer" 
+                                                                                      className="text-indigo-600 dark:text-indigo-400 hover:underline font-semibold"
+                                                                                  >
+                                                                                      {benchmarkData[0].github_author.username}
+                                                                                  </a>
+                                                                              )}
                                                                           </span>
                                                                       )}
                                                                   </div>

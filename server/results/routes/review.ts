@@ -14,6 +14,7 @@
 
 import { Request, Response } from 'express';
 import { validateGitHubToken } from '../../oauth.ts';
+import { isPlaygroundMode } from '../../iam.ts';
 import { readResultPayload, writeResult, readResultMetadata } from '../gcs.ts';
 import { processSubmission } from '../processing.ts';
 import { PrismSubmissionState } from '../api.ts';
@@ -36,8 +37,9 @@ export interface ReviewResultsResponse {
  *
  * Updates/reviews the status of a result store submission.
  *
- * - **Headers:** `X-Prism-Github-Token: <access_token>` (required)
+ * - **Headers:** `X-Prism-Github-Token: <access_token>` (required, optional in playground mode)
  * - **Authorization Rules:**
+ *     - **Playground Mode:** Full access for all operations anonymously.
  *     - **Admin:** Full access. Can approve (`public` / `promoted`), reject (`rejected`), or reset state.
  *     - **Owner of submission:** Can only submit/resubmit, i.e., set state to `submitted_pending_processing` or `submitted_pending_review`.
  *       Any attempt to set state to `public` or `rejected` returns `403 Forbidden`.
@@ -57,20 +59,32 @@ export async function reviewResultsHandler(
 
     // 1. Authenticate user
     const token = req.headers['x-prism-github-token'] as string | undefined;
-    if (!token) {
-        return res.status(401).json({ error: 'Authentication required. Missing session token.' });
-    }
-
-    let username = '';
+    let username = 'anonymous';
     let permission = 'none';
 
-    try {
-        const authResult = await validateGitHubToken(token);
-        username = authResult.username;
-        permission = authResult.permission;
-    } catch (error: unknown) {
-        const msg = error instanceof Error ? error.message : String(error);
-        return res.status(401).json({ error: 'Invalid or expired session token.', details: msg });
+    if (isPlaygroundMode()) {
+        permission = 'admin';
+        if (token) {
+            try {
+                const authResult = await validateGitHubToken(token);
+                username = authResult.username;
+            } catch {
+                // Ignore token errors in playground mode
+            }
+        }
+    } else {
+        if (!token) {
+            return res.status(401).json({ error: 'Authentication required. Missing session token.' });
+        }
+
+        try {
+            const authResult = await validateGitHubToken(token);
+            username = authResult.username;
+            permission = authResult.permission;
+        } catch (error: unknown) {
+            const msg = error instanceof Error ? error.message : String(error);
+            return res.status(401).json({ error: 'Invalid or expired session token.', details: msg });
+        }
     }
 
     const { status, feedback, reviewer } = req.body;
@@ -88,35 +102,37 @@ export async function reviewResultsHandler(
         const { user: itemUser, state: currentState } = metadata;
 
         // 3. Permission and authorization checks
-        if (currentState === 'unlisted') {
-            if (status !== 'submitted_pending_review') {
-                return res.status(403).json({ error: 'Forbidden. Unlisted benchmarks can only be promoted to submitted_pending_review.' });
-            }
-            const isOwner = username && itemUser.toLowerCase() === username.toLowerCase();
-            if (!isOwner) {
-                return res.status(403).json({ error: 'Forbidden. Only the owner of an unlisted benchmark can promote it.' });
-            }
-            if (feedback !== undefined || reviewer !== undefined) {
-                return res.status(400).json({ error: 'Feedback and reviewer fields are forbidden when promoting from unlisted to submitted_pending_review.' });
-            }
-        } else {
-            let allowed = false;
-            if (permission === 'admin') {
-                allowed = true;
+        if (!isPlaygroundMode()) {
+            if (currentState === 'unlisted') {
+                if (status !== 'submitted_pending_review') {
+                    return res.status(403).json({ error: 'Forbidden. Unlisted benchmarks can only be promoted to submitted_pending_review.' });
+                }
+                const isOwner = username && itemUser.toLowerCase() === username.toLowerCase();
+                if (!isOwner) {
+                    return res.status(403).json({ error: 'Forbidden. Only the owner of an unlisted benchmark can promote it.' });
+                }
+                if (feedback !== undefined || reviewer !== undefined) {
+                    return res.status(400).json({ error: 'Feedback and reviewer fields are forbidden when promoting from unlisted to submitted_pending_review.' });
+                }
             } else {
-                // Check if the current user is the owner/author of the submission
-                if (username && itemUser.toLowerCase() === username.toLowerCase()) {
-                    // Owners can only transition their own runs to 'submitted_pending_processing' or 'submitted_pending_review' (resubmission/promotion)
-                    if (status === 'submitted_pending_processing' || status === 'submitted_pending_review') {
-                        allowed = true;
-                    } else {
-                        return res.status(403).json({ error: 'Forbidden. Non-admin users cannot approve, reject, or promote benchmarks of other status values.' });
+                let allowed = false;
+                if (permission === 'admin') {
+                    allowed = true;
+                } else {
+                    // Check if the current user is the owner/author of the submission
+                    if (username && itemUser.toLowerCase() === username.toLowerCase()) {
+                        // Owners can only transition their own runs to 'submitted_pending_processing' or 'submitted_pending_review' (resubmission/promotion)
+                        if (status === 'submitted_pending_processing' || status === 'submitted_pending_review') {
+                            allowed = true;
+                        } else {
+                            return res.status(403).json({ error: 'Forbidden. Non-admin users cannot approve, reject, or promote benchmarks of other status values.' });
+                        }
                     }
                 }
-            }
 
-            if (!allowed) {
-                return res.status(403).json({ error: 'Access denied. You do not have permissions to modify this result.' });
+                if (!allowed) {
+                    return res.status(403).json({ error: 'Access denied. You do not have permissions to modify this result.' });
+                }
             }
         }
 
