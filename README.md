@@ -24,6 +24,7 @@ Prism helps you choose, configure and optimize the right AI inference infrastruc
 - **Styling:** Vanilla CSS (Tailwind CSS v4 for utility-first components)
 - **Charts:** Recharts
 - **Icons:** Lucide React
+- **Testing:** Vitest
 - **Language:** JavaScript (ESNext)
 - **Cloud:** Google Cloud (GCS, GIQ), AWS (S3)
 
@@ -74,6 +75,29 @@ The development environment can be managed using Docker Compose, which mounts th
    ```bash
    docker compose logs -f
    ```
+
+### Testing & Verification
+
+Unit tests are written with [Vitest](https://vitest.dev/) and cover frontend utility modules, parsers, and backend server routing/bucket logic.
+
+- **Run all unit tests once**:
+  ```bash
+  npm test
+  # Or within Docker Compose:
+  docker compose exec app npm test
+  ```
+- **Run unit tests in watch mode**:
+  ```bash
+  npm run test:watch
+  # Or within Docker Compose:
+  docker compose exec app npm run test:watch
+  ```
+- **Run linting**:
+  ```bash
+  npm run lint
+  # Or within Docker Compose:
+  docker compose exec app npm run lint
+  ```
 
 ### Cloud Deployment (Google Cloud Run)
 
@@ -215,6 +239,7 @@ The project uses a standard `.npmrc` to enforce the public npm registry (`https:
 # Developer Guidelines
 
 - **Running Locally:** Run `npm run dev`.
+- **Testing:** Run unit tests via `npm test` (or `docker compose exec app npm test`). Run `npm run test:watch` for interactive test-driven development.
 - **Parsing Logic:** Data ingestion logic resides in `src/utils/dataParser.js` and files specific to the data source.
   - **Hardware Metadata:** The parser extracts `accelerator` (e.g., `tpu7x`) and configuration details (tensor parallel size, backend) from `manifest.yaml` when available in GCS/S3 sources.
   - **Source Identification:** Benchmarks are tagged with standardized IDs: `infperf` (inference-perf (deprecated)), `quality_scores` (Model Quality), `llm-d-results:google_drive` / `llmd_drive` (DRIVE), and `brv02:<run-uid>` (local Benchmark Report v0.2 uploads).

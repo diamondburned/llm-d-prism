@@ -10,8 +10,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import assert from 'node:assert/strict';
-import test from 'node:test';
+import { describe, it, expect } from 'vitest';
 import { parseReportV02, stageToEntry } from './benchmarkReportV02Parser.js';
 
 const createReport = (throughput) => ({
@@ -35,62 +34,64 @@ const createReport = (throughput) => ({
 
 const parseRates = (throughput) => {
     const stage = parseReportV02(createReport(throughput), 'report.yaml');
-    assert.ok(stage);
+    expect(stage).toBeDefined();
     return { stage, entry: stageToEntry(stage) };
 };
 
-test('BR v0.2 preserves and normalizes reported token rates', () => {
-    const { stage, entry } = parseRates({
-        input_token_rate: { mean: 80 },
-        output_token_rate: { mean: 20 },
-        total_token_rate: { mean: 105 },
+describe('benchmarkReportV02Parser token rates', () => {
+    it('preserves and normalizes reported token rates in BR v0.2', () => {
+        const { stage, entry } = parseRates({
+            input_token_rate: { mean: 80 },
+            output_token_rate: { mean: 20 },
+            total_token_rate: { mean: 105 },
+        });
+
+        expect(stage.performance.totalTokenRate).toBe(105);
+        expect(entry.metrics.input_tput).toBe(80);
+        expect(entry.metrics.output_tput).toBe(20);
+        expect(entry.metrics.total_tput).toBe(105);
     });
 
-    assert.equal(stage.performance.totalTokenRate, 105);
-    assert.equal(entry.metrics.input_tput, 80);
-    assert.equal(entry.metrics.output_tput, 20);
-    assert.equal(entry.metrics.total_tput, 105);
-});
+    it('derives total token rate when it is absent in BR v0.2', () => {
+        const { entry } = parseRates({
+            input_token_rate: { mean: 80 },
+            output_token_rate: { mean: 20 },
+        });
 
-test('BR v0.2 derives total token rate when it is absent', () => {
-    const { entry } = parseRates({
-        input_token_rate: { mean: 80 },
-        output_token_rate: { mean: 20 },
+        expect(entry.metrics.total_tput).toBe(100);
     });
 
-    assert.equal(entry.metrics.total_tput, 100);
-});
+    it('derives input token rate from total and output rates in BR v0.2', () => {
+        const { entry } = parseRates({
+            output_token_rate: { mean: 20 },
+            total_token_rate: { mean: 100 },
+        });
 
-test('BR v0.2 derives input token rate from total and output rates', () => {
-    const { entry } = parseRates({
-        output_token_rate: { mean: 20 },
-        total_token_rate: { mean: 100 },
+        expect(entry.metrics.input_tput).toBe(80);
     });
 
-    assert.equal(entry.metrics.input_tput, 80);
-});
+    it('leaves rates null when fallback inputs are insufficient or invalid in BR v0.2', () => {
+        const missingTotal = parseRates({ output_token_rate: { mean: 20 } });
+        expect(missingTotal.entry.metrics.input_tput).toBe(null);
+        expect(missingTotal.entry.metrics.total_tput).toBe(null);
 
-test('BR v0.2 leaves rates null when fallback inputs are insufficient or invalid', () => {
-    const missingTotal = parseRates({ output_token_rate: { mean: 20 } });
-    assert.equal(missingTotal.entry.metrics.input_tput, null);
-    assert.equal(missingTotal.entry.metrics.total_tput, null);
-
-    const inconsistent = parseRates({
-        output_token_rate: { mean: 20 },
-        total_token_rate: { mean: 10 },
-    });
-    assert.equal(inconsistent.entry.metrics.input_tput, null);
-    assert.equal(inconsistent.entry.metrics.total_tput, 10);
-});
-
-test('BR v0.2 token-rate normalization preserves zero and coerces numeric strings', () => {
-    const { stage, entry } = parseRates({
-        input_token_rate: { mean: '0' },
-        output_token_rate: { mean: '20.5' },
+        const inconsistent = parseRates({
+            output_token_rate: { mean: 20 },
+            total_token_rate: { mean: 10 },
+        });
+        expect(inconsistent.entry.metrics.input_tput).toBe(null);
+        expect(inconsistent.entry.metrics.total_tput).toBe(10);
     });
 
-    assert.equal(stage.performance.inputTokenRate, 0);
-    assert.equal(stage.performance.outputTokenRate, 20.5);
-    assert.equal(entry.metrics.input_tput, 0);
-    assert.equal(entry.metrics.total_tput, 20.5);
+    it('preserves zero and coerces numeric strings in token-rate normalization', () => {
+        const { stage, entry } = parseRates({
+            input_token_rate: { mean: '0' },
+            output_token_rate: { mean: '20.5' },
+        });
+
+        expect(stage.performance.inputTokenRate).toBe(0);
+        expect(stage.performance.outputTokenRate).toBe(20.5);
+        expect(entry.metrics.input_tput).toBe(0);
+        expect(entry.metrics.total_tput).toBe(20.5);
+    });
 });

@@ -80,9 +80,9 @@ export function getConfiguredBucketEntries(
     rawResultsStoreBucket = process.env.RESULTS_STORE_BUCKET
 ) {
     const defaultFallback = rawResultsStoreBucket || DEFAULT_RESULTS_BUCKETS;
-    const raw = rawBuckets !== undefined && rawBuckets !== ''
+    const raw = (rawBuckets !== undefined && rawBuckets !== '')
         ? rawBuckets
-        : (process.env.DEFAULT_BUCKETS || defaultFallback);
+        : defaultFallback;
     return raw
         .split(',')
         .map(e => e.trim())

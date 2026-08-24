@@ -12,77 +12,82 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import { describe, it, expect } from 'vitest';
 import { getCanonicalBucketName, getBucketAlias, dedupeBucketConfigs, getBucketBaseName, getBucketPrefix } from './bucketUtils.js';
-import assert from 'node:assert';
 
-console.log('Running bucketUtils unit tests...');
+describe('bucketUtils', () => {
+    it('canonicalizes bucket names with getCanonicalBucketName', () => {
+        expect(getCanonicalBucketName('gs://slabe-bucket')).toBe('slabe-bucket');
+        expect(getCanonicalBucketName('gs://slabe-bucket/')).toBe('slabe-bucket');
+        expect(getCanonicalBucketName('slabe-bucket')).toBe('slabe-bucket');
+        expect(getCanonicalBucketName('s3://my-aws-bucket/')).toBe('my-aws-bucket');
+        expect(getCanonicalBucketName({ bucket: 'gs://slabe-bucket/', alias: 'slabe' })).toBe('slabe-bucket');
+        expect(getCanonicalBucketName(null)).toBe('');
+    });
 
-// 1. getCanonicalBucketName
-assert.strictEqual(getCanonicalBucketName('gs://slabe-bucket'), 'slabe-bucket');
-assert.strictEqual(getCanonicalBucketName('gs://slabe-bucket/'), 'slabe-bucket');
-assert.strictEqual(getCanonicalBucketName('slabe-bucket'), 'slabe-bucket');
-assert.strictEqual(getCanonicalBucketName('s3://my-aws-bucket/'), 'my-aws-bucket');
-assert.strictEqual(getCanonicalBucketName({ bucket: 'gs://slabe-bucket/', alias: 'slabe' }), 'slabe-bucket');
-assert.strictEqual(getCanonicalBucketName(null), '');
+    it('extracts bucket aliases with getBucketAlias', () => {
+        expect(getBucketAlias({ bucket: 'slabe-bucket', alias: 'slabe' })).toBe('slabe');
+        expect(getBucketAlias('slabe-bucket')).toBe(null);
+        expect(getBucketAlias({ bucket: 'slabe-bucket' })).toBe(null);
+    });
 
-// 2. getBucketAlias
-assert.strictEqual(getBucketAlias({ bucket: 'slabe-bucket', alias: 'slabe' }), 'slabe');
-assert.strictEqual(getBucketAlias('slabe-bucket'), null);
-assert.strictEqual(getBucketAlias({ bucket: 'slabe-bucket' }), null);
+    it('deduplicates bucket configs and retains alias info', () => {
+        const sampleInput = [
+            { bucket: 'slabe-bucket', alias: 'slabe' },
+            'slabe-bucket',
+            'gs://slabe-bucket',
+            'gs://slabe-bucket/',
+            { bucket: 'gs://slabe-bucket/', alias: 'slabe' },
+            'other-bucket',
+            { bucket: 'other-bucket', alias: 'Other' }
+        ];
 
-// 3. dedupeBucketConfigs
-const sampleInput = [
-    { bucket: 'slabe-bucket', alias: 'slabe' },
-    'slabe-bucket',
-    'gs://slabe-bucket',
-    'gs://slabe-bucket/',
-    { bucket: 'gs://slabe-bucket/', alias: 'slabe' },
-    'other-bucket',
-    { bucket: 'other-bucket', alias: 'Other' }
-];
+        const result = dedupeBucketConfigs(sampleInput);
+        expect(result.length).toBe(2);
+        expect(result[0]).toEqual({ bucket: 'slabe-bucket', alias: 'slabe' });
+        expect(result[1]).toEqual({ bucket: 'other-bucket', alias: 'Other' });
+    });
 
-const result = dedupeBucketConfigs(sampleInput);
+    it('upgrades simple string when followed by aliased object in deduplication', () => {
+        const sampleOrder2 = [
+            'gs://slabe-bucket',
+            { bucket: 'slabe-bucket', alias: 'slabe' }
+        ];
+        const result2 = dedupeBucketConfigs(sampleOrder2);
+        expect(result2.length).toBe(1);
+        expect(result2[0]).toEqual({ bucket: 'slabe-bucket', alias: 'slabe' });
+    });
 
-assert.strictEqual(result.length, 2);
-assert.deepStrictEqual(result[0], { bucket: 'slabe-bucket', alias: 'slabe' });
-assert.deepStrictEqual(result[1], { bucket: 'other-bucket', alias: 'Other' });
+    it('retains path scoping as identity in canonical bucket name', () => {
+        expect(getCanonicalBucketName('gs://slabe-bucket/team-a/results/')).toBe('slabe-bucket/team-a/results');
+        expect(getCanonicalBucketName({ bucket: 'slabe-bucket/team-a' })).toBe('slabe-bucket/team-a');
+    });
 
-// 4. Test upgrade when simple string comes before object with alias
-const sampleOrder2 = [
-    'gs://slabe-bucket',
-    { bucket: 'slabe-bucket', alias: 'slabe' }
-];
-const result2 = dedupeBucketConfigs(sampleOrder2);
-assert.strictEqual(result2.length, 1);
-assert.deepStrictEqual(result2[0], { bucket: 'slabe-bucket', alias: 'slabe' });
+    it('strips path scoping with getBucketBaseName', () => {
+        expect(getBucketBaseName('slabe-bucket')).toBe('slabe-bucket');
+        expect(getBucketBaseName('gs://slabe-bucket/team-a/results/')).toBe('slabe-bucket');
+        expect(getBucketBaseName({ bucket: 'gs://slabe-bucket/team-a', alias: 'slabe' })).toBe('slabe-bucket');
+        expect(getBucketBaseName(null)).toBe('');
+    });
 
-// 5. Path-scoped entries: canonical name retains the path as identity
-assert.strictEqual(getCanonicalBucketName('gs://slabe-bucket/team-a/results/'), 'slabe-bucket/team-a/results');
-assert.strictEqual(getCanonicalBucketName({ bucket: 'slabe-bucket/team-a' }), 'slabe-bucket/team-a');
+    it('extracts normalized trailing-slash prefixes with getBucketPrefix', () => {
+        expect(getBucketPrefix('slabe-bucket')).toBe('');
+        expect(getBucketPrefix('slabe-bucket/team-a')).toBe('team-a/');
+        expect(getBucketPrefix('gs://slabe-bucket/team-a/results/')).toBe('team-a/results/');
+        expect(getBucketPrefix('slabe-bucket//team-a//')).toBe('team-a/');
+        expect(getBucketPrefix({ bucket: 'slabe-bucket/team-a', alias: 'slabe' })).toBe('team-a/');
+        expect(getBucketPrefix(null)).toBe('');
+    });
 
-// 6. getBucketBaseName strips any path scoping
-assert.strictEqual(getBucketBaseName('slabe-bucket'), 'slabe-bucket');
-assert.strictEqual(getBucketBaseName('gs://slabe-bucket/team-a/results/'), 'slabe-bucket');
-assert.strictEqual(getBucketBaseName({ bucket: 'gs://slabe-bucket/team-a', alias: 'slabe' }), 'slabe-bucket');
-assert.strictEqual(getBucketBaseName(null), '');
-
-// 7. getBucketPrefix extracts a normalized trailing-slash prefix
-assert.strictEqual(getBucketPrefix('slabe-bucket'), '');
-assert.strictEqual(getBucketPrefix('slabe-bucket/team-a'), 'team-a/');
-assert.strictEqual(getBucketPrefix('gs://slabe-bucket/team-a/results/'), 'team-a/results/');
-assert.strictEqual(getBucketPrefix('slabe-bucket//team-a//'), 'team-a/');
-assert.strictEqual(getBucketPrefix({ bucket: 'slabe-bucket/team-a', alias: 'slabe' }), 'team-a/');
-assert.strictEqual(getBucketPrefix(null), '');
-
-// 8. Dedupe treats different prefixes of the same bucket as distinct sources
-const scopedInput = [
-    'slabe-bucket/team-a',
-    'gs://slabe-bucket/team-a/',
-    'slabe-bucket/team-b',
-    'slabe-bucket'
-];
-const scopedResult = dedupeBucketConfigs(scopedInput);
-assert.strictEqual(scopedResult.length, 3);
-assert.deepStrictEqual(scopedResult, ['slabe-bucket/team-a', 'slabe-bucket/team-b', 'slabe-bucket']);
-
-console.log('All bucketUtils unit tests passed successfully!');
+    it('treats different prefixes of the same bucket as distinct sources during deduplication', () => {
+        const scopedInput = [
+            'slabe-bucket/team-a',
+            'gs://slabe-bucket/team-a/',
+            'slabe-bucket/team-b',
+            'slabe-bucket'
+        ];
+        const scopedResult = dedupeBucketConfigs(scopedInput);
+        expect(scopedResult.length).toBe(3);
+        expect(scopedResult).toEqual(['slabe-bucket/team-a', 'slabe-bucket/team-b', 'slabe-bucket']);
+    });
+});
