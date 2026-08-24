@@ -140,10 +140,11 @@ export const UnifiedDataTable = (props) => {
     const isAdmin = user?.permission === 'admin';
         const [rawYamlContent, setRawYamlContent] = useState(null);
     const [rawYamlTitle, setRawYamlTitle] = useState('');
-    const [showComparisonDrawer, setShowComparisonDrawer] = useState(false);
     
     // Read shared graphing state from dashboardState, falling back to local defaults if dashboardState is not present
     const {
+        showComparisonDrawer: sharedShowComparisonDrawer,
+        setShowComparisonDrawer: sharedSetShowComparisonDrawer,
         tputType: sharedTputType, setTputType: sharedSetTputType,
         chartMode: sharedChartMode, setChartMode: sharedSetChartMode,
         yQualityMode: sharedYQualityMode, setYQualityMode: sharedSetYQualityMode,
@@ -161,6 +162,10 @@ export const UnifiedDataTable = (props) => {
         chartColorMode: sharedChartColorMode, setChartColorMode: sharedSetChartColorMode,
         lineConnectMode: sharedLineConnectMode, setLineConnectMode: sharedSetLineConnectMode,
     } = dashboardState || {};
+
+    const [localShowComparisonDrawer, localSetShowComparisonDrawer] = useState(false);
+    const showComparisonDrawer = sharedShowComparisonDrawer !== undefined ? sharedShowComparisonDrawer : localShowComparisonDrawer;
+    const setShowComparisonDrawer = sharedSetShowComparisonDrawer || localSetShowComparisonDrawer;
 
     // Local state fallbacks (if no shared dashboardState is present)
     const [localTputType, localSetTputType] = useState('output');
@@ -451,8 +456,8 @@ export const UnifiedDataTable = (props) => {
         const uuids = [];
         for (const stat of selectedStatsList) {
             const firstEntry = stat.data?.[0];
-            const sourceStr = firstEntry?.source || '';
-            const runId = firstEntry?.run_id || (sourceStr.startsWith('brv02:') ? sourceStr.replace('brv02:', '') : null);
+            const sourceStr = firstEntry?.source || stat.source || '';
+            const runId = firstEntry?.run_id || stat.runId || (sourceStr.startsWith('brv02:') ? sourceStr.replace('brv02:', '') : null);
 
             if (!runId || !isValidUuid(runId)) {
                 return {
@@ -461,6 +466,19 @@ export const UnifiedDataTable = (props) => {
                     shareForbiddenReason: "Sharing is forbidden: Selection contains unsubmitted or local staged runs without public UUIDs."
                 };
             }
+
+            const isBrv02 = sourceStr.startsWith('brv02:') || firstEntry?.source_info?.type === 'benchmark_report_v02';
+            const sub = isBrv02 && runId && submissionsMap ? submissionsMap[runId] : null;
+            const status = sub?.status || firstEntry?.source_info?.submission_state || stat.payload?.submission_state || 'staged';
+
+            if (status !== 'public' && status !== 'unlisted') {
+                return {
+                    canShare: false,
+                    shareableUuids: [],
+                    shareForbiddenReason: "Sharing is forbidden: Selection contains staged, pending review, or rejected runs. Only public and unlisted benchmarks can be shared."
+                };
+            }
+
             uuids.push(runId);
         }
 
@@ -469,12 +487,12 @@ export const UnifiedDataTable = (props) => {
             shareableUuids: uuids,
             shareForbiddenReason: null
         };
-    }, [selectedBenchmarks, modelStats]);
+    }, [selectedBenchmarks, modelStats, submissionsMap]);
 
     const handleCopyShareLink = React.useCallback(() => {
         if (!canShare || shareableUuids.length === 0) return;
         const shareLink = encodeShareLink(shareableUuids);
-        const fullUrl = `${window.location.origin}${window.location.pathname}?benchmarks=${shareLink}`;
+        const fullUrl = `${window.location.origin}${window.location.pathname}?view=results-store&benchmarks=${shareLink}`;
         navigator.clipboard.writeText(fullUrl);
         if (addToast) {
             addToast('Copied link to clipboard!', 'success');
