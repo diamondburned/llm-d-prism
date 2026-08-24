@@ -65,7 +65,7 @@ function App() {
     const params = new URLSearchParams(window.location.search);
     // Legacy 'benchmark-comparison' deep links land on the Benchmark Browser,
     // where the comparison renders inline once brv02 runs are submitted.
-    const view = params.get('view') || 'home';
+    const view = params.get('view') || (params.has('benchmarks') ? 'results-store' : 'home');
     if (view === 'benchmark-comparison') return 'benchmark-browser';
     if (view === 'manage-benchmarks') return 'results-store';
     return view;
@@ -105,7 +105,7 @@ function App() {
   useEffect(() => {
     const onPopState = () => {
       const params = new URLSearchParams(window.location.search);
-      const view = params.get('view') || 'home';
+      const view = params.get('view') || (params.has('benchmarks') ? 'results-store' : 'home');
       if (view === 'benchmark-comparison') {
         setCurrentView('benchmark-browser');
       } else if (view === 'manage-benchmarks') {
