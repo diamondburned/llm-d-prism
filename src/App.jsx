@@ -192,7 +192,13 @@ function App() {
   return (
     <ErrorBoundary>
       <div className="min-h-screen bg-slate-950 w-full font-sans relative flex flex-col">
-        <LeftNavigation currentView={currentView} onNavigate={handleNavigate} isMobileOpen={isMobileNavOpen} />
+        <LeftNavigation
+          currentView={currentView}
+          onNavigate={handleNavigate}
+          isMobileOpen={isMobileNavOpen}
+          gitCommit={dashboardData.gitCommit}
+          gitDescribe={dashboardData.gitDescribe}
+        />
         <main ref={mainRef} className="flex-1 flex flex-col relative w-full min-h-screen">
           {/* Top Spark Progress Bar */}
           {showOverlays && (

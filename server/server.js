@@ -27,6 +27,7 @@ import { resultsRouter } from './results/index.ts';
 import { avatarRouter } from './avatar.ts';
 import { storage } from './results/gcs.ts';
 import { getConfiguredBucketEntries, getConfiguredBucketNames, getResultsStoreBucket } from './buckets.js';
+import { parseGitCommit } from './git.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -66,6 +67,7 @@ const auth = new GoogleAuth();
 app.get('/api/config', (req, res) => {
     const defaultBuckets = getConfiguredBucketEntries(process.env.DEFAULT_BUCKETS, process.env.RESULTS_STORE_BUCKET);
     const defaultProjects = process.env.DEFAULT_PROJECTS ? process.env.DEFAULT_PROJECTS.split(',') : [];
+    const gitInfo = parseGitCommit(process.env.GIT_COMMIT);
 
     res.json({
         buckets: defaultBuckets,
@@ -76,7 +78,9 @@ app.get('/api/config', (req, res) => {
         gaTrackingId: process.env.GA_TRACKING_ID || null,
         contactUrl: process.env.CONTACT_US_URL || null,
         localDir: !!process.env.PRISM_LOCAL_DIR,
-        playgroundMode: isPlaygroundMode()
+        playgroundMode: isPlaygroundMode(),
+        gitCommit: gitInfo?.commit || null,
+        gitDescribe: gitInfo?.display || null
     });
 });
 
@@ -1208,8 +1212,11 @@ app.get('*', async (req, res) => {
         // Inject runtime environment variables
         // We inject GOOGLE_API_KEY specifically as it's required for the dashboard
         // Priorities: Process Env > Build Time (already in HTML)
+        const gitInfo = parseGitCommit(process.env.GIT_COMMIT);
         const runtimeEnv = {
-            GOOGLE_API_KEY: process.env.GOOGLE_API_KEY || process.env.VITE_GOOGLE_API_KEY || process.env.REACT_APP_GOOGLE_API_KEY
+            GOOGLE_API_KEY: process.env.GOOGLE_API_KEY || process.env.VITE_GOOGLE_API_KEY || process.env.REACT_APP_GOOGLE_API_KEY,
+            GIT_COMMIT: gitInfo?.commit || null,
+            GIT_DESCRIBE: gitInfo?.display || null
         };
 
         const scriptTag = `<script>window.env = ${JSON.stringify(runtimeEnv)};</script>`;
