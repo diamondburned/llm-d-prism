@@ -29,6 +29,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { downloadRunBRV02, downloadSingleStageYaml, getRawPrismCloudPayload } from '../../utils/brv02Exporter';
 import { parseDataUri } from '../../utils/dataParser';
 import { forkBenchmark } from '../../utils/benchmarkForker';
+import { createGlobMatcher, matchesBenchmarkStat } from '../../utils/globUtils';
 
 const getStatusTooltipText = (status, sub) => {
     switch (status) {
@@ -1277,15 +1278,10 @@ export const UnifiedDataTable = (props) => {
             }
         }
 
-        // Apply Text Search Term Filter
-        if (searchTerm) {
-            const term = searchTerm.toLowerCase();
-            stats = stats.filter(stat => {
-                const modelMatch = (stat.model || '').toLowerCase().includes(term);
-                const hwMatch = (stat.hardware || '').toLowerCase().includes(term);
-                const confMatch = (stat.configuration || '').toLowerCase().includes(term);
-                return modelMatch || hwMatch || confMatch;
-            });
+        // Apply Text Search Term Filter with globbing (* and ?)
+        if (searchTerm && searchTerm.trim()) {
+            const matcher = createGlobMatcher(searchTerm);
+            stats = stats.filter(stat => matchesBenchmarkStat(stat, matcher));
         }
 
         return stats;

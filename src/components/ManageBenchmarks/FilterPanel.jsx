@@ -955,7 +955,7 @@ export const FilterPanel = ({
                                 type="text"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                placeholder="Search by model name or hardware..."
+                                placeholder="Search by model, hardware, or glob (*, ?)..."
                                 className="pl-9 pr-4 text-xs rounded-xl font-medium"
                             />
                         </div>

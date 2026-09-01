@@ -17,6 +17,7 @@ import { X, Search, AlertTriangle, CheckCircle, Database, FileJson, ArrowRight }
 import { normalizeQualityModelName } from '../utils/qualityParser';
 import { Badge, Checkbox, EmptyState, Input, Select } from './ui';
 import { cn } from '../utils/cn';
+import { createGlobMatcher } from '../utils/globUtils';
 
 const DataInspector = ({ data, qualityMetrics, isOpen, onClose, initialSelectionId }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -58,12 +59,14 @@ const DataInspector = ({ data, qualityMetrics, isOpen, onClose, initialSelection
       );
     }
 
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
+    if (searchTerm && searchTerm.trim()) {
+      const matcher = createGlobMatcher(searchTerm);
       result = result.filter(d => 
-        (d.metadata?.model_name || '').toLowerCase().includes(term) ||
-        (d.source_info?.origin || '').toLowerCase().includes(term) ||
-        (d.source_info?.file_identifier || '').toLowerCase().includes(term)
+        (d.model && matcher(d.model)) ||
+        (d.metadata?.model_name && matcher(d.metadata.model_name)) ||
+        (d.hardware && matcher(d.hardware)) ||
+        (d.source_info?.origin && matcher(d.source_info.origin)) ||
+        (d.source_info?.file_identifier && matcher(d.source_info.file_identifier))
       );
     }
 
