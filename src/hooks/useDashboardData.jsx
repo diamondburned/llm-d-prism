@@ -2074,6 +2074,9 @@ export const useDashboardData = (initialState, dashboardState) => {
                             record.runLabel = bundleRunLabel || record.runLabel;
                             record.run_id = entry.run_id || uuidv4();
                             record.prism_stage_index = entry.prism_stage_index !== undefined ? entry.prism_stage_index : idx;
+                            if (record.stageIndex === null || record.stageIndex === undefined) {
+                                record.stageIndex = record.prism_stage_index;
+                            }
                             if (record.workload) {
                                 record.workload.stage = record.prism_stage_index;
                             }
@@ -2096,8 +2099,22 @@ export const useDashboardData = (initialState, dashboardState) => {
                             record.payload = bundle.payload || null;
                             record.targetDashboards = bundle.targetDashboards;
                             
-                            const isDupInBatch = trulyNewStages.some(s => s.filename === record.filename && s.runId === record.runId);
-                            const isDupInExisting = otherStages.some(existingStage => existingStage.filename === record.filename && existingStage.runId === record.runId);
+                            const isDupInBatch = trulyNewStages.some(s => {
+                                if (s.runId !== record.runId) return false;
+                                if (s.run_id && record.run_id) return s.run_id === record.run_id;
+                                if (s.prism_stage_index !== undefined && record.prism_stage_index !== undefined) {
+                                    return s.prism_stage_index === record.prism_stage_index && s.filename === record.filename;
+                                }
+                                return s.filename === record.filename;
+                            });
+                            const isDupInExisting = otherStages.some(existingStage => {
+                                if (existingStage.runId !== record.runId) return false;
+                                if (existingStage.run_id && record.run_id) return existingStage.run_id === record.run_id;
+                                if (existingStage.prism_stage_index !== undefined && record.prism_stage_index !== undefined) {
+                                    return existingStage.prism_stage_index === record.prism_stage_index && existingStage.filename === record.filename;
+                                }
+                                return existingStage.filename === record.filename;
+                            });
                             
                             if (!isDupInBatch && !isDupInExisting) {
                                 trulyNewStages.push(record);
@@ -2105,14 +2122,22 @@ export const useDashboardData = (initialState, dashboardState) => {
                         }
                     }
                 } else if (bundle.stageFiles && bundle.stageFiles.length > 0) {
-                    for (const sf of bundle.stageFiles) {
-                        const identifier = sf.file?.webkitRelativePath || sf.file?.name || sf.filename || sf.name;
+                    for (let idx = 0; idx < bundle.stageFiles.length; idx++) {
+                        const sf = bundle.stageFiles[idx];
+                        const identifier = sf.filename || sf.name || sf.file?.webkitRelativePath || sf.file?.name;
                         const record = await parseReportV02(sf.validation?.parsedData || sf.content, identifier);
                         if (record) {
                             record.runId = resolvedRunId || record.runId;
                             record.runLabel = bundleRunLabel || record.runLabel;
                             const matchingEntry = bundle.payload?.entries?.find(e => e.filename === record.filename);
                             record.run_id = matchingEntry?.run_id || uuidv4();
+                            record.prism_stage_index = matchingEntry?.prism_stage_index !== undefined ? matchingEntry.prism_stage_index : idx;
+                            if (record.stageIndex === null || record.stageIndex === undefined) {
+                                record.stageIndex = record.prism_stage_index;
+                            }
+                            if (record.workload) {
+                                record.workload.stage = record.prism_stage_index;
+                            }
                             // Enrich stage record with bundle metadata
                             record.model_name = bundle.payload?.model_name || null;
                             record.hardware = bundle.payload?.hardware || null;
@@ -2132,8 +2157,22 @@ export const useDashboardData = (initialState, dashboardState) => {
                             record.payload = bundle.payload || null;
                             record.targetDashboards = bundle.targetDashboards;
                             
-                            const isDupInBatch = trulyNewStages.some(s => s.filename === record.filename && s.runId === record.runId);
-                            const isDupInExisting = otherStages.some(existingStage => existingStage.filename === record.filename && existingStage.runId === record.runId);
+                            const isDupInBatch = trulyNewStages.some(s => {
+                                if (s.runId !== record.runId) return false;
+                                if (s.run_id && record.run_id) return s.run_id === record.run_id;
+                                if (s.prism_stage_index !== undefined && record.prism_stage_index !== undefined) {
+                                    return s.prism_stage_index === record.prism_stage_index && s.filename === record.filename;
+                                }
+                                return s.filename === record.filename;
+                            });
+                            const isDupInExisting = otherStages.some(existingStage => {
+                                if (existingStage.runId !== record.runId) return false;
+                                if (existingStage.run_id && record.run_id) return existingStage.run_id === record.run_id;
+                                if (existingStage.prism_stage_index !== undefined && record.prism_stage_index !== undefined) {
+                                    return existingStage.prism_stage_index === record.prism_stage_index && existingStage.filename === record.filename;
+                                }
+                                return existingStage.filename === record.filename;
+                            });
                             
                             if (!isDupInBatch && !isDupInExisting) {
                                 trulyNewStages.push(record);
