@@ -98,15 +98,53 @@ const ITEM_THEMES = {
     }
 };
 
-export default function LeftNavigation({ currentView, onNavigate, isMobileOpen }) {
+export default function LeftNavigation({ currentView, onNavigate, isMobileOpen, gitCommit, gitDescribe }) {
     const [isExpanded, setIsExpanded] = useState(() => {
         const saved = localStorage.getItem('prism_sidebar_expanded');
         return saved !== null ? saved === 'true' : false;
     });
 
+    const [apiGit, setApiGit] = useState(() => {
+        if (typeof window !== 'undefined' && window.env?.GIT_COMMIT) {
+            return {
+                commit: window.env.GIT_COMMIT,
+                display: window.env.GIT_DESCRIBE || window.env.GIT_COMMIT.slice(0, 7)
+            };
+        }
+        return null;
+    });
+
     useEffect(() => {
         localStorage.setItem('prism_sidebar_expanded', isExpanded);
     }, [isExpanded]);
+
+    useEffect(() => {
+        if (gitCommit) return;
+
+        let isMounted = true;
+        fetch('/api/config')
+            .then(res => (res.ok ? res.json() : null))
+            .then(data => {
+                if (isMounted && data?.gitCommit) {
+                    setApiGit({
+                        commit: data.gitCommit,
+                        display: data.gitDescribe || data.gitCommit.slice(0, 7)
+                    });
+                }
+            })
+            .catch(() => {});
+
+        return () => {
+            isMounted = false;
+        };
+    }, [gitCommit]);
+
+    const resolvedGit = gitCommit
+        ? {
+              commit: gitCommit,
+              display: gitDescribe || gitCommit.slice(0, 7)
+          }
+        : apiGit;
 
     const handleItemClick = (view, disabled) => {
         if (!disabled) {
@@ -207,11 +245,25 @@ export default function LeftNavigation({ currentView, onNavigate, isMobileOpen }
             <div className="mt-auto border-t border-slate-900/65 px-4 py-4 flex items-center justify-start bg-slate-950/20 shrink-0 rounded-b-3xl">
                 <button
                     onClick={() => setIsExpanded(!isExpanded)}
-                    className="h-8 w-8 rounded-xl font-mono text-slate-500 hover:text-white hover:bg-slate-900/50 transition-all flex items-center justify-center cursor-pointer text-xs font-bold border border-slate-900/60 hover:border-slate-800/65"
+                    className="h-8 w-8 rounded-xl font-mono text-slate-500 hover:text-white hover:bg-slate-900/50 transition-all flex items-center justify-center cursor-pointer text-xs font-bold border border-slate-900/60 hover:border-slate-800/65 shrink-0"
                     title={isExpanded ? "Collapse Sidebar" : "Expand Sidebar"}
                 >
                     {isExpanded ? "<|" : "|>"}
                 </button>
+                {isExpanded && resolvedGit?.commit && (
+                    <div className="ml-auto text-xs text-slate-500 font-mono flex items-center gap-1.5 truncate select-none">
+                        <span>Prism</span>
+                        <a
+                            href={`https://github.com/llm-d/llm-d-prism/tree/${resolvedGit.commit}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-slate-400 hover:text-slate-200 underline underline-offset-2 transition-colors truncate"
+                            title={`Revision ${resolvedGit.commit}`}
+                        >
+                            {resolvedGit.display}
+                        </a>
+                    </div>
+                )}
             </div>
         </aside>
     );

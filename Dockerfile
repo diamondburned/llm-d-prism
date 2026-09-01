@@ -1,7 +1,20 @@
-# Build stage
-FROM node:26-alpine as build
+FROM node:26-alpine AS base
 
 WORKDIR /app
+
+# Stage 1: Development (targeted by docker-compose.yml)
+FROM base AS development
+
+RUN apk add --no-cache git && \
+    git config --global --add safe.directory '*'
+
+COPY package*.json ./
+RUN npm install
+
+CMD ["npm", "run", "dev"]
+
+# Stage 2: Build frontend assets
+FROM base AS build
 
 COPY package*.json ./
 RUN npm install
@@ -9,10 +22,8 @@ RUN npm install
 COPY . .
 RUN npm run build
 
-# Serve stage
-FROM node:26-alpine
-
-WORKDIR /app
+# Stage 3: Production server (default final stage for Cloud Run)
+FROM base AS production
 
 # Install production dependencies for server
 COPY package*.json ./

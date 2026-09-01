@@ -270,6 +270,8 @@ export const useDashboardData = (initialState, dashboardState) => {
     const [toasts, setToasts] = useState([]);
     const [siteName, setSiteName] = useState("");
     const [contactUrl, setContactUrl] = useState("");
+    const [gitCommit, setGitCommit] = useState("");
+    const [gitDescribe, setGitDescribe] = useState("");
     const [newBucketName, setNewBucketName] = useState("");
     const [newBucketAlias, setNewBucketAlias] = useState("");
     const [connectionType, setConnectionType] = useState("gcs");
@@ -352,7 +354,7 @@ export const useDashboardData = (initialState, dashboardState) => {
             const response = await fetch('/api/config');
             console.log(`[useDashboardData] fetchConfig Response Status: ${response.status}`);
             if (response.ok) {
-                const { buckets, projects, hostProject, siteName, gaTrackingId, contactUrl } = await response.json();
+                const { buckets, projects, hostProject, siteName, gaTrackingId, contactUrl, gitCommit: fetchedCommit, gitDescribe: fetchedDescribe } = await response.json();
                 console.log(`[useDashboardData] fetchConfig DATA: buckets=${buckets?.length}, projects=${projects?.length}, host=${hostProject}`);
 
                 if (siteName) {
@@ -362,6 +364,14 @@ export const useDashboardData = (initialState, dashboardState) => {
 
                 if (contactUrl) {
                     setContactUrl(contactUrl);
+                }
+
+                if (fetchedCommit) {
+                    setGitCommit(fetchedCommit);
+                }
+
+                if (fetchedDescribe) {
+                    setGitDescribe(fetchedDescribe);
                 }
 
                 // Initialize Google Analytics if ID is provided
@@ -2634,6 +2644,8 @@ export const useDashboardData = (initialState, dashboardState) => {
         addToast, removeToast,
         siteName, setSiteName,
         contactUrl, setContactUrl,
+        gitCommit, setGitCommit,
+        gitDescribe, setGitDescribe,
         fetchConfig, fetchBucketData, fetchGiqData,
         fetchQualityData, fetchLocalData, fetchArchivedData,
         loadAllData, handleLpgFileUpload, handleLpgGcsScan, handleLpgGcsLoad, syncDriveData,

@@ -2,7 +2,10 @@ version: '3.8'
 
 services:
   app:
-    image: node:20-alpine
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
     working_dir: /app
     volumes:
       - .:/app
@@ -16,7 +19,8 @@ services:
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
       - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
       - PUBLIC_URL=http://localhost:8081
+      - GIT_COMMIT=${GIT_COMMIT:-}
     ports:
       - "8081:5173"
       - "3000:3000"
-    command: sh -c "npm install && npm run dev"
+    command: sh -c "export GIT_COMMIT=$${GIT_COMMIT:-$$(git describe --always --dirty 2>/dev/null)}; npm install && npm run dev"
