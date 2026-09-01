@@ -347,7 +347,7 @@ export function getOriginalStageIndex(entry) {
         const num = Number(raw.stageIndex);
         if (!isNaN(num)) return num;
     }
-    const strToMatch = entry.filename || entry.run_uid || '';
+    const strToMatch = (entry.filename || entry.run_uid || '').split('/').pop();
     const match = strToMatch.match(/stage[_-]?(\d+)/i);
     if (match) {
         const num = parseInt(match[1], 10);
@@ -360,14 +360,22 @@ export function getOriginalStageIndex(entry) {
  * Compares two stage entries by original BRV02 stage number or filename.
  */
 export function compareOriginalStageOrder(a, b) {
+    const filenameA = a.filename || a.run_uid || '';
+    const filenameB = b.filename || b.run_uid || '';
+    const slashIdxA = filenameA.indexOf('/');
+    const slashIdxB = filenameB.indexOf('/');
+    const dirA = slashIdxA !== -1 ? filenameA.slice(0, slashIdxA) : '';
+    const dirB = slashIdxB !== -1 ? filenameB.slice(0, slashIdxB) : '';
+    if (dirA !== dirB) {
+        const dirCmp = dirA.localeCompare(dirB, undefined, { numeric: true, sensitivity: 'base' });
+        if (dirCmp !== 0) return dirCmp;
+    }
     const idxA = getOriginalStageIndex(a);
     const idxB = getOriginalStageIndex(b);
     if (idxA !== idxB) {
         return idxA - idxB;
     }
-    const nameA = (a.filename || a.run_uid || '').split('/').pop();
-    const nameB = (b.filename || b.run_uid || '').split('/').pop();
-    return nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' });
+    return filenameA.localeCompare(filenameB, undefined, { numeric: true, sensitivity: 'base' });
 }
 
 /**
@@ -634,6 +642,13 @@ export function stageToEntry(stage) {
         ntpot: performance.tpotMean ?? null,
         itl: performance.itlMean ?? null,
 
+        prism_stage_index: stage.prism_stage_index !== undefined && stage.prism_stage_index !== null
+            ? stage.prism_stage_index
+            : (stage.stageIndex !== undefined && stage.stageIndex !== null ? stage.stageIndex : null),
+        stageIndex: stage.prism_stage_index !== undefined && stage.prism_stage_index !== null
+            ? stage.prism_stage_index
+            : (stage.stageIndex !== undefined && stage.stageIndex !== null ? stage.stageIndex : null),
+
         source: `brv02:${runId}`,
         source_info: {
             type: 'benchmark_report_v02',
@@ -656,6 +671,12 @@ export function stageToEntry(stage) {
             tp: scenario.tp || 1,
             architecture: scenario.role || 'aggregate',
             components: components || [],
+            stage_index: stage.prism_stage_index !== undefined && stage.prism_stage_index !== null
+                ? stage.prism_stage_index
+                : (stage.stageIndex !== undefined && stage.stageIndex !== null ? stage.stageIndex : null),
+            stage: stage.prism_stage_index !== undefined && stage.prism_stage_index !== null
+                ? stage.prism_stage_index
+                : (stage.stageIndex !== undefined && stage.stageIndex !== null ? stage.stageIndex : null),
         },
 
         workload: {
@@ -663,7 +684,9 @@ export function stageToEntry(stage) {
             output_tokens: scenario.osl ?? null,
             target_qps: scenario.rateQps ?? null,
             concurrency: scenario.concurrency ?? null,
-            stage: stage.stageIndex,
+            stage: stage.prism_stage_index !== undefined && stage.prism_stage_index !== null
+                ? stage.prism_stage_index
+                : (stage.stageIndex !== undefined && stage.stageIndex !== null ? stage.stageIndex : null),
         },
 
         metrics: {

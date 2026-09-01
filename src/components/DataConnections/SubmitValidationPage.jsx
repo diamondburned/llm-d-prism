@@ -277,8 +277,21 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
         let combinedSummary = null;
 
         targetBundles.forEach(bundle => {
+            const originalRunLabel = bundle.payload?.runLabel || bundle.name || bundle.dirKey || '';
+
             if (bundle.stageFiles) {
-                combinedStageFiles.push(...bundle.stageFiles);
+                const mappedStageFiles = bundle.stageFiles.map(sf => {
+                    const originalName = sf.filename || sf.name || sf.file?.name || '';
+                    const newFilename = originalRunLabel && !originalName.startsWith(`${originalRunLabel}/`)
+                        ? `${originalRunLabel}/${originalName}`
+                        : originalName;
+                    return {
+                        ...sf,
+                        name: newFilename,
+                        filename: newFilename
+                    };
+                });
+                combinedStageFiles.push(...mappedStageFiles);
             }
             if (bundle.metadataFiles?.run_metadata?.parsed) {
                 combinedRunMetadata = bundle.metadataFiles.run_metadata.parsed;
@@ -298,8 +311,15 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                     runLabel: resolvedMetadata.runLabel,
                     inference_tool: resolvedMetadata.inference_tool
                 });
+                const originalFilePath = entry.filename || entry.run_uid || 'report.json';
+                const newFilename = originalRunLabel && !originalFilePath.startsWith(`${originalRunLabel}/`)
+                    ? `${originalRunLabel}/${originalFilePath}`
+                    : originalFilePath;
+
                 combinedEntries.push({
                     ...entry,
+                    filename: newFilename,
+                    run_id: entry.run_id || uuidv4(),
                     run_description: resolvedMetadata.runLabel || entry.run_description,
                     raw_report: mutatedRawReport
                 });
@@ -578,8 +598,8 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
             entriesWithMetrics.sort((a, b) => {
                 let valA, valB;
                 if (column === 'filename') {
-                    valA = (a.check.filename || '').split('/').pop();
-                    valB = (b.check.filename || '').split('/').pop();
+                    valA = a.check.filename || '';
+                    valB = b.check.filename || '';
                     const cmp = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' });
                     return newDirection === 'asc' ? cmp : -cmp;
                 } else if (column === 'timestamp') {
@@ -698,8 +718,11 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
             }));
 
             const remainingFilenames = new Set(remainingEntries.map(e => e.filename));
-            const updatedStageFiles = (bundle.stageFiles || []).filter(sf => {
-                const fname = sf.file?.name || sf.name || sf.filename || sf.path;
+            const updatedStageFiles = (bundle.stageFiles || []).filter((sf, idx) => {
+                if (bundle.stageFiles?.length === bundle.payload?.entries?.length) {
+                    return idx !== stageIndexToDelete;
+                }
+                const fname = sf.filename || sf.name || sf.file?.name || sf.path;
                 return remainingFilenames.has(fname) || remainingEntries.some(e => e.filename?.endsWith(fname));
             });
 
@@ -2505,7 +2528,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
         stagedFiles.forEach(bundle => {
             if (Array.isArray(bundle.stageFiles)) {
                 bundle.stageFiles.forEach((sf, sIdx) => {
-                    const parsedData = parseReportV02(sf.content, sf.file?.name);
+                    const parsedData = parseReportV02(sf.content, sf.filename || sf.name || sf.file?.name);
                     if (parsedData) {
                         stagesList.push({
                             id: `${bundle.id}-${sIdx}`,
