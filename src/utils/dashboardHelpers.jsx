@@ -196,8 +196,8 @@ export const sortGroupKeys = (keys, { isDesc = false } = {}) => {
     return [...keys].sort((a, b) => {
         const strA = String(a ?? '');
         const strB = String(b ?? '');
-        const isSpecialA = strA === 'Other' || strA.startsWith('Unknown');
-        const isSpecialB = strB === 'Other' || strB.startsWith('Unknown');
+        const isSpecialA = strA === 'Other' || strA.startsWith('Unknown') || strA.includes(': Unknown') || strA.includes(': Other');
+        const isSpecialB = strB === 'Other' || strB.startsWith('Unknown') || strB.includes(': Unknown') || strB.includes(': Other');
         if (isSpecialA && !isSpecialB) return 1;
         if (!isSpecialA && isSpecialB) return -1;
 
