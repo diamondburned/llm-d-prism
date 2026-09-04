@@ -43,6 +43,34 @@ describe('dashboardHelpers sortGroupKeys', () => {
         const sorted = sortGroupKeys(keys, { isDesc: true });
         expect(sorted).toEqual(['Qwen3-32B', 'Llama-3.1-70B', 'Gemma-2-9B', 'Other']);
     });
+
+    it('sorts multi-item group keys alphabetically and naturally', () => {
+        const keys = [
+            'MODEL: qwen + HARDWARE: h200',
+            'MODEL: gemini + HARDWARE: h100',
+            'MODEL: qwen + HARDWARE: h100',
+        ];
+        const sorted = sortGroupKeys(keys);
+        expect(sorted).toEqual([
+            'MODEL: gemini + HARDWARE: h100',
+            'MODEL: qwen + HARDWARE: h100',
+            'MODEL: qwen + HARDWARE: h200',
+        ]);
+    });
+
+    it('places multi-item group keys with Unknown at the end', () => {
+        const keys = [
+            'MODEL: Unknown Model + HARDWARE: h100',
+            'MODEL: qwen + HARDWARE: h100',
+            'MODEL: gemini + HARDWARE: h100',
+        ];
+        const sorted = sortGroupKeys(keys);
+        expect(sorted).toEqual([
+            'MODEL: gemini + HARDWARE: h100',
+            'MODEL: qwen + HARDWARE: h100',
+            'MODEL: Unknown Model + HARDWARE: h100',
+        ]);
+    });
 });
 
 describe('dashboardHelpers sortBuckets', () => {

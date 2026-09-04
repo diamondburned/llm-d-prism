@@ -32,6 +32,13 @@ import { parseDataUri } from '../../utils/dataParser';
 import { forkBenchmark } from '../../utils/benchmarkForker';
 import { createGlobMatcher, matchesBenchmarkStat } from '../../utils/globUtils';
 
+const GROUP_BY_TAGS = {
+    Model: 'MODEL',
+    Hardware: 'HARDWARE',
+    Origin: 'SOURCE',
+    OriginFolder: 'ORIGIN',
+};
+
 const getStatusTooltipText = (status, sub) => {
     switch (status) {
         case 'staged':
@@ -322,7 +329,7 @@ export const UnifiedDataTable = (props) => {
         qualityMetrics,
         onOpenSubmitDialog,
         isFiltered = false,
-        groupBy = 'Model',
+        groupBy = ['Model'],
         sortByField = 'runLabel',
         sortDirection = 'asc',
         visibleSpecs = {
@@ -1387,43 +1394,66 @@ export const UnifiedDataTable = (props) => {
 
     const needsExpansion = sortedStats.length > 4;
 
+    const activeGroupBy = React.useMemo(() => {
+        if (!groupBy) return [];
+        if (Array.isArray(groupBy)) return groupBy.filter(g => g && g !== 'None');
+        if (groupBy instanceof Set) return Array.from(groupBy).filter(g => g && g !== 'None');
+        if (typeof groupBy === 'string') return groupBy === 'None' ? [] : [groupBy];
+        return [];
+    }, [groupBy]);
+
     const groupedStats = React.useMemo(() => {
         const grouped = {};
-        if (groupBy !== 'None') {
+        if (activeGroupBy.length > 0) {
             // Build a mapping of lowercase clean model names to their first seen nicely-cased clean name
             const canonicalCasing = {};
-            sortedStats.forEach(stat => {
-                if (groupBy === 'Model') {
+            if (activeGroupBy.includes('Model')) {
+                sortedStats.forEach(stat => {
                     const rawName = stat.model_name || stat.model || 'Unknown Model';
                     const clean = getCleanModelName(rawName);
                     const cleanLower = clean.toLowerCase();
                     if (!canonicalCasing[cleanLower]) {
                         canonicalCasing[cleanLower] = clean;
                     }
-                }
-            });
+                });
+            }
 
-            sortedStats.forEach(stat => {
-                let key = 'Other';
-                if (groupBy === 'Model') {
+            const getDimValue = (stat, dim) => {
+                if (dim === 'Model') {
                     const rawName = stat.model_name || stat.model || 'Unknown Model';
                     const clean = getCleanModelName(rawName);
-                    key = canonicalCasing[clean.toLowerCase()] || clean;
+                    return canonicalCasing[clean.toLowerCase()] || clean;
                 }
-                if (groupBy === 'Hardware') key = stat.hardware || 'Unknown Hardware';
-                if (groupBy === 'Origin') {
+                if (dim === 'Hardware') {
+                    return stat.hardware || 'Unknown Hardware';
+                }
+                if (dim === 'Origin') {
                     const origin = stat.data?.[0]?.source_info?.origin || stat.data?.[0]?.source;
-                    key = origin ? getSourceTag(stat.data[0]) : 'Unknown Origin';
+                    return origin ? getSourceTag(stat.data[0]) : 'Unknown Origin';
                 }
-                if (groupBy === 'OriginFolder') {
+                if (dim === 'OriginFolder') {
                     const origin = stat.data?.[0]?.source_info?.origin || stat.data?.[0]?.source;
-                    key = origin ? formatOriginLabel(origin) : 'Unknown Origin/Folder';
+                    return origin ? formatOriginLabel(origin) : 'Unknown Origin/Folder';
                 }
+                return 'Other';
+            };
+
+            sortedStats.forEach(stat => {
+                const parts = activeGroupBy.map(dim => {
+                    const tag = GROUP_BY_TAGS[dim] || dim.toUpperCase();
+                    const val = getDimValue(stat, dim);
+                    return `${tag}: ${val}`;
+                });
+                const key = parts.join(' + ');
                 if (!grouped[key]) grouped[key] = [];
                 grouped[key].push(stat);
             });
 
-            const isGroupSortDesc = (groupBy === 'Model' && sortByField === 'model') ? sortDirection === 'desc' : false;
+            const firstDim = activeGroupBy[0];
+            const isGroupSortDesc = (
+                (firstDim === 'Model' && sortByField === 'model') ||
+                (firstDim === 'Hardware' && sortByField === 'hardware')
+            ) ? sortDirection === 'desc' : false;
             const sortedKeys = sortGroupKeys(Object.keys(grouped), { isDesc: isGroupSortDesc });
 
             const sortedGrouped = {};
@@ -1435,7 +1465,7 @@ export const UnifiedDataTable = (props) => {
             grouped['All'] = sortedStats;
             return grouped;
         }
-    }, [sortedStats, groupBy, sortByField, sortDirection]);
+    }, [sortedStats, activeGroupBy, sortByField, sortDirection]);
 
     const visibleStatsList = React.useMemo(() => {
         return Object.values(groupedStats).flat();
@@ -2039,8 +2069,8 @@ export const UnifiedDataTable = (props) => {
                         const isAllSelected = stats.every(s => selectedBenchmarks.has(s.benchmarkKey));
                         return (
                         <div key={groupKey} className="flex flex-col gap-2">
-                            {groupBy !== 'None' && (
-                                <div className="sticky top-0 z-10 bg-slate-150 dark:bg-slate-900 py-1.5 px-3 rounded text-xs font-bold text-slate-550 dark:text-slate-400 uppercase tracking-wider border-y border-slate-200 dark:border-slate-800/60 flex items-center gap-3">
+                            {activeGroupBy.length > 0 && (
+                                <div className="sticky top-0 z-10 bg-slate-150 dark:bg-slate-900 py-1.5 px-3 rounded text-xs font-bold text-slate-550 dark:text-slate-400 border-y border-slate-200 dark:border-slate-800/60 flex items-center gap-3">
                                     <div 
                                         onClick={(e) => {
                                             e.stopPropagation();
@@ -2055,7 +2085,29 @@ export const UnifiedDataTable = (props) => {
                                             {isAllSelected && <Check size={10} strokeWidth={3} />}
                                         </div>
                                     </div>
-                                    {groupKey}
+                                    <span className="font-mono text-xs inline-flex items-center flex-wrap gap-x-2 gap-y-1">
+                                        {groupKey.split(' + ').map((part, idx) => {
+                                            const colonIdx = part.indexOf(':');
+                                            if (colonIdx === -1) {
+                                                return <span key={idx} className="text-slate-800 dark:text-slate-200 font-semibold">{part}</span>;
+                                            }
+                                            const tag = part.slice(0, colonIdx).trim();
+                                            const val = part.slice(colonIdx + 1).trim();
+                                            return (
+                                                <React.Fragment key={idx}>
+                                                    {idx > 0 && <span className="text-slate-400 dark:text-slate-600 font-normal select-none">+</span>}
+                                                    <span className="inline-flex items-center gap-1.5">
+                                                        <span className="text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500 tracking-wider select-none">
+                                                            {tag}:
+                                                        </span>
+                                                        <span className="text-slate-800 dark:text-slate-200 font-semibold">
+                                                            {val}
+                                                        </span>
+                                                    </span>
+                                                </React.Fragment>
+                                            );
+                                        })}
+                                    </span>
                                 </div>
                             )}
                             

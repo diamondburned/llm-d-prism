@@ -59,6 +59,15 @@ const FILTER_FIELD_LABELS = {
     acc_count: 'Accelerator Count'
 };
 
+const GROUP_BY_OPTIONS = ['Model', 'Hardware', 'Origin', 'OriginFolder'];
+
+const GROUP_BY_LABELS = {
+    Model: 'Model',
+    Hardware: 'Hardware',
+    Origin: 'Source Connections',
+    OriginFolder: 'Origin/Folder',
+};
+
 const getKpiFilterLabel = (filter, isPlaygroundMode = false) => {
     switch (filter) {
         case 'my-submissions': return isPlaygroundMode ? 'Pending Benchmarks' : 'My Benchmarks';
@@ -308,9 +317,31 @@ export const FilterPanel = ({
     const [groupBy, setGroupBy] = useState(() => {
         try {
             const saved = localStorage.getItem('prism_manage_group_by');
-            return saved || 'Model';
-        } catch { return 'Model'; }
+            if (!saved) return ['Model'];
+            if (saved.startsWith('[') && saved.endsWith(']')) {
+                const parsed = JSON.parse(saved);
+                if (Array.isArray(parsed)) return parsed.filter(Boolean);
+            }
+            if (saved === 'None') return [];
+            const items = saved.split(',').map(s => s.trim()).filter(s => s && s !== 'None');
+            return items.length > 0 ? items : ['Model'];
+        } catch { return ['Model']; }
     });
+
+    const handleToggleGroupBy = (val) => {
+        if (!val) {
+            setGroupBy([]);
+            return;
+        }
+        setGroupBy(prev => {
+            const current = Array.isArray(prev) ? prev : (prev && prev !== 'None' ? [prev] : []);
+            if (current.includes(val)) {
+                return current.filter(item => item !== val);
+            } else {
+                return [...current, val];
+            }
+        });
+    };
     
     const [sortByField, setSortByField] = useState(() => {
         try {
@@ -380,7 +411,7 @@ export const FilterPanel = ({
 
     useEffect(() => {
         try {
-            localStorage.setItem('prism_manage_group_by', groupBy);
+            localStorage.setItem('prism_manage_group_by', JSON.stringify(groupBy));
         } catch (e) { console.warn(e); }
     }, [groupBy]);
 
@@ -1060,7 +1091,7 @@ export const FilterPanel = ({
                                 }}
                                 className={cn(
                                     'px-3 py-2 text-xs font-semibold rounded-xl border transition-colors cursor-pointer flex items-center gap-1.5',
-                                    showViewSettings || groupBy !== 'None' || sortByField !== 'runLabel'
+                                    showViewSettings || (groupBy && groupBy.length > 0) || sortByField !== 'runLabel'
                                     ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30 font-bold'
                                     : 'bg-[#070b13] border-slate-800 hover:border-slate-700 text-slate-400 hover:text-slate-205'
                                 )}
@@ -1077,17 +1108,16 @@ export const FilterPanel = ({
                                         {/* Grouping */}
                                         <div className="flex flex-col gap-1.5">
                                             <Label className="mb-0 text-[9px] uppercase font-bold text-slate-400 tracking-wider">Group By</Label>
-                                            <Select
-                                                className="text-xs rounded-lg px-2.5 py-1.5 cursor-pointer"
-                                                value={groupBy}
-                                                onChange={(e) => setGroupBy(e.target.value)}
-                                            >
-                                                <option value="None">None</option>
-                                                <option value="Model">Model</option>
-                                                <option value="Hardware">Hardware</option>
-                                                <option value="Origin">Source Connections</option>
-                                                <option value="OriginFolder">Origin/Folder</option>
-                                            </Select>
+                                            <MultiSelectDropdown
+                                                options={GROUP_BY_OPTIONS}
+                                                selected={new Set(groupBy)}
+                                                onChange={handleToggleGroupBy}
+                                                emptyLabel="None"
+                                                clearLabel="None"
+                                                showSelectedNames={true}
+                                                formatLabel={(opt) => GROUP_BY_LABELS[opt] || opt}
+                                                menuClassName="w-full z-[120]"
+                                            />
                                         </div>
 
                                         {/* Sorting */}
