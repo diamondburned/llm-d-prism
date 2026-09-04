@@ -23,7 +23,7 @@ import { getSourceTag, getSourceType, getSourceTypeStyle, formatOriginLabel, get
 import { buildRunLabel, getBenchmarkSortLabel } from '../../utils/runLabel';
 import yaml from 'js-yaml';
 import { useGitHubAuth } from '../../hooks/useGitHubAuth';
-import { validateBenchmark } from '../../utils/benchmarkValidator';
+import { validateBenchmark, validatePrismUploadStructure } from '../../utils/benchmarkValidator';
 import { encodeShareLink, isValidUuid } from '../../utils/shareLinkEncoder';
 import { isFileBackedRun } from '../../utils/benchmarkReportV02Parser';
 import { v4 as uuidv4 } from 'uuid';
@@ -545,12 +545,10 @@ export const UnifiedDataTable = (props) => {
             } : null
         };
 
-        const bundleValidation = {
-            format: 'brv02',
-            errors: [],
-            warnings: [],
-            dcoChecked: true
-        };
+        const validRunId = (run.runId && isValidUuid(run.runId))
+            ? run.runId
+            : ((run.payload?.runId && isValidUuid(run.payload.runId)) ? run.payload.runId : uuidv4());
+        const runLabel = run.runLabel || run.payload?.runLabel || 'Unnamed Run';
 
         const forkedFromVal = run.forked_from 
             || run.payload?.forked_from 
@@ -586,38 +584,69 @@ export const UnifiedDataTable = (props) => {
             || run.bundle?.payload?.evidence 
             || null;
 
+        const payload = {
+            ...(run.payload || {}),
+            runId: validRunId,
+            runLabel: runLabel,
+            format: 'brv02',
+            model_name: run.model_name || run.stages?.[0]?.scenario?.model || 'Unknown Model',
+            hardware: { 
+                hardware_name: run.hardware?.hardware_name || run.stages?.[0]?.scenario?.hardware || 'Unknown Hardware',
+                accelerator_count: run.hardware?.accelerator_count ?? null
+            },
+            run_metadata: run.run_metadata || null,
+            entries: (run.stages || []).map((stage, idx) => {
+                let rawObj = stage.rawReport || stage.raw_report;
+                if (typeof rawObj === 'string') {
+                    try {
+                        rawObj = JSON.parse(rawObj);
+                    } catch {
+                        try {
+                            rawObj = yaml.load(rawObj);
+                        } catch {
+                            rawObj = {};
+                        }
+                    }
+                }
+                if (!rawObj || typeof rawObj !== 'object') {
+                    rawObj = {};
+                }
+
+                return {
+                    run_id: (stage.run_id && isValidUuid(stage.run_id)) ? stage.run_id : uuidv4(),
+                    run_description: stage.run_description || runLabel,
+                    filename: stage.filename || `stage_${idx + 1}.yaml`,
+                    raw_report: rawObj,
+                    stage: stage.stageIndex ?? idx,
+                    prism_stage_index: stage.prism_stage_index !== undefined ? stage.prism_stage_index : (stage.stageIndex ?? idx),
+                    runUid: stage.runUid
+                };
+            }),
+            well_lit_path: run.wellLitPath || run.well_lit_path || null,
+            ...(forkedFromVal ? { forked_from: forkedFromVal } : {}),
+            ...(githubAuthorVal ? { github_author: githubAuthorVal } : {}),
+            ...(inferenceToolVal ? { inference_tool: inferenceToolVal } : {}),
+            ...(inferenceToolVersionVal ? { inference_tool_version: inferenceToolVersionVal } : {}),
+            ...(manifestsVal ? { manifests: manifestsVal } : {}),
+            ...(evidenceVal ? { evidence: evidenceVal } : {})
+        };
+
+        const uploadValidation = validatePrismUploadStructure(payload, { isUpload: false });
+        const bundleValidation = {
+            format: 'brv02',
+            errors: uploadValidation.errors || [],
+            warnings: uploadValidation.warnings || [],
+            fieldErrors: uploadValidation.fieldErrors || {},
+            dcoChecked: true
+        };
+
         return {
             id: Math.random().toString(36).substring(7),
-            dirKey: run.runId,
-            name: run.runLabel,
+            dirKey: validRunId,
+            name: runLabel,
             stageFiles,
             metadataFiles,
-            payload: {
-                ...(run.payload || {}),
-                runId: run.runId,
-                runLabel: run.runLabel,
-                format: 'brv02',
-                model_name: run.model_name || run.stages[0]?.scenario?.model || 'Unknown Model',
-                hardware: { 
-                    hardware_name: run.hardware?.hardware_name || run.stages[0]?.scenario?.hardware || 'Unknown Hardware',
-                    accelerator_count: run.hardware?.accelerator_count ?? null
-                },
-                run_metadata: run.run_metadata || null,
-                entries: run.stages.map(stage => ({
-                    run_id: stage.run_id || uuidv4(),
-                    filename: stage.filename,
-                    raw_report: stage.rawReport,
-                    stage: stage.stageIndex,
-                    runUid: stage.runUid
-                })),
-                well_lit_path: run.wellLitPath || run.well_lit_path || null,
-                ...(forkedFromVal ? { forked_from: forkedFromVal } : {}),
-                ...(githubAuthorVal ? { github_author: githubAuthorVal } : {}),
-                ...(inferenceToolVal ? { inference_tool: inferenceToolVal } : {}),
-                ...(inferenceToolVersionVal ? { inference_tool_version: inferenceToolVersionVal } : {}),
-                ...(manifestsVal ? { manifests: manifestsVal } : {}),
-                ...(evidenceVal ? { evidence: evidenceVal } : {})
-            },
+            payload,
             validation: bundleValidation,
             isExpanded: true,
             isSkipped: false,
