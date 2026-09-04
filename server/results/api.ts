@@ -21,7 +21,7 @@ export const PrismStageEntrySchema = z.object({
     /** Unique identifier for the stage. Generated as a unique UUIDv4 by Prism. */
     run_id: z.string().uuid(),
     /** Human-friendly run description/label matching the parent run. Example: "gemma-4-9b-it" */
-    run_description: z.string(),
+    run_description: z.string().optional(),
     /** Original filename of the evaluated benchmark stage report. Example: "benchmark_report_v0.2_stage_1.yaml" */
     filename: z.string(),
     /** Sequential normalized stage index stored in Prism payload structure. Example: 0 */

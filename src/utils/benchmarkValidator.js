@@ -154,6 +154,32 @@ export function validateBenchmark(fileContent, filename) {
 }
 
 /**
+ * Formats a Zod issue path array into a readable object path string.
+ * Examples:
+ * - ['entries', 0, 'run_id'] -> 'entries[0].run_id'
+ * - ['hardware', 'hardware_name'] -> 'hardware.hardware_name'
+ * - ['manifests', 'deployment.yaml'] -> 'manifests["deployment.yaml"]'
+ *
+ * @param {Array<string|number>} path
+ * @returns {string}
+ */
+export function formatZodIssuePath(path) {
+    if (!path || !Array.isArray(path) || path.length === 0) {
+        return '';
+    }
+    return path.reduce((acc, seg) => {
+        if (typeof seg === 'number' || /^\d+$/.test(String(seg))) {
+            return `${acc}[${seg}]`;
+        }
+        const segStr = String(seg);
+        if (/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(segStr)) {
+            return acc ? `${acc}.${segStr}` : segStr;
+        }
+        return acc ? `${acc}["${segStr}"]` : `["${segStr}"]`;
+    }, '');
+}
+
+/**
  * Validate the complete Prism Run Upload Structure.
  * Rejects runs if any of its stages contain mismatching info (model, hardware).
  * Isomorphic/shared function called by both frontend and backend.
@@ -175,11 +201,22 @@ export function validatePrismUploadStructure(uploadData, options = {}) {
         const parsedResult = PrismResultPayloadSchema.safeParse(uploadData);
         if (!parsedResult.success) {
             for (const issue of parsedResult.error.issues) {
-                const fieldPath = issue.path.join('.');
-                const message = issue.message;
+                const dotPath = issue.path.join('.');
+                const formattedPath = formatZodIssuePath(issue.path);
+                const prefix = formattedPath ? `${formattedPath}: ` : '';
+                const detailedMessage = (formattedPath && !issue.message.startsWith(prefix) && !issue.message.startsWith(`${formattedPath} `))
+                    ? `${formattedPath}: ${issue.message}`
+                    : issue.message;
 
-                errors.push(message);
-                fieldErrors[fieldPath] = { message, severity: 'error' };
+                errors.push(detailedMessage);
+
+                const errorEntry = { message: detailedMessage, severity: 'error' };
+                if (dotPath) {
+                    fieldErrors[dotPath] = errorEntry;
+                }
+                if (formattedPath && formattedPath !== dotPath) {
+                    fieldErrors[formattedPath] = errorEntry;
+                }
             }
         }
     } else {

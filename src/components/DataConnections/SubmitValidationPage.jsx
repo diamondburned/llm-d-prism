@@ -6,6 +6,7 @@ import { validateBenchmark, validatePrismUploadStructure } from '../../utils/ben
 import { parseReportV02, stageToEntry, canonicalStringify, mutateRawReportMetadata, compareOriginalStageOrder, normalizeReportUnits } from '../../utils/benchmarkReportV02Parser';
 import { toOptimalDataUri, parseDataUri } from '../../utils/dataParser';
 import yaml from 'js-yaml';
+import { isValidUuid } from '../../utils/shareLinkEncoder';
 
 import IntelligentRoutingChart from '../IntelligentRoutingChart';
 import { useGitHubAuth } from '../../hooks/useGitHubAuth';
@@ -627,10 +628,21 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
             const [moved] = entries.splice(fromIndex, 1);
             entries.splice(toIndex, 0, moved);
 
+            const fallbackRunDesc = bundle.name || bundle.payload?.runLabel || 'Unnamed Run';
             const reindexedEntries = entries.map((entry, idx) => ({
                 ...entry,
+                run_id: (entry.run_id && isValidUuid(entry.run_id)) ? entry.run_id : uuidv4(),
+                run_description: entry.run_description || fallbackRunDesc,
                 prism_stage_index: idx
             }));
+
+            let updatedStageFiles = bundle.stageFiles;
+            if (Array.isArray(bundle.stageFiles) && bundle.stageFiles.length === entries.length) {
+                const sfCopy = [...bundle.stageFiles];
+                const [movedSf] = sfCopy.splice(fromIndex, 1);
+                sfCopy.splice(toIndex, 0, movedSf);
+                updatedStageFiles = sfCopy;
+            }
 
             const updatedPayload = {
                 ...bundle.payload,
@@ -640,6 +652,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
             const uploadValidation = validatePrismUploadStructure(updatedPayload, { isUpload: false });
             return {
                 ...bundle,
+                stageFiles: updatedStageFiles,
                 payload: updatedPayload,
                 validation: {
                     ...bundle.validation,
@@ -711,10 +724,24 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                 return newDirection === 'asc' ? diff : -diff;
             });
 
+            const fallbackRunDesc = bundle.name || bundle.payload?.runLabel || 'Unnamed Run';
             const sortedEntries = entriesWithMetrics.map(({ entry }, idx) => ({
                 ...entry,
+                run_id: (entry.run_id && isValidUuid(entry.run_id)) ? entry.run_id : uuidv4(),
+                run_description: entry.run_description || fallbackRunDesc,
                 prism_stage_index: idx
             }));
+
+            let updatedStageFiles = bundle.stageFiles;
+            if (Array.isArray(bundle.stageFiles) && bundle.stageFiles.length === sortedEntries.length) {
+                const matchedFiles = sortedEntries.map(entry => {
+                    return bundle.stageFiles.find(sf => (sf.filename || sf.name || sf.file?.name) === entry.filename)
+                        || bundle.stageFiles[entry.prism_stage_index];
+                }).filter(Boolean);
+                if (matchedFiles.length === bundle.stageFiles.length) {
+                    updatedStageFiles = matchedFiles;
+                }
+            }
 
             const updatedPayload = {
                 ...bundle.payload,
@@ -724,6 +751,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
             const uploadValidation = validatePrismUploadStructure(updatedPayload, { isUpload: false });
             return {
                 ...bundle,
+                stageFiles: updatedStageFiles,
                 payload: updatedPayload,
                 validation: {
                     ...bundle.validation,
@@ -747,11 +775,25 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                 return bundle;
             }
 
+            const fallbackRunDesc = bundle.name || bundle.payload?.runLabel || 'Unnamed Run';
             const sortedEntries = [...bundle.payload.entries].sort(compareOriginalStageOrder);
             const reindexedEntries = sortedEntries.map((entry, idx) => ({
                 ...entry,
+                run_id: (entry.run_id && isValidUuid(entry.run_id)) ? entry.run_id : uuidv4(),
+                run_description: entry.run_description || fallbackRunDesc,
                 prism_stage_index: idx
             }));
+
+            let updatedStageFiles = bundle.stageFiles;
+            if (Array.isArray(bundle.stageFiles) && bundle.stageFiles.length === reindexedEntries.length) {
+                const matchedFiles = reindexedEntries.map(entry => {
+                    return bundle.stageFiles.find(sf => (sf.filename || sf.name || sf.file?.name) === entry.filename)
+                        || bundle.stageFiles[entry.prism_stage_index];
+                }).filter(Boolean);
+                if (matchedFiles.length === bundle.stageFiles.length) {
+                    updatedStageFiles = matchedFiles;
+                }
+            }
 
             const updatedPayload = {
                 ...bundle.payload,
@@ -767,6 +809,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
             const uploadValidation = validatePrismUploadStructure(updatedPayload, { isUpload: false });
             return {
                 ...bundle,
+                stageFiles: updatedStageFiles,
                 payload: updatedPayload,
                 validation: {
                     ...bundle.validation,
@@ -788,8 +831,11 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                 return prev.filter(b => b.id !== bundleId);
             }
 
+            const fallbackRunDesc = bundle.name || bundle.payload?.runLabel || 'Unnamed Run';
             const reindexedEntries = remainingEntries.map((entry, idx) => ({
                 ...entry,
+                run_id: (entry.run_id && isValidUuid(entry.run_id)) ? entry.run_id : uuidv4(),
+                run_description: entry.run_description || fallbackRunDesc,
                 prism_stage_index: idx
             }));
 
@@ -1931,6 +1977,36 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
         }
     };
 
+    const sanitizeStagedBundles = (bundles) => {
+        if (!Array.isArray(bundles)) return [];
+        return bundles.map(bundle => {
+            if (!bundle || !bundle.payload) return bundle;
+            const fallbackDesc = bundle.name || bundle.payload.runLabel || 'Unnamed Run';
+            const rawEntries = Array.isArray(bundle.payload.entries) ? bundle.payload.entries : [];
+            const entries = rawEntries.map((entry, idx) => ({
+                ...entry,
+                run_id: (entry.run_id && isValidUuid(entry.run_id)) ? entry.run_id : uuidv4(),
+                run_description: entry.run_description || fallbackDesc,
+                prism_stage_index: entry.prism_stage_index !== undefined ? entry.prism_stage_index : idx
+            }));
+            const updatedPayload = {
+                ...bundle.payload,
+                entries
+            };
+            const uploadValidation = validatePrismUploadStructure(updatedPayload, { isUpload: false });
+            return {
+                ...bundle,
+                payload: updatedPayload,
+                validation: {
+                    ...bundle.validation,
+                    errors: uploadValidation.errors || [],
+                    warnings: uploadValidation.warnings || [],
+                    fieldErrors: uploadValidation.fieldErrors || {}
+                }
+            };
+        });
+    };
+
     React.useEffect(() => {
         if (hasInitialized.current) return;
         hasInitialized.current = true;
@@ -1943,7 +2019,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
         if (cached) {
             try {
                 const parsed = JSON.parse(cached);
-                setStagedFiles(parsed);
+                setStagedFiles(sanitizeStagedBundles(parsed));
                 setWizardStep(3);
                 setUploadIntent('submit-review');
             } catch (e) {
@@ -1959,7 +2035,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
             try {
                 const savedBundles = localStorage.getItem('prism_active_staged_bundles');
                 if (savedBundles) {
-                    setStagedFiles(JSON.parse(savedBundles));
+                    setStagedFiles(sanitizeStagedBundles(JSON.parse(savedBundles)));
                 }
             } catch { /* ignore */ }
         } else if (wizardStepSaved) {
@@ -1976,7 +2052,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
             try {
                 const savedBundles = localStorage.getItem('prism_active_staged_bundles');
                 if (savedBundles) {
-                    setStagedFiles(JSON.parse(savedBundles));
+                    setStagedFiles(sanitizeStagedBundles(JSON.parse(savedBundles)));
                 }
             } catch (err) {
                 console.error("Failed to parse saved staged bundles:", err);

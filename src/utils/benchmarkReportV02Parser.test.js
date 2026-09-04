@@ -18,7 +18,7 @@ import {
     normalizeReportUnits,
     detectMissingUnitWarnings,
 } from './benchmarkReportV02Parser.js';
-import { validateBenchmark, validatePrismUploadStructure } from './benchmarkValidator.js';
+import { validateBenchmark, validatePrismUploadStructure, formatZodIssuePath } from './benchmarkValidator.js';
 
 const createReport = (throughput) => ({
     version: '0.2',
@@ -1074,4 +1074,119 @@ describe('missing units detection and warning generation', () => {
         expect(stage.warnings).toHaveLength(0);
         expect(stage.rawReport.results.request_performance.aggregate.throughput.output_token_rate.units).toBe('tokens/s');
     });
+
+    it('validates upload payload when entries omit run_description without throwing undefined string errors', () => {
+        const validDoc = {
+            version: '0.2',
+            run: { id: 'test-run-1', description: 'Test' },
+            scenario: { model: 'meta-llama/Llama-3-8B-Instruct', hardware: 'H100' },
+            results: {
+                request_performance: {
+                    aggregate: {
+                        throughput: { output_token_rate: { mean: 100, units: 'tokens/s' } },
+                        latency: { request_latency: { mean: 1.5, units: 's' } }
+                    }
+                }
+            }
+        };
+
+        const uploadData = {
+            runId: '11111111-1111-4111-8111-111111111111',
+            runLabel: 'Staged Benchmark Run',
+            model_name: 'meta-llama/Llama-3-8B-Instruct',
+            hardware: { hardware_name: 'H100', accelerator_count: 8 },
+            format: 'brv02',
+            entries: [
+                {
+                    run_id: '22222222-2222-4222-8222-222222222222',
+                    filename: 'stage_1.yaml',
+                    raw_report: validDoc,
+                    prism_stage_index: 0
+                    // run_description intentionally omitted
+                },
+                {
+                    run_id: '33333333-3333-4333-8333-333333333333',
+                    filename: 'stage_2.yaml',
+                    raw_report: validDoc,
+                    prism_stage_index: 1
+                    // run_description intentionally omitted
+                }
+            ]
+        };
+
+        const validation = validatePrismUploadStructure(uploadData, { isUpload: false });
+        expect(validation.isValid).toBe(true);
+        expect(validation.errors).toHaveLength(0);
+        expect(validation.errors.some(e => e.includes('expected string, received undefined'))).toBe(false);
+
+        // Simulate moving sub-runs around: swapping entries and re-indexing prism_stage_index
+        const [moved] = uploadData.entries.splice(0, 1);
+        uploadData.entries.splice(1, 0, moved);
+        uploadData.entries.forEach((e, idx) => {
+            e.prism_stage_index = idx;
+        });
+
+        const movedValidation = validatePrismUploadStructure(uploadData, { isUpload: false });
+        expect(movedValidation.isValid).toBe(true);
+        expect(movedValidation.errors).toHaveLength(0);
+    });
+
+    describe('formatZodIssuePath and detailed Zod error reporting', () => {
+        it('formats simple and nested object paths correctly', () => {
+            expect(formatZodIssuePath([])).toBe('');
+            expect(formatZodIssuePath(null)).toBe('');
+            expect(formatZodIssuePath(undefined)).toBe('');
+            expect(formatZodIssuePath(['model_name'])).toBe('model_name');
+            expect(formatZodIssuePath(['hardware', 'hardware_name'])).toBe('hardware.hardware_name');
+            expect(formatZodIssuePath(['entries', 0, 'run_id'])).toBe('entries[0].run_id');
+            expect(formatZodIssuePath(['entries', 1, 'raw_report', 'scenario', 'load', 'tool'])).toBe('entries[1].raw_report.scenario.load.tool');
+            expect(formatZodIssuePath(['manifests', 'deployment.yaml'])).toBe('manifests["deployment.yaml"]');
+            expect(formatZodIssuePath([0, 'nested', 2])).toBe('[0].nested[2]');
+        });
+
+        it('includes the object path in errors and fieldErrors when Zod schema validation fails', () => {
+            const invalidPayload = {
+                runId: 'not-a-valid-uuid',
+                format: 'brv02',
+                runLabel: 'Invalid Payload Test',
+                model_name: '',
+                hardware: {
+                    hardware_name: 'H100',
+                    accelerator_count: 0 // invalid count
+                },
+                entries: [
+                    {
+                        run_id: 'invalid-stage-uuid',
+                        filename: 'stage_0.json',
+                        // missing raw_report
+                    }
+                ]
+            };
+
+            const result = validatePrismUploadStructure(invalidPayload, { isUpload: false });
+            expect(result.isValid).toBe(false);
+
+            // Verify runId error includes path
+            expect(result.errors.some(e => e.startsWith('runId:'))).toBe(true);
+            expect(result.fieldErrors['runId']).toBeDefined();
+
+            // Verify model_name error includes path
+            expect(result.errors.some(e => e.startsWith('model_name:'))).toBe(true);
+            expect(result.fieldErrors['model_name']).toBeDefined();
+
+            // Verify hardware.accelerator_count error includes path
+            expect(result.errors.some(e => e.startsWith('hardware.accelerator_count:'))).toBe(true);
+            expect(result.fieldErrors['hardware.accelerator_count']).toBeDefined();
+
+            // Verify nested entry errors include array index and field path
+            expect(result.errors.some(e => e.startsWith('entries[0].run_id:'))).toBe(true);
+            expect(result.fieldErrors['entries.0.run_id']).toBeDefined();
+            expect(result.fieldErrors['entries[0].run_id']).toBeDefined();
+
+            expect(result.errors.some(e => e.startsWith('entries[0].raw_report:'))).toBe(true);
+            expect(result.fieldErrors['entries.0.raw_report']).toBeDefined();
+            expect(result.fieldErrors['entries[0].raw_report']).toBeDefined();
+        });
+    });
 });
+
