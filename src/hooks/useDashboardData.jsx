@@ -227,18 +227,17 @@ export const useDashboardData = (initialState, dashboardState) => {
 
             if (typeof window !== 'undefined') {
                 const params = new URLSearchParams(window.location.search);
-                params.delete('src');
-                if (selectedSources && selectedSources.size > 0) {
-                    Array.from(selectedSources).forEach(val => params.append('src', val));
-                }
-                const newSearch = params.toString();
-                const newUrl = `${window.location.pathname}${newSearch ? '?' + newSearch : ''}${window.location.hash || ''}`;
-                if (window.location.search !== (newSearch ? `?${newSearch}` : '')) {
-                    window.history.replaceState(null, '', newUrl);
+                if (params.has('src')) {
+                    params.delete('src');
+                    const newSearch = params.toString();
+                    const newUrl = `${window.location.pathname}${newSearch ? '?' + newSearch : ''}${window.location.hash || ''}`;
+                    if (window.location.search !== (newSearch ? `?${newSearch}` : '')) {
+                        window.history.replaceState(null, '', newUrl);
+                    }
                 }
             }
         } catch (e) {
-            console.warn("Failed to save selected sources to local storage or sync URL", e);
+            console.warn("Failed to save selected sources to local storage", e);
         }
     }, [selectedSources]);
     const [bucketConfigs, setBucketConfigs] = useState(() => {

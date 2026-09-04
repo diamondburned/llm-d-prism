@@ -30,6 +30,7 @@ import SubmitValidationPage from './components/DataConnections/SubmitValidationP
 import LeftNavigation from './components/LeftNavigation';
 import { useDashboardState } from './hooks/useDashboardState';
 import { useDashboardData } from './hooks/useDashboardData';
+import { clearResultsStoreParams, clearSrcParams } from './utils/urlParams';
 
 function App() {
   const mainRef = useRef(null);
@@ -118,6 +119,23 @@ function App() {
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    let changed = clearSrcParams(params);
+
+    if (currentView !== 'results-store') {
+      if (clearResultsStoreParams(params)) {
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      const newSearch = params.toString();
+      const newUrl = `${window.location.pathname}${newSearch ? '?' + newSearch : ''}${window.location.hash || ''}`;
+      window.history.replaceState(null, '', newUrl);
+    }
+  }, [currentView]);
 
   const handleNavigate = (view, extraParams = {}) => {
     if (currentView !== 'submit-benchmarks') {
@@ -131,6 +149,15 @@ function App() {
     params.set('view', view);
     if (view !== 'workload-catalog') {
       params.delete('workload');
+    }
+
+    // ?src= should never be in the URLs
+    clearSrcParams(params);
+
+    // Only the Results Store page should ever show f_ and its own other params;
+    // when navving away, clear those params.
+    if (view !== 'results-store') {
+      clearResultsStoreParams(params);
     }
     
     const resolvedParams = {};
@@ -151,7 +178,9 @@ function App() {
     }
     setNavigationParams(resolvedParams);
 
-    window.history.pushState({}, '', `${window.location.pathname}?${params.toString()}${window.location.hash || ''}`);
+    const newSearch = params.toString();
+    const newUrl = `${window.location.pathname}${newSearch ? '?' + newSearch : ''}${window.location.hash || ''}`;
+    window.history.pushState({}, '', newUrl);
     
     // Reset scroll position on navigation
     window.scrollTo(0, 0);

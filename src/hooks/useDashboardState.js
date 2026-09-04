@@ -248,52 +248,14 @@ export const useDashboardState = () => {
                 filtersToSave[key] = Array.from(activeFilters[key]);
             }
             localStorage.setItem('prism_active_filters', JSON.stringify(filtersToSave));
-
-            if (typeof window !== 'undefined') {
-                const params = new URLSearchParams(window.location.search);
-                const filterKeysMap = {
-                    hardware: 'f_hw',
-                    machines: 'f_mach',
-                    tp: 'f_tp',
-                    precisions: 'f_prec',
-                    isl: 'f_isl',
-                    osl: 'f_osl',
-                    ratio: 'f_ratio',
-                    pdRatio: 'f_pd_ratio',
-                    modelServer: 'f_ms',
-                    servingStack: 'f_ss',
-                    origins: 'f_origin',
-                    acc_count: 'f_acc',
-                    useCase: 'f_uc',
-                    optimizations: 'f_opt',
-                    components: 'f_comp',
-                    models: 'f_models'
-                };
-
-                Object.values(filterKeysMap).forEach(paramKey => params.delete(paramKey));
-
-                Object.entries(filterKeysMap).forEach(([filterKey, paramKey]) => {
-                    const setVal = activeFilters[filterKey];
-                    if (setVal && setVal.size > 0) {
-                        Array.from(setVal).forEach(val => params.append(paramKey, val));
-                    }
-                });
-
-                const newSearch = params.toString();
-                const newUrl = `${window.location.pathname}${newSearch ? '?' + newSearch : ''}${window.location.hash || ''}`;
-                if (window.location.search !== (newSearch ? `?${newSearch}` : '')) {
-                    window.history.replaceState(null, '', newUrl);
-                }
-            }
         } catch (e) {
-            console.warn("Failed to save active filters to local storage or sync URL", e);
+            console.warn("Failed to save active filters to local storage", e);
         }
     }, [activeFilters]);
 
     const generateShareUrl = useCallback((
         bucketConfigs,
-        apiConfigs,
-        selectedSources
+        apiConfigs
     ) => {
         const params = new URLSearchParams();
         params.set('share', '1');
@@ -326,8 +288,6 @@ export const useDashboardState = () => {
         if (activeFilters.useCase.size > 0) [...activeFilters.useCase].forEach(v => params.append('f_uc', v));
         if (activeFilters.optimizations.size > 0) [...activeFilters.optimizations].forEach(v => params.append('f_opt', v));
         if (activeFilters.components.size > 0) [...activeFilters.components].forEach(v => params.append('f_comp', v));
-        
-        [...selectedSources].forEach(v => params.append('src', v));
         
         bucketConfigs.forEach(b => params.append('buckets', typeof b === 'string' ? b : b.bucket));
         apiConfigs.forEach(c => params.append('apis', typeof c === 'string' ? c : c.projectId));
