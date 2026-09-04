@@ -22,6 +22,7 @@ import { Button, Modal, Spinner, Checkbox, Input } from './ui';
 import { cn } from '../utils/cn';
 import { decodeShareLink } from '../utils/shareLinkEncoder';
 import { parseReportV02, stageToEntry } from '../utils/benchmarkReportV02Parser';
+import { clearResultsStoreParams, clearSrcParams, syncResultsStoreParams } from '../utils/urlParams';
 
 
 
@@ -251,48 +252,33 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
 
     React.useEffect(() => {
         const params = new URLSearchParams(window.location.search);
-        if (kpiFilter) {
-            params.set('status', kpiFilter);
-            params.set('kpiFilter', kpiFilter);
-            if (['my-submissions', 'staged', 'unlisted', 'processing', 'in_review', 'approved', 'action'].includes(kpiFilter)) {
-                params.set('own', 'true');
-            } else {
-                params.delete('own');
-            }
-        } else {
-            params.delete('status');
-            params.delete('kpiFilter');
-            params.delete('own');
-        }
+        syncResultsStoreParams(params, {
+            kpiFilter,
+            includeUnlisted,
+            communityOnly,
+            searchTerm,
+            activeFilters
+        });
 
-        if (includeUnlisted) {
-            params.set('unlisted', '1');
-            params.set('includeUnlisted', '1');
-        } else {
-            params.delete('unlisted');
-            params.delete('includeUnlisted');
-        }
-
-        if (communityOnly) {
-            params.set('communityOnly', '1');
-        } else {
-            params.delete('communityOnly');
-            params.delete('community_only');
-            params.delete('community');
-        }
-
-        if (searchTerm) {
-            params.set('q', searchTerm);
-        } else {
-            params.delete('q');
-            params.delete('search');
-        }
-        
-        const newUrl = `${window.location.pathname}?${params.toString()}${window.location.hash || ''}`;
-        if (window.location.search !== `?${params.toString()}`) {
+        const newSearch = params.toString();
+        const newUrl = `${window.location.pathname}${newSearch ? '?' + newSearch : ''}${window.location.hash || ''}`;
+        if (window.location.search !== (newSearch ? `?${newSearch}` : '')) {
             window.history.replaceState(null, '', newUrl);
         }
-    }, [kpiFilter, includeUnlisted, communityOnly, searchTerm]);
+    }, [kpiFilter, includeUnlisted, communityOnly, searchTerm, activeFilters]);
+
+    React.useEffect(() => {
+        return () => {
+            const params = new URLSearchParams(window.location.search);
+            const rsChanged = clearResultsStoreParams(params);
+            const srcChanged = clearSrcParams(params);
+            if (rsChanged || srcChanged) {
+                const newSearch = params.toString();
+                const newUrl = `${window.location.pathname}${newSearch ? '?' + newSearch : ''}${window.location.hash || ''}`;
+                window.history.replaceState(null, '', newUrl);
+            }
+        };
+    }, []);
 
     React.useEffect(() => {
         const showSubmitFlow = sessionStorage.getItem('prism_show_submit_dialog_after_login');
