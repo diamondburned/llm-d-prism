@@ -26,7 +26,13 @@ import { isPlaygroundMode } from './iam.ts';
 import { resultsRouter } from './results/index.ts';
 import { avatarRouter } from './avatar.ts';
 import { storage } from './results/gcs.ts';
-import { getConfiguredBucketEntries, getConfiguredBucketNames, getResultsStoreBucket } from './buckets.js';
+import {
+    getConfiguredBucketEntries,
+    getConfiguredBucketNames,
+    getResultsStoreBucket,
+    getResultsStorePrefix,
+    getResultsStoreUploadPath
+} from './buckets.js';
 import { parseGitCommit } from './git.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -72,6 +78,8 @@ app.get('/api/config', (req, res) => {
     res.json({
         buckets: defaultBuckets,
         resultsStoreBucket: getResultsStoreBucket(),
+        resultsStorePrefix: getResultsStorePrefix(),
+        resultsStorePath: getResultsStoreUploadPath(),
         projects: defaultProjects.map(p => p.trim()).filter(p => p),
         hostProject: process.env.GOOGLE_CLOUD_PROJECT || null,
         siteName: process.env.SITE_NAME || null,
@@ -603,6 +611,7 @@ app.all('/api/gcs/*', async (req, res) => {
 
         const resultsBuckets = getConfiguredBucketNames(process.env.DEFAULT_BUCKETS, process.env.RESULTS_STORE_BUCKET);
         const resultsStoreBucket = getResultsStoreBucket();
+        const resultsStorePrefix = getResultsStorePrefix();
         const isTargetBucket = (parsed.bucket === resultsStoreBucket || resultsBuckets.includes(parsed.bucket));
 
         if (!isTargetBucket) {
@@ -610,7 +619,7 @@ app.all('/api/gcs/*', async (req, res) => {
         }
 
         const prefix = (parsed.isList ? req.query.prefix : parsed.object) || '';
-        const isResultsStore = prefix.startsWith('prism-results-store/');
+        const isResultsStore = prefix.startsWith(resultsStorePrefix) || prefix.startsWith('prism-results-store/');
         const isIam = prefix.startsWith('prism-iam/');
 
         const readMethods = ['GET', 'HEAD'];
@@ -619,23 +628,24 @@ app.all('/api/gcs/*', async (req, res) => {
         // 2. Authorization and boundary enforcement
         if (!isRead) {
             // Check write/delete target boundaries
-            if (resultsBuckets.includes(parsed.bucket)) {
-                return res.status(403).json({ error: 'Forbidden. DEFAULT_BUCKETS is strictly read-only.' });
+            const isResultsStoreTarget = (parsed.bucket === resultsStoreBucket && isResultsStore);
+
+            if (!isResultsStoreTarget) {
+                if (resultsBuckets.includes(parsed.bucket)) {
+                    return res.status(403).json({ error: 'Forbidden. DEFAULT_BUCKETS is strictly read-only.' });
+                }
+                return res.status(403).json({ error: 'Access denied.' });
             }
 
-            if (parsed.bucket === resultsStoreBucket) {
-                if (isIam) {
-                    return res.status(403).json({ error: 'Access denied. IAM allowlists are protected and cannot be modified.' });
+            if (isIam) {
+                return res.status(403).json({ error: 'Access denied. IAM allowlists are protected and cannot be modified.' });
+            }
+            if (isPlaygroundMode()) {
+                if (!isResultsStore) {
+                    return res.status(403).json({ error: `Access denied. Playground mode only permits modifications under ${resultsStorePrefix}.` });
                 }
-                if (isPlaygroundMode()) {
-                    if (!isResultsStore) {
-                        return res.status(403).json({ error: 'Access denied. Playground mode only permits modifications under prism-results-store/.' });
-                    }
-                } else if (permission !== 'admin') {
-                    return res.status(403).json({ error: 'Access denied. Write and delete operations are restricted to administrators.' });
-                }
-            } else {
-                return res.status(403).json({ error: 'Access denied.' });
+            } else if (permission !== 'admin') {
+                return res.status(403).json({ error: 'Access denied. Write and delete operations are restricted to administrators.' });
             }
         } else {
             // Read operations (GET, HEAD)
@@ -733,7 +743,7 @@ app.all('/api/gcs/*', async (req, res) => {
                      if (item.name.startsWith('prism-iam/')) {
                          return false;
                      }
-                     if (item.name.startsWith('prism-results-store/')) {
+                     if (item.name.startsWith(resultsStorePrefix) || item.name.startsWith('prism-results-store/')) {
                          const customContexts = item.contexts?.custom || {};
                          const itemUser = String(customContexts.github_user?.value || '');
                          const itemState = String(customContexts.submission_state?.value || 'submitted_pending_processing');

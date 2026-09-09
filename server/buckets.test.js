@@ -16,10 +16,15 @@ import { describe, it, expect } from 'vitest';
 import {
     parseBucketEntry,
     getResultsStoreBucket,
+    getResultsStoreTarget,
+    getResultsStorePrefix,
+    getResultsStoreUploadPath,
+    getResultsStoreObjectPath,
     getConfiguredBucketEntries,
     getConfiguredBucketNames,
     DEFAULT_RESULTS_STORE_BUCKET,
-    DEFAULT_RESULTS_BUCKETS
+    DEFAULT_RESULTS_BUCKETS,
+    DEFAULT_RESULTS_STORE_PREFIX
 } from './buckets.js';
 
 describe('buckets configuration & parsing', () => {
@@ -40,10 +45,48 @@ describe('buckets configuration & parsing', () => {
 
     it('resolves Results Store bucket with default and custom values', () => {
         expect(DEFAULT_RESULTS_STORE_BUCKET).toBe('llm-d-benchmarks');
+        expect(DEFAULT_RESULTS_STORE_PREFIX).toBe('prism-results-store/');
         expect(getResultsStoreBucket('', '')).toBe('llm-d-benchmarks');
         expect(getResultsStoreBucket('custom-results-bucket', '')).toBe('custom-results-bucket');
         expect(getResultsStoreBucket('gs://custom-results-bucket/', '')).toBe('custom-results-bucket');
         expect(getResultsStoreBucket('gs://custom-results-bucket/subpath', '')).toBe('custom-results-bucket');
+    });
+
+    it('resolves Results Store target and upload path with default and custom folder prefixes', () => {
+        // RESULTS_STORE_BUCKET=bucket_name (resolves to bucket_name/prism-results-store)
+        expect(getResultsStoreTarget('bucket_name')).toEqual({
+            bucket: 'bucket_name',
+            prefix: 'prism-results-store/'
+        });
+        expect(getResultsStoreUploadPath('bucket_name')).toBe('bucket_name/prism-results-store');
+        expect(getResultsStorePrefix('bucket_name')).toBe('prism-results-store/');
+        expect(getResultsStoreObjectPath('test-run-123', 'bucket_name')).toBe('prism-results-store/test-run-123.v1.json');
+
+        // RESULTS_STORE_BUCKET=bucket_name/folder_a/folder_b (resolves to bucket_name/folder_a/folder_b)
+        expect(getResultsStoreTarget('bucket_name/folder_a/folder_b')).toEqual({
+            bucket: 'bucket_name',
+            prefix: 'folder_a/folder_b/'
+        });
+        expect(getResultsStoreUploadPath('bucket_name/folder_a/folder_b')).toBe('bucket_name/folder_a/folder_b');
+        expect(getResultsStorePrefix('bucket_name/folder_a/folder_b')).toBe('folder_a/folder_b/');
+        expect(getResultsStoreObjectPath('test-run-123', 'bucket_name/folder_a/folder_b')).toBe('folder_a/folder_b/test-run-123.v1.json');
+
+        // Scheme prefix (gs://) and trailing slashes
+        expect(getResultsStoreUploadPath('gs://bucket_name/')).toBe('bucket_name/prism-results-store');
+        expect(getResultsStoreUploadPath('gs://bucket_name/folder_a/folder_b/')).toBe('bucket_name/folder_a/folder_b');
+
+        // slabe-prism deployment case (slabe-bucket/prism-upload)
+        expect(getResultsStoreUploadPath('slabe-bucket/prism-upload')).toBe('slabe-bucket/prism-upload');
+        expect(getResultsStoreTarget('slabe-bucket/prism-upload')).toEqual({
+            bucket: 'slabe-bucket',
+            prefix: 'prism-upload/'
+        });
+        expect(getResultsStoreObjectPath('abc-uuid', 'slabe-bucket/prism-upload')).toBe('prism-upload/abc-uuid.v1.json');
+
+        // Fallbacks when RESULTS_STORE_BUCKET is empty
+        expect(getResultsStoreUploadPath('', 'fallback-bucket')).toBe('fallback-bucket/prism-results-store');
+        expect(getResultsStoreUploadPath('', 'fallback-bucket/custom-dir')).toBe('fallback-bucket/custom-dir');
+        expect(getResultsStoreUploadPath('', '')).toBe('llm-d-benchmarks/prism-results-store');
     });
 
     it('handles development configuration (staging & production buckets)', () => {

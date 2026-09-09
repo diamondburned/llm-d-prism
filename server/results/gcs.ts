@@ -14,7 +14,11 @@
 
 import type { PrismResultPayload, PrismSubmissionState, PrismResultContext } from './api.ts';
 import { Storage } from '@google-cloud/storage';
-import { getResultsStoreBucket } from '../buckets.js';
+import {
+    getResultsStoreBucket,
+    getResultsStorePrefix,
+    getResultsStoreObjectPath
+} from '../buckets.js';
 import { isPlaygroundMode } from '../iam.ts';
 
 export function encodeContextValue(val: string): string {
@@ -40,6 +44,13 @@ export const storage = new Storage(
  */
 export function getPrismResultsBucket(): string {
     return getResultsStoreBucket();
+}
+
+/**
+ * Resolves the object prefix for storing and listing Prism benchmark results.
+ */
+export function getPrismResultsPrefix(): string {
+    return getResultsStorePrefix();
 }
 
 export type ResultsListItem = Omit<PrismResultPayload, 'entries'> & {
@@ -81,6 +92,7 @@ export async function listResults(options: ListResultsOptions): Promise<ListResu
     const { gcsToken, skipCount } = pageToken ? decodePageToken(pageToken) : { gcsToken: '', skipCount: 0 };
 
     const bucket = getPrismResultsBucket();
+    const resultsPrefix = getPrismResultsPrefix();
 
     // Craft list of filter predicates upfront depending on options and permissions
     // eslint-disable-next-line no-unused-vars
@@ -132,7 +144,7 @@ export async function listResults(options: ListResultsOptions): Promise<ListResu
     while (matchedItems.length < limit && hasMoreGcs) {
         const maxResults = 100;
         const [files, nextQuery] = await storage.bucket(bucket).getFiles({
-            prefix: 'prism-results-store/',
+            prefix: resultsPrefix,
             maxResults,
             pageToken: currentGcsToken || undefined,
             autoPaginate: false,
@@ -143,7 +155,7 @@ export async function listResults(options: ListResultsOptions): Promise<ListResu
         for (; i < files.length && matchedItems.length < limit; i++) {
             const file = files[i];
 
-            if (!file.name.startsWith('prism-results-store/') || !file.name.endsWith('.v1.json')) {
+            if (!file.name.startsWith(resultsPrefix) || !file.name.endsWith('.v1.json')) {
                 continue;
             }
 
@@ -156,7 +168,8 @@ export async function listResults(options: ListResultsOptions): Promise<ListResu
                 continue;
             }
 
-            const runIdMatch = file.name.match(/prism-results-store\/([^/]+)\.v1\.json/);
+            const relativePath = file.name.slice(resultsPrefix.length);
+            const runIdMatch = relativePath.match(/^([^/]+)\.v1\.json$/);
             const runId = runIdMatch ? runIdMatch[1] : String(customContexts.run_id?.value || '');
             const runLabel = decodeContextValue(String(customContexts.run_label?.value || runId));
             const model_name = decodeContextValue(String(customContexts.model_name?.value || 'Unknown'));
@@ -223,7 +236,7 @@ export async function listResults(options: ListResultsOptions): Promise<ListResu
  */
 export async function readResultPayload(runId: string): Promise<PrismResultPayload> {
     const bucketName = getPrismResultsBucket();
-    const objectName = `prism-results-store/${runId}.v1.json`;
+    const objectName = getResultsStoreObjectPath(runId);
     const file = storage.bucket(bucketName).file(objectName);
     const [contents] = await file.download();
     return JSON.parse(contents.toString('utf8')) as PrismResultPayload;
@@ -234,7 +247,7 @@ export async function readResultPayload(runId: string): Promise<PrismResultPaylo
  */
 export async function readResultMetadata(runId: string): Promise<{ user: string; state: PrismSubmissionState } | null> {
     const bucketName = getPrismResultsBucket();
-    const objectName = `prism-results-store/${runId}.v1.json`;
+    const objectName = getResultsStoreObjectPath(runId);
     const file = storage.bucket(bucketName).file(objectName);
     try {
         const [metadata] = await file.getMetadata();
@@ -257,7 +270,7 @@ export async function writeResult(
     githubUser: string
 ): Promise<void> {
     const bucketName = getPrismResultsBucket();
-    const objectName = `prism-results-store/${runId}.v1.json`;
+    const objectName = getResultsStoreObjectPath(runId);
     const file = storage.bucket(bucketName).file(objectName);
 
     const contextsCustom: PrismResultContext = {
@@ -317,7 +330,7 @@ export async function writeResult(
  */
 export async function deleteResult(runId: string): Promise<void> {
     const bucketName = getPrismResultsBucket();
-    const objectName = `prism-results-store/${runId}.v1.json`;
+    const objectName = getResultsStoreObjectPath(runId);
     const file = storage.bucket(bucketName).file(objectName);
     try {
         await file.delete();
