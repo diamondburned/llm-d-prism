@@ -942,24 +942,8 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
 
         console.log("[Dashboard] filteredBySource result length:", filtered.length);
 
-        if (!showPerChip) return filtered;
-
-        return filtered.map(d => {
-            const count = getAcceleratorCount(d) || 1;
-            return {
-                ...d,
-                throughput: (d.throughput || 0) / count,
-                qps: (d.qps || 0) / count,
-                metrics: d.metrics ? {
-                    ...d.metrics,
-                    input_tput: (d.metrics.input_tput || 0) / count,
-                    output_tput: (d.metrics.output_tput || 0) / count,
-                    total_tput: (d.metrics.total_tput || 0) / count,
-                    request_rate: (d.metrics.request_rate || 0) / count
-                } : d.metrics
-            };
-        });
-    }, [baseData, activeFilters, showPerChip]);
+        return filtered;
+    }, [baseData, activeFilters]);
 
     // Extract unique metadata for filters - Derived from Base Data (Source Filtered Only) to ensure ALL options are visible
     // This allows specific filters (e.g. Model) to match 0 items in other categories (e.g. Hardware) but still be visible.
@@ -1220,13 +1204,14 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
         selectedBenchmarks.forEach(k => {
             if (k.includes('::')) {
                 models.add(k.split('::')[2]);
-            } else if (k.startsWith('inference-perf:') || k.startsWith('file:')) {
-                // Enhanced lookup to handle both legacy lpg: and new file: keys
-                // We find the entry that generated this key to get its model name
-                const d = filteredBySource.find(x => getBenchmarkKey(x) === k);
-                if (d) models.add(d.model || d.model_name);
             } else {
-                models.add(k);
+                // Find the entry that generated this key to get its model name
+                const d = filteredBySource.find(x => getBenchmarkKey(x) === k);
+                if (d && (d.model || d.model_name)) {
+                    models.add(d.model || d.model_name);
+                } else {
+                    models.add(k);
+                }
             }
         });
         return models;
@@ -1310,8 +1295,8 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
                 'Unknown Hardware';
 
             // Get accelerator count
-            const accelerator_count = groupingData.find(x => x.accelerator_count > 0)?.accelerator_count ||
-                groupingData.find(x => x.metadata?.accelerator_count > 0)?.metadata?.accelerator_count ||
+            const accelerator_count = groupingData.map(getAcceleratorCount).find(c => c > 1) ||
+                groupingData.map(getAcceleratorCount).find(c => c > 0) ||
                 1;
 
             const tensor_parallelism = groupingData.find(x => x.tensor_parallelism > 0)?.tensor_parallelism ||
@@ -1479,15 +1464,18 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
 
 
 
-    // Check if ANY selected model has known chip counts (explicit (xN) format or metadata)
+    // Check if ANY selected benchmark/model has known chip counts (explicit (xN) format or metadata)
     const canShowPerChip = useMemo(() => {
-        if (selectedModels.size === 0) return false;
-        return [...selectedModels].some(m => {
+        if (selectedBenchmarks.size === 0 && selectedModels.size === 0) return false;
+        return [...selectedBenchmarks].some(k => {
+            const stat = modelStats.find(s => s.benchmarkKey === k);
+            return stat && ((stat.accelerator_count && Number(stat.accelerator_count) > 1) || (stat.hardware && /\(x\d+\)/.test(stat.hardware)));
+        }) || [...selectedModels].some(m => {
             const stat = modelStats.find(s => s.model === m);
             // Check if accelerator_count is available (>1) OR if hardware string has (xN)
             return stat && ((stat.accelerator_count && Number(stat.accelerator_count) > 1) || (stat.hardware && /\(x\d+\)/.test(stat.hardware)));
         });
-    }, [selectedModels, modelStats]);
+    }, [selectedBenchmarks, selectedModels, modelStats]);
 
     // Reset per-chip toggle if not applicable
     useEffect(() => {

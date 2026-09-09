@@ -42,6 +42,12 @@ describe('getAcceleratorCount and extractAcceleratorCount', () => {
         // Explicit multi-node count > 1 takes precedence over single node (x8)
         expect(getAcceleratorCount({ accelerator_count: 16, hardware: 'H100 (x8)' })).toBe(16);
 
+        // Payload hardware accelerator_count
+        expect(getAcceleratorCount({ payload: { hardware: { hardware_name: 'H200', accelerator_count: 8 } }, hardware: 'H200' })).toBe(8);
+
+        // Bundle payload hardware accelerator_count
+        expect(getAcceleratorCount({ bundle: { payload: { hardware: { hardware_name: 'H200', accelerator_count: 8 } } }, hardware: 'H200' })).toBe(8);
+
         // Fallback to 1 if no info
         expect(getAcceleratorCount({})).toBe(1);
         expect(getAcceleratorCount(null)).toBe(1);
@@ -261,5 +267,30 @@ describe('computeThroughputChartData - Per Chip scaling logic', () => {
         expect(result.barChartData).toHaveLength(1);
         // Stage 1 average for run-8chips should be 1600 / 8 = 200
         expect(result.barChartData[0]['run-8chips']).toBe(200);
+    });
+
+    it('scales throughput for submitted run payload with hardware.accelerator_count = 8', () => {
+        const submittedRunEntry = {
+            run_id: 'ce18398b-6ebc-424f-aa9b-d1851eddaf39',
+            model: 'Qwen3 32B',
+            hardware: 'H200',
+            accelerator_count: 8,
+            payload: {
+                hardware: { hardware_name: 'H200', accelerator_count: 8 }
+            },
+            time_per_output_token: 15.22,
+            throughput: 297.69,
+            benchmarkKey: 'ce18398b'
+        };
+
+        const result = computeThroughputChartData({
+            filteredData: [submittedRunEntry],
+            config: baseConfig,
+            showPerChip: true,
+            tputType: 'output'
+        });
+
+        expect(result.visibleDataPoints).toHaveLength(1);
+        expect(result.visibleDataPoints[0].vy).toBeCloseTo(297.69 / 8, 2);
     });
 });

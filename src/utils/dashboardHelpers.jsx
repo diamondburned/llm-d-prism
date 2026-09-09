@@ -14,7 +14,6 @@
 
 import React from 'react';
 import { Zap, Cloud, FileJson, Target, ExternalLink, GitCompare } from 'lucide-react';
-import { parseReportV02, stageToEntry } from './benchmarkReportV02Parser';
 
 export const USE_CASE_META = {
     "Advanced Customer Support": "(~9k/256)",
@@ -118,20 +117,29 @@ export const extractAcceleratorCount = (hardware) => {
 
 export const getAcceleratorCount = (d) => {
     if (!d) return 1;
-    const explicitCount = d.accelerator_count 
-        ?? d.hardware?.accelerator_count 
-        ?? d.metadata?.accelerator_count;
-    if (typeof explicitCount === 'number' && explicitCount > 1) {
-        return explicitCount;
+    const counts = [
+        d.accelerator_count,
+        d.hardware?.accelerator_count,
+        d.metadata?.accelerator_count,
+        d.payload?.hardware?.accelerator_count,
+        d.bundle?.payload?.hardware?.accelerator_count,
+    ];
+    for (const c of counts) {
+        if (typeof c === 'number' && c > 1) {
+            return c;
+        }
     }
+
     const hwStr = typeof d.hardware === 'string' 
         ? d.hardware 
         : (d.metadata?.hardware || d.hardware?.hardware_name || '');
     const extracted = extractAcceleratorCount(hwStr);
     if (extracted > 1) return extracted;
 
-    if (typeof explicitCount === 'number' && explicitCount > 0) {
-        return explicitCount;
+    for (const c of counts) {
+        if (typeof c === 'number' && c > 0) {
+            return c;
+        }
     }
     return 1;
 };

@@ -736,6 +736,46 @@ export const canonicalStringify = (obj) => {
     return '{' + keys.map(k => `${JSON.stringify(k)}:${canonicalStringify(obj[k])}`).join(',') + '}';
 };
 
+export function forwardBundleMetadata(stage, payload) {
+    if (!stage || !payload) return stage;
+    stage.payload = payload;
+    if (payload.runId) stage.runId = payload.runId;
+    if (payload.runLabel) stage.runLabel = payload.runLabel;
+    if (payload.model_name && (!stage.model_name || stage.model_name === 'Unknown' || stage.model_name === 'Custom Model')) {
+        stage.model_name = payload.model_name;
+    }
+    if (payload.hardware) {
+        stage.hardware = payload.hardware;
+        if (payload.hardware.accelerator_count !== undefined && payload.hardware.accelerator_count !== null) {
+            stage.accelerator_count = payload.hardware.accelerator_count;
+        }
+    }
+    if (payload.github_author) stage.github_author = payload.github_author;
+    if (payload.forked_from) stage.forked_from = payload.forked_from;
+    if (payload.well_lit_path !== undefined) {
+        stage.well_lit_path = payload.well_lit_path;
+        stage.wellLitPath = payload.well_lit_path;
+    }
+    if (payload.submission_state) stage.submission_state = payload.submission_state;
+    if (payload.submitted_at) stage.submitted_at = payload.submitted_at;
+    if (payload.approved_at) stage.approved_at = payload.approved_at;
+    if (payload.inference_tool) stage.inference_tool = payload.inference_tool;
+    if (payload.inference_tool_version) stage.inference_tool_version = payload.inference_tool_version;
+    if (payload.benchmark_harness) stage.benchmark_harness = payload.benchmark_harness;
+    if (payload.benchmark_harness_version) stage.benchmark_harness_version = payload.benchmark_harness_version;
+    if (payload.other_tools) stage.other_tools = payload.other_tools;
+    if (payload.manifests) stage.manifests = payload.manifests;
+    if (payload.evidence) stage.evidence = payload.evidence;
+    if (payload.run_metadata) stage.run_metadata = payload.run_metadata;
+    if (payload.metadata) {
+        stage.metadata = {
+            ...(stage.metadata || {}),
+            ...payload.metadata
+        };
+    }
+    return stage;
+}
+
 export function groupStagesIntoRuns(stageRecords) {
     const runsList = [];
 
@@ -767,6 +807,7 @@ export function groupStagesIntoRuns(stageRecords) {
                 stages: [],
                 model_name: record.model_name || null,
                 hardware: record.hardware || null,
+                accelerator_count: record.accelerator_count || record.hardware?.accelerator_count || null,
                 config: record.config || null,
                 summary: record.summary || null,
                 wellLitPath: record.wellLitPath || record.well_lit_path || null,
@@ -777,6 +818,8 @@ export function groupStagesIntoRuns(stageRecords) {
                 metadata: record.metadata || null,
                 inference_tool: record.inference_tool || null,
                 inference_tool_version: record.inference_tool_version || null,
+                benchmark_harness: record.benchmark_harness || null,
+                benchmark_harness_version: record.benchmark_harness_version || null,
                 other_tools: record.other_tools || null,
                 payload: record.payload || null,
                 bundle: record.bundle || null,
@@ -794,6 +837,9 @@ export function groupStagesIntoRuns(stageRecords) {
         
         if (!targetRun.model_name && record.model_name) targetRun.model_name = record.model_name;
         if (!targetRun.hardware && record.hardware) targetRun.hardware = record.hardware;
+        if (!targetRun.accelerator_count && (record.accelerator_count || record.hardware?.accelerator_count)) {
+            targetRun.accelerator_count = record.accelerator_count || record.hardware?.accelerator_count;
+        }
         if (!targetRun.config && record.config) targetRun.config = record.config;
         if (!targetRun.summary && record.summary) targetRun.summary = record.summary;
         if (!targetRun.wellLitPath && (record.wellLitPath || record.well_lit_path)) targetRun.wellLitPath = record.wellLitPath || record.well_lit_path;
@@ -804,6 +850,8 @@ export function groupStagesIntoRuns(stageRecords) {
         if (!targetRun.metadata && record.metadata) targetRun.metadata = record.metadata;
         if (!targetRun.inference_tool && record.inference_tool) targetRun.inference_tool = record.inference_tool;
         if (!targetRun.inference_tool_version && record.inference_tool_version) targetRun.inference_tool_version = record.inference_tool_version;
+        if (!targetRun.benchmark_harness && record.benchmark_harness) targetRun.benchmark_harness = record.benchmark_harness;
+        if (!targetRun.benchmark_harness_version && record.benchmark_harness_version) targetRun.benchmark_harness_version = record.benchmark_harness_version;
         if (!targetRun.other_tools && record.other_tools) targetRun.other_tools = record.other_tools;
         if (!targetRun.payload && record.payload) targetRun.payload = record.payload;
         if (!targetRun.bundle && record.bundle) targetRun.bundle = record.bundle;
@@ -818,13 +866,38 @@ export function groupStagesIntoRuns(stageRecords) {
         run.stages.sort(compareStageOrder);
     }
 
-    // Propagate the runLabel to all stages
+    // Propagate all run-level metadata to every child stage
     for (const run of runsList) {
         let uniqueLabel = run.runLabel || "";
         run.runLabel = uniqueLabel;
         
         for (const stage of run.stages) {
             stage.runLabel = uniqueLabel;
+            stage.runId = run.runId;
+            if (!stage.model_name && run.model_name) stage.model_name = run.model_name;
+            if (!stage.hardware && run.hardware) stage.hardware = run.hardware;
+            if (!stage.accelerator_count && (run.accelerator_count || run.hardware?.accelerator_count)) {
+                stage.accelerator_count = run.accelerator_count || run.hardware?.accelerator_count;
+            }
+            if (!stage.payload && run.payload) stage.payload = run.payload;
+            if (!stage.bundle && run.bundle) stage.bundle = run.bundle;
+            if (!stage.well_lit_path && (run.well_lit_path || run.wellLitPath)) {
+                stage.well_lit_path = run.well_lit_path || run.wellLitPath;
+                stage.wellLitPath = run.well_lit_path || run.wellLitPath;
+            }
+            if (!stage.inference_tool && run.inference_tool) stage.inference_tool = run.inference_tool;
+            if (!stage.inference_tool_version && run.inference_tool_version) stage.inference_tool_version = run.inference_tool_version;
+            if (!stage.benchmark_harness && run.benchmark_harness) stage.benchmark_harness = run.benchmark_harness;
+            if (!stage.benchmark_harness_version && run.benchmark_harness_version) stage.benchmark_harness_version = run.benchmark_harness_version;
+            if (!stage.other_tools && run.other_tools) stage.other_tools = run.other_tools;
+            if (!stage.manifests && run.manifests) stage.manifests = run.manifests;
+            if (!stage.evidence && run.evidence) stage.evidence = run.evidence;
+            if (!stage.run_metadata && run.run_metadata) stage.run_metadata = run.run_metadata;
+            if (!stage.forked_from && run.forked_from) stage.forked_from = run.forked_from;
+            if (!stage.github_author && run.github_author) stage.github_author = run.github_author;
+            if (run.metadata) {
+                stage.metadata = { ...(stage.metadata || {}), ...run.metadata };
+            }
         }
     }
 
@@ -865,17 +938,23 @@ export function isPristineScannedRun(run) {
  * the main dashboard scatter chart.
  */
 export function stageToEntry(stage) {
-    const { scenario, performance, runId, timestamp, components, model_name, hardware: rootHardware, config } = stage;
+    const { scenario, performance, runId, timestamp, components, config } = stage;
+    const rootHardware = stage.hardware || stage.payload?.hardware || stage.bundle?.payload?.hardware || stage.rootHardware || null;
+    const rootModelName = stage.model_name || stage.payload?.model_name || stage.bundle?.payload?.model_name || null;
 
     let modelName = scenario.model;
-    if ((!modelName || modelName === 'Unknown') && model_name) {
-        modelName = model_name;
+    if ((!modelName || modelName === 'Unknown') && rootModelName) {
+        modelName = rootModelName;
     }
     modelName = normalizeModelName(modelName);
 
     let hardware = scenario.hardware;
-    if ((!hardware || hardware === 'Unknown' || hardware === 'TPU' || hardware === 'GPU') && rootHardware?.hardware_name) {
-        hardware = rootHardware.hardware_name;
+    const effectiveHardwareName = typeof rootHardware === 'string'
+        ? rootHardware
+        : (rootHardware?.hardware_name || null);
+
+    if ((!hardware || hardware === 'Unknown' || hardware === 'TPU' || hardware === 'GPU') && effectiveHardwareName) {
+        hardware = effectiveHardwareName;
     }
     
     // Fallback to config if needed
@@ -914,9 +993,28 @@ export function stageToEntry(stage) {
         }
     }
 
-    let acceleratorCount = scenario.acceleratorCount || 1;
-    if (rootHardware && typeof rootHardware.accelerator_count === 'number') {
-        acceleratorCount = rootHardware.accelerator_count;
+    let acceleratorCount = 1;
+    const explicitCountCandidates = [
+        stage.accelerator_count,
+        rootHardware?.accelerator_count,
+        stage.payload?.hardware?.accelerator_count,
+        stage.bundle?.payload?.hardware?.accelerator_count,
+        stage.metadata?.accelerator_count,
+        scenario.acceleratorCount
+    ];
+    for (const c of explicitCountCandidates) {
+        if (typeof c === 'number' && c > 1) {
+            acceleratorCount = c;
+            break;
+        }
+    }
+    if (acceleratorCount === 1) {
+        for (const c of explicitCountCandidates) {
+            if (typeof c === 'number' && c > 0) {
+                acceleratorCount = c;
+                break;
+            }
+        }
     }
 
     hardware = normalizeHardware(hardware);
@@ -959,10 +1057,11 @@ export function stageToEntry(stage) {
         forked_from: stage.forked_from || stage.payload?.forked_from || null,
         run_id: stage.runId,
         runLabel: stage.runLabel || '',
-        github_author: stage.github_author,
+        github_author: stage.github_author || stage.payload?.github_author || null,
         model: modelName,
         model_name: modelName,
         hardware: hardware,
+        hardware_details: rootHardware || null,
         precision: '',
         backend: harness,
         isl: scenario.isl ?? null,
@@ -972,8 +1071,16 @@ export function stageToEntry(stage) {
         latency,
         ttft,
         components: components || [],
-        well_lit_path: stage.well_lit_path || stage.wellLitPath || null,
-        wellLitPath: stage.well_lit_path || stage.wellLitPath || null,
+        well_lit_path: stage.well_lit_path || stage.wellLitPath || stage.payload?.well_lit_path || null,
+        wellLitPath: stage.well_lit_path || stage.wellLitPath || stage.payload?.well_lit_path || null,
+        inference_tool: stage.inference_tool || stage.payload?.inference_tool || harness,
+        inference_tool_version: stage.inference_tool_version || stage.payload?.inference_tool_version || null,
+        benchmark_harness: stage.benchmark_harness || stage.payload?.benchmark_harness || harness,
+        benchmark_harness_version: stage.benchmark_harness_version || stage.payload?.benchmark_harness_version || null,
+        other_tools: stage.other_tools || stage.payload?.other_tools || null,
+        manifests: stage.manifests || stage.payload?.manifests || null,
+        evidence: stage.evidence || stage.payload?.evidence || null,
+        run_metadata: stage.run_metadata || stage.payload?.run_metadata || null,
 
         // Hoist key metrics to root for Chart compatibility
         time_per_output_token: performance.tpotMean ?? null,
@@ -1001,6 +1108,8 @@ export function stageToEntry(stage) {
         },
 
         metadata: {
+            ...(stage.metadata || {}),
+            ...(stage.payload?.metadata || {}),
             model_name: modelName,
             backend: harness,
             hardware: hardware,
@@ -1062,10 +1171,10 @@ export function stageToEntry(stage) {
 }
 
 /**
- * Mutates/synchronizes metadata fields (model_name, hardware_name, runLabel) in a BRV02 raw_report.
+ * Mutates/synchronizes metadata fields (model_name, hardware_name, runLabel, inference_tool, accelerator_count) in a BRV02 raw_report.
  * Note: Stage numbers / uids are intentionally untouched.
  */
-export function mutateRawReportMetadata(rawReport, { model_name, hardware_name, runLabel, inference_tool } = {}) {
+export function mutateRawReportMetadata(rawReport, { model_name, hardware_name, runLabel, inference_tool, accelerator_count } = {}) {
     if (!rawReport || typeof rawReport !== 'object') return rawReport;
 
     const newReport = normalizeReportUnits(rawReport);
@@ -1102,6 +1211,21 @@ export function mutateRawReportMetadata(rawReport, { model_name, hardware_name, 
                     comp.standardized.accelerator.model = hardware_name;
                 }
             });
+        }
+    }
+
+    // 3b. Update accelerator count in scenario.stack
+    if (accelerator_count !== undefined && accelerator_count !== null) {
+        const countNum = Number(accelerator_count);
+        if (!isNaN(countNum) && countNum > 0) {
+            if (newReport.scenario && Array.isArray(newReport.scenario.stack)) {
+                newReport.scenario.stack.forEach(comp => {
+                    if (comp.standardized) {
+                        if (!comp.standardized.accelerator) comp.standardized.accelerator = {};
+                        comp.standardized.accelerator.count = countNum;
+                    }
+                });
+            }
         }
     }
 

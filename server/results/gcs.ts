@@ -179,13 +179,17 @@ export async function listResults(options: ListResultsOptions): Promise<ListResu
 
             const isForked = customContexts.forked?.value === 'true' || customContexts.forked_from?.value !== undefined;
 
+            const rawAccCount = customContexts.accelerator_count?.value;
+            const parsedAccCount = rawAccCount ? parseInt(String(rawAccCount), 10) : NaN;
+            const accelerator_count = !isNaN(parsedAccCount) && parsedAccCount > 0 ? parsedAccCount : 1;
+
             matchedItems.push({
                 runId,
                 runLabel,
                 model_name,
                 hardware: {
                     hardware_name,
-                    accelerator_count: 1
+                    accelerator_count
                 },
                 format: 'brv02',
                 state: itemState,
@@ -281,6 +285,10 @@ export async function writeResult(
         model_name: { value: encodeContextValue(payload.model_name || 'Unknown') },
         run_label: { value: encodeContextValue(payload.runLabel || runId) }
     };
+
+    if (typeof payload.hardware?.accelerator_count === 'number') {
+        contextsCustom.accelerator_count = { value: String(payload.hardware.accelerator_count) };
+    }
 
     if (payload.feedback) {
         contextsCustom.feedback = { value: encodeContextValue(payload.feedback) };

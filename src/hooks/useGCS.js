@@ -15,7 +15,7 @@
 import { useCallback } from 'react';
 import { CacheManager } from '../utils/cacheManager';
 import { parseJsonEntry, parseLogFile } from '../utils/dataParser';
-import { parseReportV02, stageToEntry } from '../utils/benchmarkReportV02Parser';
+import { parseReportV02, stageToEntry, forwardBundleMetadata } from '../utils/benchmarkReportV02Parser';
 
 const limitConcurrency = async (tasks, limit, onProgressUpdate) => {
     let activeCount = 0;
@@ -156,9 +156,7 @@ export const useGCS = ({ pendingRequests, addToast, accessToken }) => {
                                     if (stageEntry.raw_report) {
                                         const parsedStage = parseReportV02(stageEntry.raw_report, file.name);
                                         if (parsedStage) {
-                                            parsedStage.runId = jsonContent.runId;
-                                            parsedStage.runLabel = jsonContent.runLabel;
-                                            parsedStage.github_author = jsonContent.github_author;
+                                            forwardBundleMetadata(parsedStage, jsonContent);
                                             
                                             // Extract submission details from GCS contexts.custom
                                             const customMeta = {};
@@ -170,29 +168,11 @@ export const useGCS = ({ pendingRequests, addToast, accessToken }) => {
                                             parsedStage.submission_state = customMeta.submission_state || customMeta.state || 'submitted_pending_processing';
                                             parsedStage.submitted_at = jsonContent.submitted_at || file.timeCreated || file.updated || null;
                                             parsedStage.approved_at = customMeta.approved_at || null;
+                                            if (customMeta.accelerator_count && Number(customMeta.accelerator_count) > 0) {
+                                                parsedStage.accelerator_count = Number(customMeta.accelerator_count);
+                                            }
 
-                                            const resolvedWellLit = jsonContent.well_lit_path || customMeta.well_lit_path || null;
-                                            parsedStage.well_lit_path = resolvedWellLit;
-                                            parsedStage.wellLitPath = resolvedWellLit;
-                                            parsedStage.manifests = jsonContent.manifests || null;
-                                            parsedStage.evidence = jsonContent.evidence || null;
-                                            parsedStage.run_metadata = jsonContent.run_metadata || null;
-                                            parsedStage.metadata = jsonContent.metadata || null;
-                                            parsedStage.inference_tool = jsonContent.inference_tool || null;
-                                            parsedStage.inference_tool_version = jsonContent.inference_tool_version || null;
-                                            parsedStage.other_tools = jsonContent.other_tools || null;
-                                            parsedStage.forked_from = jsonContent.forked_from || null;
-                                            parsedStage.payload = jsonContent;
                                             const entry = stageToEntry(parsedStage);
-                                            entry.payload = jsonContent;
-                                            entry.forked_from = jsonContent.forked_from || null;
-                                            entry.manifests = jsonContent.manifests || null;
-                                            entry.evidence = jsonContent.evidence || null;
-                                            entry.run_metadata = jsonContent.run_metadata || null;
-                                            entry.metadata = jsonContent.metadata || null;
-                                            entry.inference_tool = jsonContent.inference_tool || null;
-                                            entry.inference_tool_version = jsonContent.inference_tool_version || null;
-                                            entry.other_tools = jsonContent.other_tools || null;
                                             entries.push(entry);
                                         }
                                     }

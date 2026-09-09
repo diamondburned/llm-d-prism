@@ -13,10 +13,13 @@
 import { describe, it, expect } from 'vitest';
 import {
     parseReportV02,
+    groupStagesIntoRuns,
     stageToEntry,
     unitToSecondsFactor,
     normalizeReportUnits,
     detectMissingUnitWarnings,
+    forwardBundleMetadata,
+    mutateRawReportMetadata,
 } from './benchmarkReportV02Parser.js';
 import { validateBenchmark, validatePrismUploadStructure, formatZodIssuePath } from './benchmarkValidator.js';
 
@@ -1186,6 +1189,164 @@ describe('missing units detection and warning generation', () => {
             expect(result.errors.some(e => e.startsWith('entries[0].raw_report:'))).toBe(true);
             expect(result.fieldErrors['entries.0.raw_report']).toBeDefined();
             expect(result.fieldErrors['entries[0].raw_report']).toBeDefined();
+        });
+    });
+
+    describe('stageToEntry hardware and accelerator_count propagation', () => {
+        it('resolves hardware and accelerator_count from stage.payload.hardware when stage.hardware is absent', () => {
+            const stage = {
+                scenario: { model: 'Qwen3 32B', hardware: 'H200', acceleratorCount: null },
+                performance: { outputTokenRate: 297.69 },
+                payload: {
+                    hardware: { hardware_name: 'H200', accelerator_count: 8 }
+                }
+            };
+            const entry = stageToEntry(stage);
+            expect(entry.hardware).toBe('H200');
+            expect(entry.accelerator_count).toBe(8);
+            expect(entry.metadata.accelerator_count).toBe(8);
+        });
+
+        it('resolves accelerator_count from stage.hardware object', () => {
+            const stage = {
+                scenario: { model: 'Qwen3 32B', hardware: 'H200', acceleratorCount: null },
+                performance: { outputTokenRate: 297.69 },
+                hardware: { hardware_name: 'H200', accelerator_count: 8 }
+            };
+            const entry = stageToEntry(stage);
+            expect(entry.hardware).toBe('H200');
+            expect(entry.accelerator_count).toBe(8);
+            expect(entry.metadata.accelerator_count).toBe(8);
+        });
+
+        it('forwards all root metadata fields into stage via forwardBundleMetadata', () => {
+            const stage = {
+                scenario: { model: 'Unknown', hardware: 'Unknown' },
+                performance: { outputTokenRate: 100 },
+                metadata: { customField: 'original' },
+            };
+            const payload = {
+                runId: 'run-123',
+                runLabel: 'test-run',
+                model_name: 'Qwen3 32B',
+                hardware: { hardware_name: 'H200', accelerator_count: 8 },
+                inference_tool: 'vllm',
+                inference_tool_version: 'v0.6.0',
+                benchmark_harness: 'inference-perf',
+                benchmark_harness_version: 'v1.2.0',
+                other_tools: ['prometheus'],
+                manifests: { 'deploy.yaml': 'kind: Deployment' },
+                evidence: { 'log.txt': 'logs' },
+                run_metadata: { cluster: 'gke-prod' },
+                forked_from: [{ original_run_id: 'orig-1' }],
+                github_author: { username: 'diamond' },
+                metadata: { extraKey: 'value' },
+            };
+
+            forwardBundleMetadata(stage, payload);
+
+            expect(stage.runId).toBe('run-123');
+            expect(stage.runLabel).toBe('test-run');
+            expect(stage.model_name).toBe('Qwen3 32B');
+            expect(stage.hardware).toEqual({ hardware_name: 'H200', accelerator_count: 8 });
+            expect(stage.accelerator_count).toBe(8);
+            expect(stage.inference_tool).toBe('vllm');
+            expect(stage.inference_tool_version).toBe('v0.6.0');
+            expect(stage.benchmark_harness).toBe('inference-perf');
+            expect(stage.benchmark_harness_version).toBe('v1.2.0');
+            expect(stage.other_tools).toEqual(['prometheus']);
+            expect(stage.manifests).toEqual({ 'deploy.yaml': 'kind: Deployment' });
+            expect(stage.evidence).toEqual({ 'log.txt': 'logs' });
+            expect(stage.run_metadata).toEqual({ cluster: 'gke-prod' });
+            expect(stage.forked_from).toEqual([{ original_run_id: 'orig-1' }]);
+            expect(stage.github_author).toEqual({ username: 'diamond' });
+            expect(stage.metadata).toEqual({ customField: 'original', extraKey: 'value' });
+
+            const entry = stageToEntry(stage);
+            expect(entry.model_name).toBe('qwen3 32b');
+            expect(entry.hardware).toBe('H200');
+            expect(entry.accelerator_count).toBe(8);
+            expect(entry.inference_tool).toBe('vllm');
+            expect(entry.manifests).toEqual({ 'deploy.yaml': 'kind: Deployment' });
+            expect(entry.evidence).toEqual({ 'log.txt': 'logs' });
+            expect(entry.metadata.customField).toBe('original');
+            expect(entry.metadata.extraKey).toBe('value');
+        });
+
+        it('propagates bundle hardware and accelerator_count down through groupStagesIntoRuns', async () => {
+            const rawReport = {
+                version: '0.2',
+                run: { uid: 'stage-1', description: 'test' },
+                scenario: {
+                    stack: [{
+                        standardized: {
+                            model: { name: 'Qwen3 32B' },
+                            accelerator: { model: 'H200', parallelism: { tp: null } },
+                        }
+                    }]
+                },
+                results: {
+                    request_performance: {
+                        aggregate: {
+                            throughput: { output_token_rate: { mean: 1600 } },
+                            latency: { request_latency: { mean: 10 } }
+                        }
+                    }
+                }
+            };
+
+            const rootPayload = {
+                runId: 'ce18398b-6ebc-424f-aa9b-d1851eddaf39',
+                runLabel: 'ubench-7muezv3y',
+                model_name: 'Qwen3 32B',
+                hardware: { hardware_name: 'H200', accelerator_count: 8 },
+                entries: [{ run_id: 'stage-1', filename: 'report.json', raw_report: rawReport }]
+            };
+
+            const stage = await parseReportV02(rawReport, 'report.json');
+            stage.runId = rootPayload.runId;
+            stage.runLabel = rootPayload.runLabel;
+            forwardBundleMetadata(stage, rootPayload);
+
+            const runs = groupStagesIntoRuns([stage]);
+
+            expect(runs).toHaveLength(1);
+            const run = runs[0];
+            expect(run.accelerator_count).toBe(8);
+            expect(run.hardware).toEqual({ hardware_name: 'H200', accelerator_count: 8 });
+
+            expect(run.stages).toHaveLength(1);
+            const runStage = run.stages[0];
+            expect(runStage.accelerator_count).toBe(8);
+
+            const entry = stageToEntry(runStage);
+            expect(entry.accelerator_count).toBe(8);
+            expect(entry.hardware).toBe('H200');
+            expect(entry.metadata.accelerator_count).toBe(8);
+        });
+
+        it('mutates raw_report accelerator count and inference tool correctly in mutateRawReportMetadata', () => {
+            const rawReport = {
+                version: '0.2',
+                scenario: {
+                    stack: [{
+                        standardized: {
+                            kind: 'inference_engine',
+                            tool: 'old-engine',
+                            accelerator: { model: 'H200' },
+                        }
+                    }]
+                }
+            };
+
+            const mutated = mutateRawReportMetadata(rawReport, {
+                hardware_name: 'H200',
+                accelerator_count: 8,
+                inference_tool: 'vllm'
+            });
+
+            expect(mutated.scenario.stack[0].standardized.accelerator.count).toBe(8);
+            expect(mutated.scenario.stack[0].standardized.tool).toBe('vllm');
         });
     });
 });

@@ -21,7 +21,7 @@ import { useGitHubAuth } from '../hooks/useGitHubAuth.js';
 import { Button, Modal, Spinner, Checkbox, Input } from './ui';
 import { cn } from '../utils/cn';
 import { decodeShareLink } from '../utils/shareLinkEncoder';
-import { parseReportV02, stageToEntry } from '../utils/benchmarkReportV02Parser';
+import { parseReportV02, stageToEntry, forwardBundleMetadata } from '../utils/benchmarkReportV02Parser';
 import { clearResultsStoreParams, clearSrcParams, syncResultsStoreParams } from '../utils/urlParams';
 
 
@@ -375,34 +375,8 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
                                 if (stageEntry.raw_report) {
                                     const parsedStage = parseReportV02(stageEntry.raw_report, stageEntry.filename);
                                     if (parsedStage) {
-                                        parsedStage.runId = jsonPayload.runId;
-                                        parsedStage.runLabel = jsonPayload.runLabel;
-                                        parsedStage.github_author = jsonPayload.github_author;
-                                        parsedStage.submission_state = jsonPayload.submission_state || 'public';
-                                        parsedStage.submitted_at = jsonPayload.submitted_at;
-                                        parsedStage.well_lit_path = jsonPayload.well_lit_path || null;
-                                        parsedStage.wellLitPath = jsonPayload.well_lit_path || null;
-                                        parsedStage.manifests = jsonPayload.manifests || null;
-                                        parsedStage.evidence = jsonPayload.evidence || null;
-                                        parsedStage.run_metadata = jsonPayload.run_metadata || null;
-                                        parsedStage.metadata = jsonPayload.metadata || null;
-                                        parsedStage.inference_tool = jsonPayload.inference_tool || null;
-                                        parsedStage.inference_tool_version = jsonPayload.inference_tool_version || null;
-                                        parsedStage.other_tools = jsonPayload.other_tools || null;
-                                        parsedStage.forked_from = jsonPayload.forked_from || null;
-                                        parsedStage.payload = jsonPayload;
-
+                                        forwardBundleMetadata(parsedStage, jsonPayload);
                                         const entry = stageToEntry(parsedStage);
-                                        entry.run_id = jsonPayload.runId;
-                                        entry.forked_from = jsonPayload.forked_from || null;
-                                        entry.manifests = jsonPayload.manifests || null;
-                                        entry.evidence = jsonPayload.evidence || null;
-                                        entry.run_metadata = jsonPayload.run_metadata || null;
-                                        entry.metadata = jsonPayload.metadata || null;
-                                        entry.inference_tool = jsonPayload.inference_tool || null;
-                                        entry.inference_tool_version = jsonPayload.inference_tool_version || null;
-                                        entry.other_tools = jsonPayload.other_tools || null;
-                                        entry.payload = jsonPayload;
                                         entry.source = 'gcs:llm-d-benchmarks';
                                         entry.source_info = {
                                             type: 'benchmark_report_v02',
@@ -634,7 +608,7 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
             const minLat = minLatEntries.length > 0 ? Math.min(...minLatEntries) : 0;
             const errCount = groupingData.reduce((acc, curr) => acc + Number(curr.error_count || 0), 0);
             const hardware = groupingData.find(x => x.hardware && x.hardware !== 'Unknown' && x.hardware !== 'Unknown Hardware')?.hardware || 'Unknown Hardware';
-            const accelerator_count = groupingData.find(x => x.accelerator_count > 0)?.accelerator_count || 1;
+            const accelerator_count = groupingData.map(getAcceleratorCount).find(c => c > 1) || groupingData.map(getAcceleratorCount).find(c => c > 0) || 1;
             const tensor_parallelism = groupingData.find(x => x.tensor_parallelism > 0)?.tensor_parallelism || 1;
             const node_count = accelerator_count > 1 && tensor_parallelism > 1 ? Math.max(1, Math.round(accelerator_count / tensor_parallelism)) : accelerator_count;
             const configuration = groupingData[0].metadata?.configuration || groupingData[0].configuration || 'Unknown';

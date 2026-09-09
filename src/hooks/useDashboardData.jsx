@@ -17,7 +17,7 @@ import { CacheManager } from '../utils/cacheManager';
 import { QualityParser } from '../utils/qualityParser';
 import { normalizeHardware, normalizeModelName } from '../utils/dataParser';
 import { parseJsonEntry, parseLogFile, parseLpgManifest, parseLpgConfig } from '../utils/dataParser';
-import { parseReportV02, groupStagesIntoRuns, stageToEntry, isPristineScannedRun } from '../utils/benchmarkReportV02Parser';
+import { parseReportV02, groupStagesIntoRuns, stageToEntry, isPristineScannedRun, forwardBundleMetadata } from '../utils/benchmarkReportV02Parser';
 import { scanLocalBenchmarks } from '../utils/gcsScanner';
 import { useGCS } from './useGCS';
 import { useGIQ } from './useGIQ';
@@ -2093,22 +2093,10 @@ export const useDashboardData = (initialState, dashboardState) => {
                                 record.workload.stage = record.prism_stage_index;
                             }
                             // Enrich stage record with bundle metadata
-                            record.model_name = bundle.payload?.model_name || null;
-                            record.hardware = bundle.payload?.hardware || null;
+                            forwardBundleMetadata(record, bundle.payload);
                             record.config = config || bundle.payload?.config || null;
                             record.summary = summary || bundle.payload?.summary || null;
-                            record.wellLitPath = bundle.payload?.well_lit_path || null;
-                            record.well_lit_path = bundle.payload?.well_lit_path || null;
-                            record.manifests = bundle.payload?.manifests || null;
-                            record.evidence = bundle.payload?.evidence || null;
-                            record.run_metadata = bundle.payload?.run_metadata || null;
-                            record.metadata = bundle.payload?.metadata || null;
-                            record.inference_tool = bundle.payload?.inference_tool || null;
-                            record.inference_tool_version = bundle.payload?.inference_tool_version || null;
-                            record.other_tools = bundle.payload?.other_tools || null;
-                            record.forked_from = bundle.payload?.forked_from || null;
                             record.bundle = bundle;
-                            record.payload = bundle.payload || null;
                             record.targetDashboards = bundle.targetDashboards;
                             
                             const isDupInBatch = trulyNewStages.some(s => {
@@ -2151,22 +2139,10 @@ export const useDashboardData = (initialState, dashboardState) => {
                                 record.workload.stage = record.prism_stage_index;
                             }
                             // Enrich stage record with bundle metadata
-                            record.model_name = bundle.payload?.model_name || null;
-                            record.hardware = bundle.payload?.hardware || null;
+                            forwardBundleMetadata(record, bundle.payload);
                             record.config = config;
                             record.summary = summary;
-                            record.wellLitPath = bundle.payload?.well_lit_path || null;
-                            record.well_lit_path = bundle.payload?.well_lit_path || null;
-                            record.manifests = bundle.payload?.manifests || null;
-                            record.evidence = bundle.payload?.evidence || null;
-                            record.run_metadata = bundle.payload?.run_metadata || null;
-                            record.metadata = bundle.payload?.metadata || null;
-                            record.inference_tool = bundle.payload?.inference_tool || null;
-                            record.inference_tool_version = bundle.payload?.inference_tool_version || null;
-                            record.other_tools = bundle.payload?.other_tools || null;
-                            record.forked_from = bundle.payload?.forked_from || null;
                             record.bundle = bundle;
-                            record.payload = bundle.payload || null;
                             record.targetDashboards = bundle.targetDashboards;
                             
                             const isDupInBatch = trulyNewStages.some(s => {
@@ -2412,6 +2388,8 @@ export const useDashboardData = (initialState, dashboardState) => {
                 runId: item.runId,
                 model: item.model_name || "Custom Model",
                 hardware: item.hardware?.hardware_name || "Detected Hardware",
+                hardware_details: item.hardware || null,
+                accelerator_count: item.hardware?.accelerator_count || 1,
                 wellLitPath: item.well_lit_path || "none / custom",
                 submittedAt: item.submitted_at ? item.submitted_at.split('T')[0] : "Unknown",
                 status: mapStateToStatus(item.state),
@@ -2427,6 +2405,7 @@ export const useDashboardData = (initialState, dashboardState) => {
                         const firstStage = run.stages?.[0];
                         const resolvedModel = run.model_name || firstStage?.scenario?.model || "Custom Model";
                         const resolvedHw = run.hardware?.hardware_name || firstStage?.scenario?.hardware || "Detected Hardware";
+                        const resolvedAccCount = run.hardware?.accelerator_count || firstStage?.accelerator_count || 1;
                         const submittedAt = firstStage?.timestamp || new Date().toISOString();
 
                         mergedList.push({
@@ -2434,6 +2413,8 @@ export const useDashboardData = (initialState, dashboardState) => {
                             runId: run.runId,
                             model: resolvedModel,
                             hardware: resolvedHw,
+                            hardware_details: run.hardware || null,
+                            accelerator_count: resolvedAccCount,
                             wellLitPath: run.wellLitPath || "none / custom",
                             submittedAt: typeof submittedAt === 'string' ? submittedAt.split('T')[0] : new Date().toISOString().split('T')[0],
                             status: "staged",

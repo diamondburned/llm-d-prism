@@ -386,7 +386,8 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                     model_name: resolvedMetadata.model_name,
                     hardware_name: resolvedMetadata.hardware_name,
                     runLabel: resolvedMetadata.runLabel,
-                    inference_tool: resolvedMetadata.inference_tool
+                    inference_tool: resolvedMetadata.inference_tool,
+                    accelerator_count: resolvedMetadata.accelerator_count
                 });
                 const originalFilePath = entry.filename || entry.run_uid || 'report.json';
                 const newFilename = originalRunLabel && !originalFilePath.startsWith(`${originalRunLabel}/`)
@@ -934,14 +935,16 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                     updatedPayload[key] = value;
                 }
 
-                if (updatedPayload.entries && (key === 'model_name' || key === 'hardware_name' || key === 'runLabel')) {
+                if (updatedPayload.entries && (key === 'model_name' || key === 'hardware_name' || key === 'runLabel' || key === 'accelerator_count' || key === 'inference_tool')) {
                     updatedPayload.entries = updatedPayload.entries.map(entry => ({
                         ...entry,
                         run_description: updatedPayload.runLabel || entry.run_description,
                         raw_report: mutateRawReportMetadata(entry.raw_report, {
                             model_name: updatedPayload.model_name,
                             hardware_name: updatedPayload.hardware?.hardware_name,
-                            runLabel: updatedPayload.runLabel
+                            runLabel: updatedPayload.runLabel,
+                            accelerator_count: updatedPayload.hardware?.accelerator_count,
+                            inference_tool: updatedPayload.inference_tool
                         })
                     }));
                 }
@@ -1702,7 +1705,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                     const normalized = stageToEntry(firstParsedStage);
                     resolvedModel = normalized.model_name || '';
                     resolvedHw = normalized.hardware || '';
-                    resolvedCount = firstParsedStage.scenario?.acceleratorCount;
+                    resolvedCount = normalized.accelerator_count || firstParsedStage.scenario?.acceleratorCount;
 
                     const rawHw = firstParsedStage.scenario?.hardware;
                     if (!rawHw || rawHw === 'Unknown' || rawHw === 'TPU' || rawHw === 'GPU') {
