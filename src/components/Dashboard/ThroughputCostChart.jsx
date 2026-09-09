@@ -18,16 +18,9 @@ import { RotateCcw, Maximize, Minimize, ChevronUp, ChevronDown } from 'lucide-re
 import { CustomLabel, CustomChartTooltip } from '../common';
 import { Button, ChartContainer, ChartXAxis, ChartYAxis, Input, Select, gridProps } from '../ui';
 import { cn } from '../../utils/cn';
-import { getBucket, getEffectiveTp, getParetoFrontier } from '../../utils/dashboardHelpers';
+import { getBucket, getEffectiveTp, getAcceleratorCount } from '../../utils/dashboardHelpers';
 import { stripModelPrefix, stripExperimentIdSuffix } from '../../utils/runLabel';
-const getStageIdx = (d) => {
-    const raw = d.workload?.stage ?? d.prism_stage_index ?? d.stageIndex ?? d.stage ?? d.metadata?.stage_index ?? d.metadata?.stage;
-    if (raw !== null && raw !== undefined && raw !== '') {
-        const num = Number(raw);
-        if (!isNaN(num)) return num;
-    }
-    return null;
-};
+import { computeThroughputChartData, getVal as getValHelper, getStageIdx } from '../../utils/chartDataHelpers';
 
 const CONNECT_MODES = [
     {
@@ -455,8 +448,10 @@ export const ThroughputCostChart = (props) => {
         };
     }, [pinnedPopover]);
 
-    const validData = filteredBySource.filter(d => selectedModels.has(d.model));
-    const canShowPerChip = validData.every(d => d.accelerator_count > 0);
+    const validData = (filteredData && filteredData.length > 0)
+        ? filteredData
+        : (filteredBySource || []).filter(d => !selectedModels || selectedModels.size === 0 || selectedModels.has(d.model));
+    const canShowPerChip = validData.length > 0 && validData.every(d => getAcceleratorCount(d) > 0);
 
     return (
       <div className="grid grid-cols-1 gap-4 mb-4">
@@ -504,7 +499,10 @@ export const ThroughputCostChart = (props) => {
                 setXQualityMode(chartMode === 'mmlu' ? 'mmlu_pro' : 'arena_score_text');
             }
             
-            if (tputType !== 'cost' && tputType !== 'quality' && tputType !== 'stage' && showPerChip) yLabel += ' per Chip';
+            const isTputApplicable = tputType !== 'cost' && tputType !== 'quality' && tputType !== 'stage';
+            const canTogglePerChip = canShowPerChip && isTputApplicable;
+
+            if (isTputApplicable && showPerChip) yLabel += ' per Chip';
 
             // Determine X-Axis based on Chart Mode
             let xKey = "time_per_output_token";
@@ -541,34 +539,7 @@ export const ThroughputCostChart = (props) => {
                 xLabel = 'E2E Latency (ms)';
             }
             // 1. Calculate Data Bounds
-            const getVal = (obj, key) => {
-                if (!obj) return undefined;
-                if (key === 'stage') {
-                    return getStageIdx(obj) ?? 0;
-                }
-                if (key === 'time_per_output_token') {
-                    const val = obj.time_per_output_token ?? obj.metrics?.tpot ?? obj.tpot ?? obj.metrics?.tpot_ms ?? obj.metrics?.time_per_output_token;
-                    if (val !== undefined) return val;
-                }
-                if (key === 'throughput' || key === 'metrics.output_tput') {
-                    const val = obj.throughput ?? obj.metrics?.output_tput ?? obj.metrics?.throughput;
-                    if (val !== undefined) return val;
-                }
-                if (key === 'metrics.request_rate') {
-                    const val = obj.metrics?.request_rate ?? obj.qps ?? obj.workload?.target_qps;
-                    if (val !== undefined) return val;
-                }
-                if (key.startsWith('quality.')) {
-                    const normModel = normalizeQualityModelName(obj.model);
-                    if (!qualityMetrics?.data?.[normModel]) return undefined;
-                    const qData = qualityMetrics.data[normModel];
-                    if (key === 'quality.mmlu_pro') return qData.mmlu_pro;
-                    if (key === 'quality.arena') return qData.arena_score_text;
-                    if (key === 'quality.arena_code') return qData.arena_score_code;
-                    if (key === 'quality.live_code_bench') return qData.live_code_bench;
-                }
-                return key.split('.').reduce((o, i) => o?.[i], obj);
-            };
+            const getVal = (obj, key) => getValHelper(obj, key, qualityMetrics);
 
             // Filter Function Builder
             // Allow 0 for valid baseline/stage-0 metrics (e.g. 0 QPS or 0 ms) while excluding missing/null/negative data
@@ -625,7 +596,7 @@ export const ThroughputCostChart = (props) => {
 
             const chartTitle = isBarMode
                 ? (isVerticalLayout ? `${xLabel} by Stage` : `${yLabel} by Stage`)
-                : `${yLabel.replace(' per Chip', '')} vs ${xLabel.replace(' (ms)', '')}`;
+                : `${yLabel} vs ${xLabel.replace(' (ms)', '')}`;
 
             const config = {
                 title: chartTitle,
@@ -636,118 +607,24 @@ export const ThroughputCostChart = (props) => {
                 filterFn
             };
 
-            // 1. Calculate Data Bounds (getVal already defined above)
+            // 1. Calculate Data Bounds
             const { visibleDataPoints, uniqueBenchmarks, baselineSeries, paretoData, autoX, autoY, barChartData } = useMemo(() => {
-                let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-                const visibleDataPoints = []; // Flattened
-                
-                filteredData.forEach(d => {
-                    if (config.filterFn(d)) {
-                        const vx = Number(getVal(d, config.xKey));
-                        const vy = Number(getVal(d, config.yKey));
-                        if (!isNaN(vx) && !isNaN(vy)) {
-                            const benchmarkKey = getBenchmarkKey(d);
-                            const model = d.model_name || d.model || 'Unknown';
-                            visibleDataPoints.push({ ...d, vx, vy, model, benchmarkKey });
-                            if (vx < minX) minX = vx;
-                            if (vx > maxX) maxX = vx;
-                            if (vy < minY) minY = vy;
-                            if (vy > maxY) maxY = vy;
-                        }
-                    }
+                return computeThroughputChartData({
+                    filteredData,
+                    config,
+                    getBenchmarkKey,
+                    baselineBenchmarkKey,
+                    showPareto,
+                    tputType,
+                    isLogScaleX,
+                    xAxisMax,
+                    isBarMode,
+                    isVerticalLayout,
+                    selectedBenchmarks,
+                    showPerChip,
+                    qualityMetrics
                 });
-                
-                const uniqueBenchmarks = [...new Set(visibleDataPoints.map(d => d.benchmarkKey))];
-
-                const baselineSeries = (baselineBenchmarkKey
-                    ? visibleDataPoints
-                          .filter(d => d.benchmarkKey === baselineBenchmarkKey)
-                          .map(d => ({ vx: d.vx, vy: d.vy }))
-                          .sort((a, b) => a.vx - b.vx)
-                    : []);
-
-                let paretoData = [];
-                if (showPareto && visibleDataPoints.length > 0) {
-                     const maximizeY = tputType !== 'cost';
-                     const minimizeX = true;
-                     paretoData = getParetoFrontier(visibleDataPoints, minimizeX, maximizeY);
-                }
-
-                if (minX === Infinity) { minX=0; maxX=100; minY=0; maxY=100; }
-                
-                const xPad = (maxX - minX) * 0.05 || (isLogScaleX ? minX*0.1 : 1);
-                const yPad = (maxY - minY) * 0.05 || 1;
-                
-                let minXBound = Math.max(0, minX - xPad);
-                let maxXBound = maxX + xPad;
-
-                if (isLogScaleX) {
-                      const logMin = Math.floor(Math.log10(minX > 0 ? minX : 0.1));
-                      const logMax = Math.ceil(Math.log10(maxX > 0 ? maxX : 100));
-                      minXBound = Math.pow(10, logMin);
-                      maxXBound = Math.pow(10, logMax);
-                }
-                const upperX = xAxisMax !== Infinity ? xAxisMax : maxXBound;
-                const autoX = [minXBound, upperX]; 
-                const autoY = [Math.max(0, minY - yPad), maxY + yPad];
-
-                // Compute Bar Chart data if in Bar mode
-                let barChartData = [];
-                let allStageIndices = [];
-                if (isBarMode) {
-                    const metricKey = isVerticalLayout ? config.xKey : config.yKey;
-                    const activePoints = [];
-
-                    filteredData.forEach(d => {
-                        const benchmarkKey = getBenchmarkKey(d);
-                        if (!selectedBenchmarks.has(benchmarkKey)) return;
-
-                        const rawMetric = getVal(d, metricKey);
-                        if (rawMetric === null || rawMetric === undefined) return;
-                        let numVal = Number(rawMetric);
-                        if (isNaN(numVal) || numVal < 0) return;
-
-                        if (!isVerticalLayout && showPerChip && tputType !== 'cost' && tputType !== 'quality' && tputType !== 'stage' && d.accelerator_count > 0) {
-                            numVal = numVal / d.accelerator_count;
-                        }
-
-                        const stageIdx = getStageIdx(d) ?? 0;
-                        const model = d.model_name || d.model || 'Unknown';
-                        activePoints.push({
-                            ...d,
-                            stageIdx,
-                            numVal,
-                            benchmarkKey,
-                            model
-                        });
-                    });
-
-                    const stagesSet = new Set(activePoints.map(p => p.stageIdx));
-                    if (stagesSet.size === 0) stagesSet.add(0);
-                    allStageIndices = Array.from(stagesSet).sort((a, b) => a - b);
-
-                    barChartData = allStageIndices.map(stageIdx => {
-                        const row = {
-                            stage: stageIdx,
-                            stageLabel: `Stage ${stageIdx}`,
-                        };
-
-                        uniqueBenchmarks.forEach(benchmarkKey => {
-                            if (!selectedBenchmarks.has(benchmarkKey)) return;
-                            const pts = activePoints.filter(p => p.benchmarkKey === benchmarkKey && p.stageIdx === stageIdx);
-                            if (pts.length > 0) {
-                                const avgVal = pts.reduce((acc, p) => acc + p.numVal, 0) / pts.length;
-                                row[benchmarkKey] = Number(avgVal.toFixed(2));
-                                row[`_raw_${benchmarkKey}`] = pts[0];
-                            }
-                        });
-
-                        return row;
-                    });
-                }
-
-                return { visibleDataPoints, uniqueBenchmarks, baselineSeries, paretoData, autoX, autoY, barChartData };
-            }, [filteredData, config, getBenchmarkKey, baselineBenchmarkKey, showPareto, tputType, isLogScaleX, xAxisMax, isBarMode, isVerticalLayout, selectedBenchmarks, showPerChip]);
+            }, [filteredData, config, getBenchmarkKey, baselineBenchmarkKey, showPareto, tputType, isLogScaleX, xAxisMax, isBarMode, isVerticalLayout, selectedBenchmarks, showPerChip, qualityMetrics]);
 
             const curX = zoomDomain?.x || autoX;
             const curY = zoomDomain?.y || autoY;
@@ -1247,7 +1124,7 @@ export const ThroughputCostChart = (props) => {
                                              <div className="flex items-center gap-1.5 bg-slate-950/60 border border-slate-800/80 rounded-lg p-0.5">
                                                  <button onClick={() => setIsLogScaleX(!isLogScaleX)} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', isLogScaleX ? 'bg-amber-600 text-white shadow' : 'text-slate-400 hover:text-white')}>Log Scale</button>
                                                  <div className="h-3 w-px bg-slate-850" />
-                                                 <button onClick={() => canShowPerChip && setShowPerChip(!showPerChip)} disabled={!canShowPerChip} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', !canShowPerChip ? 'text-slate-700 cursor-not-allowed opacity-40' : showPerChip ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white')} title="Normalize per chip">Per Chip</button>
+                                                 <button onClick={() => canTogglePerChip && setShowPerChip(!showPerChip)} disabled={!canTogglePerChip} className={cn('px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wider rounded-md transition-all', !canTogglePerChip ? 'text-slate-700 cursor-not-allowed opacity-40' : showPerChip ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white')} title={canTogglePerChip ? "Normalize metric per chip" : "Available only for throughput and QPS metrics with known chip counts"}>Per Chip</button>
                                              </div>
 
                                              {/* Visual Toggles Group */}
@@ -1647,8 +1524,8 @@ export const ThroughputCostChart = (props) => {
                           </Select>
                       )}
 
-                      {tputType !== 'cost' && tputType !== 'stage' && (
-                          <button onClick={() => canShowPerChip && setShowPerChip(!showPerChip)} disabled={!canShowPerChip} className={cn('px-3 py-1 text-xs font-medium rounded-md transition-all', !canShowPerChip ? 'text-slate-600 cursor-not-allowed opacity-50' : showPerChip ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700/50')} title={canShowPerChip ? "Normalize metric per chip" : "Available only when all selected benchmarks have known chip counts"}>Per Chip</button>
+                      {isTputApplicable && (
+                          <button onClick={() => canTogglePerChip && setShowPerChip(!showPerChip)} disabled={!canTogglePerChip} className={cn('px-3 py-1 text-xs font-medium rounded-md transition-all', !canTogglePerChip ? 'text-slate-600 cursor-not-allowed opacity-50' : showPerChip ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700/50')} title={canTogglePerChip ? "Normalize metric per chip" : "Available only when all selected benchmarks have known chip counts"}>Per Chip</button>
                       )}
                       
                       <div className="h-4 w-px bg-slate-300 dark:bg-slate-700"/>

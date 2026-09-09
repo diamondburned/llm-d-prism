@@ -1080,6 +1080,9 @@ export const useDashboardData = (initialState, dashboardState) => {
                 // Normalize Hardware/Accelerator
                 newD.hardware = normalizeHardware(newD.hardware);
                 if (newD.metadata) newD.metadata.hardware = newD.hardware;
+                if (!newD.accelerator_count && newD.metadata?.accelerator_count) {
+                    newD.accelerator_count = newD.metadata.accelerator_count;
+                }
 
                 // Add Source Info if missing (Critical for Inspector)
                 if (!newD.source_info) {

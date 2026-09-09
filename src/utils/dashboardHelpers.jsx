@@ -111,14 +111,29 @@ export const INTEGRATIONS = [
 ];
 
 export const extractAcceleratorCount = (hardware) => {
-    if (!hardware) return 1;
+    if (!hardware || typeof hardware !== 'string') return 1;
     const match = hardware.match(/\(x(\d+)\)/);
     return match ? parseInt(match[1]) : 1;
 };
 
 export const getAcceleratorCount = (d) => {
-    if (d.metadata?.accelerator_count && d.metadata.accelerator_count > 1) return d.metadata.accelerator_count;
-    return extractAcceleratorCount(d.hardware);
+    if (!d) return 1;
+    const explicitCount = d.accelerator_count 
+        ?? d.hardware?.accelerator_count 
+        ?? d.metadata?.accelerator_count;
+    if (typeof explicitCount === 'number' && explicitCount > 1) {
+        return explicitCount;
+    }
+    const hwStr = typeof d.hardware === 'string' 
+        ? d.hardware 
+        : (d.metadata?.hardware || d.hardware?.hardware_name || '');
+    const extracted = extractAcceleratorCount(hwStr);
+    if (extracted > 1) return extracted;
+
+    if (typeof explicitCount === 'number' && explicitCount > 0) {
+        return explicitCount;
+    }
+    return 1;
 };
 
 export const getBucket = (val) => {

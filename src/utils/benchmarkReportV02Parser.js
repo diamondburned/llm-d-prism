@@ -980,6 +980,7 @@ export function stageToEntry(stage) {
         tpot: performance.tpotMean ?? null,
         ntpot: performance.ntpotMean ?? performance.tpotMean ?? null,
         itl: performance.itlMean ?? null,
+        accelerator_count: acceleratorCount,
 
         prism_stage_index: stage.prism_stage_index !== undefined && stage.prism_stage_index !== null
             ? stage.prism_stage_index

@@ -37,7 +37,7 @@ import { RunComparisonChart } from './Dashboard/RunComparisonChart';
 import DataInspector from './DataInspector';
 import { useDashboardState } from '../hooks/useDashboardState';
 import { useDashboardData } from '../hooks/useDashboardData';
-import { INTEGRATIONS, getBucket, getRatioType, getEffectiveTp, sortBuckets, findParetoPoint, getNodesAndType, getBenchmarkKey } from '../utils/dashboardHelpers';
+import { INTEGRATIONS, getBucket, getRatioType, getEffectiveTp, sortBuckets, findParetoPoint, getNodesAndType, getBenchmarkKey, getAcceleratorCount } from '../utils/dashboardHelpers';
 import { getCanonicalBucketName, dedupeBucketConfigs } from '../utils/bucketUtils';
 
 const getCleanModelName = (name) => {
@@ -73,16 +73,6 @@ const formatContactUrl = (url) => {
 
 
 // Helper Functions (Moved to Module Scope)
-const extractAcceleratorCount = (hardware) => {
-    if (!hardware) return 1;
-    const match = hardware.match(/\(x(\d+)\)/);
-    return match ? parseInt(match[1]) : 1;
-};
-
-const getAcceleratorCount = (d) => {
-    if (d.metadata?.accelerator_count && d.metadata.accelerator_count > 1) return d.metadata.accelerator_count;
-    return extractAcceleratorCount(d.hardware);
-};
 
 // Match function for portable wildcard keys
 const matchesWildcard = (key, pattern) => {
