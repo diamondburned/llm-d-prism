@@ -25,6 +25,7 @@ import yaml from 'js-yaml';
 import { useGitHubAuth } from '../../hooks/useGitHubAuth';
 import { validateBenchmark, validatePrismUploadStructure } from '../../utils/benchmarkValidator';
 import { encodeShareLink, isValidUuid } from '../../utils/shareLinkEncoder';
+import { appendGraphFilterParams } from '../../utils/urlParams';
 import { isFileBackedRun } from '../../utils/benchmarkReportV02Parser';
 import { v4 as uuidv4 } from 'uuid';
 import { downloadRunBRV02, downloadSingleStageYaml, getRawPrismCloudPayload } from '../../utils/brv02Exporter';
@@ -502,7 +503,27 @@ export const UnifiedDataTable = (props) => {
     const handleCopyShareLink = React.useCallback(() => {
         if (!canShare || shareableUuids.length === 0) return;
         const shareLink = encodeShareLink(shareableUuids);
-        const fullUrl = `${window.location.origin}${window.location.pathname}?view=results-store&benchmarks=${shareLink}`;
+        const params = new URLSearchParams();
+        params.set('view', 'results-store');
+        params.set('benchmarks', shareLink);
+
+        appendGraphFilterParams(params, {
+            c_mode: drawerChartMode,
+            t_type: drawerTputType,
+            cost_mode: drawerCostMode,
+            l_type: _drawerLatType,
+            x_max: drawerXAxisMax,
+            per_chip: drawerShowPerChip,
+            pareto: drawerShowPareto,
+            labels: drawerShowLabels,
+            points: drawerShowDataLabels,
+            y_qual: drawerYQualityMode,
+            x_qual: drawerXQualityMode,
+            color_mode: drawerChartColorMode,
+            conn_mode: drawerLineConnectMode,
+        });
+
+        const fullUrl = `${window.location.origin}${window.location.pathname}?${params.toString()}`;
         navigator.clipboard.writeText(fullUrl);
         if (addToast) {
             addToast('Copied link to clipboard!', 'success');
@@ -512,7 +533,25 @@ export const UnifiedDataTable = (props) => {
             setToastMessage('Copied link to clipboard!');
             setShowToast(true);
         }
-    }, [canShare, shareableUuids, addToast, dashboardData]);
+    }, [
+        canShare,
+        shareableUuids,
+        drawerChartMode,
+        drawerTputType,
+        drawerCostMode,
+        _drawerLatType,
+        drawerXAxisMax,
+        drawerShowPerChip,
+        drawerShowPareto,
+        drawerShowLabels,
+        drawerShowDataLabels,
+        drawerYQualityMode,
+        drawerXQualityMode,
+        drawerChartColorMode,
+        drawerLineConnectMode,
+        addToast,
+        dashboardData
+    ]);
 
     const buildBundleForRun = React.useCallback((run) => {
         const stageFiles = run.stages.map(stage => {

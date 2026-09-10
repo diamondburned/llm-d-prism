@@ -18,7 +18,9 @@ import {
     RESULTS_STORE_EXTRA_PARAM_KEYS,
     clearResultsStoreParams,
     clearSrcParams,
-    syncResultsStoreParams
+    syncResultsStoreParams,
+    GRAPH_FILTER_DEFAULTS,
+    appendGraphFilterParams
 } from './urlParams';
 
 describe('urlParams utils', () => {
@@ -46,6 +48,27 @@ describe('urlParams utils', () => {
             expect(params.has('unlisted')).toBe(false);
             expect(params.has('communityOnly')).toBe(false);
             expect(params.has('benchmarks')).toBe(false);
+        });
+
+        it('clears graph filter params (c_mode, t_type, cost_mode, l_type, etc.)', () => {
+            const params = new URLSearchParams('view=home&c_mode=ttft&t_type=total&cost_mode=spot&l_type=e2e&x_max=500&per_chip=true&pareto=true&labels=true&points=true&y_qual=mmlu_pro&x_qual=mmlu_pro&color_mode=hardware&conn_mode=stage');
+            const changed = clearResultsStoreParams(params);
+
+            expect(changed).toBe(true);
+            expect(params.get('view')).toBe('home');
+            expect(params.has('c_mode')).toBe(false);
+            expect(params.has('t_type')).toBe(false);
+            expect(params.has('cost_mode')).toBe(false);
+            expect(params.has('l_type')).toBe(false);
+            expect(params.has('x_max')).toBe(false);
+            expect(params.has('per_chip')).toBe(false);
+            expect(params.has('pareto')).toBe(false);
+            expect(params.has('labels')).toBe(false);
+            expect(params.has('points')).toBe(false);
+            expect(params.has('y_qual')).toBe(false);
+            expect(params.has('x_qual')).toBe(false);
+            expect(params.has('color_mode')).toBe(false);
+            expect(params.has('conn_mode')).toBe(false);
         });
 
         it('returns false if no Results Store params exist', () => {
@@ -121,6 +144,61 @@ describe('urlParams utils', () => {
             expect(params.has('q')).toBe(false);
             expect(params.has('f_models')).toBe(false);
             expect(params.has('src')).toBe(false);
+        });
+    });
+
+    describe('appendGraphFilterParams and GRAPH_FILTER_DEFAULTS', () => {
+        it('omits all parameters when values match GRAPH_FILTER_DEFAULTS', () => {
+            const params = new URLSearchParams();
+            appendGraphFilterParams(params, { ...GRAPH_FILTER_DEFAULTS });
+
+            expect(Array.from(params.keys()).length).toBe(0);
+        });
+
+        it('omits parameters when graphFilters object is empty or null', () => {
+            const params = new URLSearchParams();
+            appendGraphFilterParams(params, null);
+            expect(Array.from(params.keys()).length).toBe(0);
+
+            appendGraphFilterParams(params, {});
+            expect(Array.from(params.keys()).length).toBe(0);
+        });
+
+        it('only appends non-default parameters', () => {
+            const params = new URLSearchParams();
+            appendGraphFilterParams(params, {
+                c_mode: 'ttft', // Non-default (default is 'tpot')
+                t_type: 'total', // Non-default (default is 'output')
+                cost_mode: 'spot', // Default
+                l_type: 'e2e', // Default
+                x_max: 500, // Non-default (default is Infinity)
+                per_chip: true, // Non-default (default is false)
+                sel_only: true, // Default
+                pareto: false, // Default
+                labels: true, // Default
+                points: true, // Non-default (default is false)
+                y_qual: 'mmlu_pro', // Default
+                x_qual: 'arena_score_text', // Non-default (default is 'mmlu_pro')
+                color_mode: 'hardware', // Default
+                conn_mode: 'workload' // Non-default (default is 'stage')
+            });
+
+            expect(params.get('c_mode')).toBe('ttft');
+            expect(params.get('t_type')).toBe('total');
+            expect(params.get('x_max')).toBe('500');
+            expect(params.get('per_chip')).toBe('true');
+            expect(params.get('points')).toBe('true');
+            expect(params.get('x_qual')).toBe('arena_score_text');
+            expect(params.get('conn_mode')).toBe('workload');
+
+            // Default values must NOT be in URL
+            expect(params.has('cost_mode')).toBe(false);
+            expect(params.has('l_type')).toBe(false);
+            expect(params.has('sel_only')).toBe(false);
+            expect(params.has('pareto')).toBe(false);
+            expect(params.has('labels')).toBe(false);
+            expect(params.has('y_qual')).toBe(false);
+            expect(params.has('color_mode')).toBe(false);
         });
     });
 });

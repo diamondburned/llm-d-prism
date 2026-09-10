@@ -14,6 +14,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { defaultState } from '../config/defaultState';
+import { GRAPH_FILTER_DEFAULTS } from '../utils/urlParams';
 
 export const getSharedState = () => {
     if (typeof window === 'undefined') return null;
@@ -31,10 +32,10 @@ export const getSharedState = () => {
             q: params.get('q') || params.get('search') || null,
             unlisted: params.has('unlisted') ? params.get('unlisted') === 'true' || params.get('unlisted') === '1' : (params.has('includeUnlisted') ? params.get('includeUnlisted') === 'true' || params.get('includeUnlisted') === '1' : null),
             communityOnly: params.has('communityOnly') ? params.get('communityOnly') === 'true' || params.get('communityOnly') === '1' : (params.has('community_only') ? params.get('community_only') === 'true' || params.get('community_only') === '1' : null),
-            chartMode: params.get('c_mode') || 'tpot',
-            tputType: params.get('t_type') || 'output',
-            costMode: params.get('cost_mode') || 'spot',
-            latType: params.get('l_type') || 'e2e',
+            chartMode: params.get('c_mode') || GRAPH_FILTER_DEFAULTS.c_mode,
+            tputType: params.get('t_type') || GRAPH_FILTER_DEFAULTS.t_type,
+            costMode: params.get('cost_mode') || GRAPH_FILTER_DEFAULTS.cost_mode,
+            latType: params.get('l_type') || GRAPH_FILTER_DEFAULTS.l_type,
             // Normalize Aggregated keys to use double colons (only if not already double)
             selectedModels: params.has('models') ? new Set([...parseSet('models')].map(k => k.includes('::Aggregated') ? k : k.replace(':Aggregated', '::Aggregated'))) : null,
             modelsFilter: params.has('f_models') ? parseSet('f_models') : null,
@@ -57,14 +58,17 @@ export const getSharedState = () => {
             buckets: params.getAll('buckets'),
             giqProjects: params.getAll('apis'),
             baselineKey: params.get('baseline') || null,
-            xAxisMax: parseNum('x_max', Infinity),
-            showPerChip: parseBool('per_chip', false),
-            showSelectedOnly: parseBool('sel_only', true),
-            showPareto: parseBool('pareto', false),
-            showLabels: parseBool('labels', true),
-            showDataLabels: parseBool('points', false),
-            yQualityMode: params.get('y_qual') || 'mmlu_pro',
-            xQualityMode: params.get('x_qual') || 'mmlu_pro',
+            xAxisMax: parseNum('x_max', GRAPH_FILTER_DEFAULTS.x_max),
+            showPerChip: parseBool('per_chip', GRAPH_FILTER_DEFAULTS.per_chip),
+            showSelectedOnly: parseBool('sel_only', GRAPH_FILTER_DEFAULTS.sel_only),
+            showPareto: parseBool('pareto', GRAPH_FILTER_DEFAULTS.pareto),
+            showLabels: parseBool('labels', GRAPH_FILTER_DEFAULTS.labels),
+            showDataLabels: parseBool('points', GRAPH_FILTER_DEFAULTS.points),
+            yQualityMode: params.get('y_qual') || GRAPH_FILTER_DEFAULTS.y_qual,
+            xQualityMode: params.get('x_qual') || GRAPH_FILTER_DEFAULTS.x_qual,
+            chartColorMode: params.get('color_mode') || GRAPH_FILTER_DEFAULTS.color_mode,
+            lineConnectMode: params.get('conn_mode') || GRAPH_FILTER_DEFAULTS.conn_mode,
+            hasBenchmarksParam: params.has('benchmarks') && Boolean(params.get('benchmarks')),
         };
     } catch (e) {
         console.error("Failed to parse shared state", e);
@@ -76,7 +80,7 @@ export const useDashboardState = () => {
     const initialState = getSharedState() || defaultState;
 
     // View States
-    const [chartColorMode, setChartColorMode] = useState('hardware');
+    const [chartColorMode, setChartColorMode] = useState(initialState.chartColorMode || 'hardware');
     const [chartMode, setChartMode] = useState(initialState.chartMode);
     const [tputType, setTputType] = useState(initialState.tputType);
     const [costMode, setCostMode] = useState(initialState.costMode);
@@ -85,7 +89,7 @@ export const useDashboardState = () => {
     // Quality mode
     const [xQualityMode, setXQualityMode] = useState(initialState.xQualityMode);
     const [yQualityMode, setYQualityMode] = useState(initialState.yQualityMode);
-    const [lineConnectMode, setLineConnectMode] = useState('stage');
+    const [lineConnectMode, setLineConnectMode] = useState(initialState.lineConnectMode || 'stage');
 
     // Chart configs
     const [xAxisMax, setXAxisMax] = useState(initialState.xAxisMax);
@@ -123,6 +127,9 @@ export const useDashboardState = () => {
 
     // Benchmark selection
     const [selectedBenchmarks, setSelectedBenchmarks] = useState(() => {
+        if (initialState.hasBenchmarksParam) {
+            return new Set();
+        }
         if (initialState.selectedModels && initialState.selectedModels.size > 0) return initialState.selectedModels;
         try {
             const saved = localStorage.getItem('prism_selected_benchmarks');

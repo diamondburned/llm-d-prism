@@ -22,7 +22,7 @@ import { Button, Modal, Spinner, Checkbox, Input } from './ui';
 import { cn } from '../utils/cn';
 import { decodeShareLink } from '../utils/shareLinkEncoder';
 import { parseReportV02, stageToEntry, forwardBundleMetadata } from '../utils/benchmarkReportV02Parser';
-import { clearResultsStoreParams, clearSrcParams, syncResultsStoreParams } from '../utils/urlParams';
+import { clearResultsStoreParams, clearSrcParams, syncResultsStoreParams, GRAPH_FILTER_DEFAULTS } from '../utils/urlParams';
 
 
 
@@ -42,6 +42,7 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
         setShowSelectedOnly,
         selectedBenchmarks,
         setSelectedBenchmarks,
+        setShowComparisonDrawer,
         activeFilters,
         setActiveFilters,
         showDataPanel,
@@ -174,6 +175,7 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
         } catch {
             return false;
         }
+        return false;
     });
 
     const [communityOnly, setCommunityOnly] = React.useState(() => {
@@ -194,6 +196,7 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
         } catch {
             return false;
         }
+        return false;
     });
 
     const [kpiFilter, setKpiFilter] = React.useState(() => {
@@ -288,22 +291,34 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
         }
     }, [isAuthenticated, onNavigate]);
 
-    const hasProcessedShareLink = React.useRef(false);
+    const processedBenchmarksParamRef = React.useRef(null);
+    const [urlSearch, setUrlSearch] = React.useState(() => typeof window !== 'undefined' ? window.location.search : '');
+
+    React.useEffect(() => {
+        const handleLocationChange = () => {
+            setUrlSearch(window.location.search);
+        };
+        window.addEventListener('popstate', handleLocationChange);
+        return () => window.removeEventListener('popstate', handleLocationChange);
+    }, []);
 
     React.useEffect(() => {
         const processShareLink = async () => {
             const params = new URLSearchParams(window.location.search);
             const benchmarksParam = params.get('benchmarks');
 
-            if (benchmarksParam === null || hasProcessedShareLink.current) return;
-            hasProcessedShareLink.current = true;
-
-            if (benchmarksParam === '') {
-                params.delete('benchmarks');
-                const newUrl = `${window.location.pathname}${params.toString() ? '?' + params.toString() : ''}${window.location.hash || ''}`;
-                window.history.replaceState(null, '', newUrl);
+            if (!benchmarksParam) {
+                if (benchmarksParam === '') {
+                    params.delete('benchmarks');
+                    const newUrl = `${window.location.pathname}${params.toString() ? '?' + params.toString() : ''}${window.location.hash || ''}`;
+                    window.history.replaceState(null, '', newUrl);
+                }
+                processedBenchmarksParamRef.current = null;
                 return;
             }
+
+            if (processedBenchmarksParamRef.current === benchmarksParam) return;
+            processedBenchmarksParamRef.current = benchmarksParam;
 
             let targetUuids = [];
             try {
@@ -326,7 +341,55 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
                 return;
             }
 
-            const keysToSelect = new Set();
+            // Apply graph filter parameters if provided in the URL or reset to defaults
+            if (dashboardState?.setChartMode) {
+                dashboardState.setChartMode(params.get('c_mode') || GRAPH_FILTER_DEFAULTS.c_mode);
+            }
+            if (dashboardState?.setTputType) {
+                dashboardState.setTputType(params.get('t_type') || GRAPH_FILTER_DEFAULTS.t_type);
+            }
+            if (dashboardState?.setCostMode) {
+                dashboardState.setCostMode(params.get('cost_mode') || GRAPH_FILTER_DEFAULTS.cost_mode);
+            }
+            if (dashboardState?.setLatType) {
+                dashboardState.setLatType(params.get('l_type') || GRAPH_FILTER_DEFAULTS.l_type);
+            }
+            if (dashboardState?.setXAxisMax) {
+                const val = params.has('x_max') ? Number(params.get('x_max')) : GRAPH_FILTER_DEFAULTS.x_max;
+                dashboardState.setXAxisMax(isNaN(val) ? GRAPH_FILTER_DEFAULTS.x_max : val);
+            }
+            if (dashboardState?.setShowPerChip) {
+                dashboardState.setShowPerChip(params.has('per_chip') ? params.get('per_chip') === 'true' : GRAPH_FILTER_DEFAULTS.per_chip);
+            }
+            if (dashboardState?.setShowSelectedOnly) {
+                dashboardState.setShowSelectedOnly(params.has('sel_only') ? params.get('sel_only') === 'true' : GRAPH_FILTER_DEFAULTS.sel_only);
+            }
+            if (dashboardState?.setShowPareto) {
+                dashboardState.setShowPareto(params.has('pareto') ? params.get('pareto') === 'true' : GRAPH_FILTER_DEFAULTS.pareto);
+            }
+            if (dashboardState?.setShowLabels) {
+                dashboardState.setShowLabels(params.has('labels') ? params.get('labels') === 'true' : GRAPH_FILTER_DEFAULTS.labels);
+            }
+            if (dashboardState?.setShowDataLabels) {
+                dashboardState.setShowDataLabels(params.has('points') ? params.get('points') === 'true' : GRAPH_FILTER_DEFAULTS.points);
+            }
+            if (dashboardState?.setYQualityMode) {
+                dashboardState.setYQualityMode(params.get('y_qual') || GRAPH_FILTER_DEFAULTS.y_qual);
+            }
+            if (dashboardState?.setXQualityMode) {
+                dashboardState.setXQualityMode(params.get('x_qual') || GRAPH_FILTER_DEFAULTS.x_qual);
+            }
+            if (dashboardState?.setChartColorMode) {
+                dashboardState.setChartColorMode(params.get('color_mode') || GRAPH_FILTER_DEFAULTS.color_mode);
+            }
+            if (dashboardState?.setLineConnectMode) {
+                dashboardState.setLineConnectMode(params.get('conn_mode') || GRAPH_FILTER_DEFAULTS.conn_mode);
+            }
+
+            // Immediately clear existing selections upon opening a valid benchmark share link
+            setSelectedBenchmarks(new Set());
+
+            const allTargetKeys = new Set();
             const missingUuids = [];
 
             targetUuids.forEach(uuid => {
@@ -336,11 +399,28 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
                     (d.benchmarkKey && d.benchmarkKey.includes(uuid))
                 );
                 if (existing) {
-                    keysToSelect.add(getBenchmarkKey(existing));
+                    allTargetKeys.add(getBenchmarkKey(existing));
+                    if (existing.source && setSelectedSources) {
+                        setSelectedSources(prev => {
+                            if (!prev || prev.has(existing.source)) return prev;
+                            const next = new Set(prev);
+                            next.add(existing.source);
+                            return next;
+                        });
+                    }
                 } else {
+                    allTargetKeys.add(`results-store:${uuid}`);
                     missingUuids.push(uuid);
                 }
             });
+
+            // Automatically trigger a database refetch if any results are missing
+            // in case the user's browser has an outdated database cache
+            if (missingUuids.length > 0 && dashboardData?.loadAllData) {
+                dashboardData.loadAllData(null, true).catch(err => {
+                    console.warn('[ShareLink] Failed to trigger automatic database refetch:', err);
+                });
+            }
 
             let missingCount = 0;
             let forbiddenCount = 0;
@@ -377,6 +457,7 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
                                     if (parsedStage) {
                                         forwardBundleMetadata(parsedStage, jsonPayload);
                                         const entry = stageToEntry(parsedStage);
+                                        entry.run_id = jsonPayload.runId;
                                         entry.source = 'gcs:llm-d-benchmarks';
                                         entry.source_info = {
                                             type: 'benchmark_report_v02',
@@ -393,8 +474,17 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
                                 if (dashboardData.injectDynamicEntries) {
                                     dashboardData.injectDynamicEntries(parsedEntries);
                                 }
+                                if (setSelectedSources) {
+                                    setSelectedSources(prev => {
+                                        const next = new Set(prev);
+                                        for (const pe of parsedEntries) {
+                                            if (pe.source) next.add(pe.source);
+                                        }
+                                        return next;
+                                    });
+                                }
                                 const key = getBenchmarkKey(parsedEntries[0]);
-                                keysToSelect.add(key);
+                                allTargetKeys.add(key);
                             }
                         }
                     } catch (e) {
@@ -412,14 +502,17 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
                 dashboardData.addToast(`${forbiddenCount} shared benchmark${forbiddenCount > 1 ? 's' : ''} could not be accessed`, 'error');
             }
 
-            if (keysToSelect.size > 0) {
-                setSelectedBenchmarks(prev => new Set([...prev, ...keysToSelect]));
-                if (dashboardState.setShowComparisonDrawer) {
-                    dashboardState.setShowComparisonDrawer(true);
+            // Always keep all target benchmarks selected ("still with all of them selected")
+            if (allTargetKeys.size > 0) {
+                setSelectedBenchmarks(new Set(allTargetKeys));
+                if (setShowComparisonDrawer) {
+                    setShowComparisonDrawer(true);
                 }
-                if (dashboardData.addToast) {
-                    dashboardData.addToast(`Loaded ${keysToSelect.size} shared benchmark${keysToSelect.size > 1 ? 's' : ''} into Compare view`, 'success');
+                if (dashboardData.addToast && missingCount === 0 && forbiddenCount === 0) {
+                    dashboardData.addToast(`Loaded ${allTargetKeys.size} shared benchmark${allTargetKeys.size > 1 ? 's' : ''} into Compare view`, 'success');
                 }
+            } else {
+                setSelectedBenchmarks(new Set());
             }
 
             params.delete('benchmarks');
@@ -428,7 +521,7 @@ export default function ResultsStore({ onNavigate, onNavigateBack, dashboardStat
         };
 
         processShareLink();
-    }, [data, dashboardData, dashboardState, setSelectedBenchmarks]);
+    }, [urlSearch, data, dashboardData, dashboardState, setSelectedBenchmarks, setShowComparisonDrawer, setSelectedSources]);
 
 
 

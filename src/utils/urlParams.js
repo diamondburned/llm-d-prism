@@ -42,8 +42,113 @@ export const RESULTS_STORE_EXTRA_PARAM_KEYS = [
     'community',
     'q',
     'search',
-    'benchmarks'
+    'benchmarks',
+    'c_mode',
+    't_type',
+    'cost_mode',
+    'l_type',
+    'x_max',
+    'per_chip',
+    'sel_only',
+    'pareto',
+    'labels',
+    'points',
+    'y_qual',
+    'x_qual',
+    'color_mode',
+    'conn_mode'
 ];
+
+/**
+ * Standard default values for Results Store graph filters.
+ * Values matching these defaults are omitted from share link URLs to keep URLs short and clean.
+ */
+export const GRAPH_FILTER_DEFAULTS = {
+    c_mode: 'tpot',
+    t_type: 'output',
+    cost_mode: 'spot',
+    l_type: 'e2e',
+    x_max: Infinity,
+    per_chip: false,
+    sel_only: true,
+    pareto: false,
+    labels: true,
+    points: false,
+    y_qual: 'mmlu_pro',
+    x_qual: 'mmlu_pro',
+    color_mode: 'hardware',
+    conn_mode: 'stage'
+};
+
+/**
+ * Appends graph filter parameters to URLSearchParams only if they differ from their default values.
+ * Keeps generated share links short and clean.
+ * @param {URLSearchParams} params
+ * @param {Object} graphFilters
+ */
+export const appendGraphFilterParams = (params, graphFilters) => {
+    if (!graphFilters) return;
+
+    const {
+        c_mode,
+        t_type,
+        cost_mode,
+        l_type,
+        x_max,
+        per_chip,
+        sel_only,
+        pareto,
+        labels,
+        points,
+        y_qual,
+        x_qual,
+        color_mode,
+        conn_mode
+    } = graphFilters;
+
+    if (c_mode && c_mode !== GRAPH_FILTER_DEFAULTS.c_mode) {
+        params.set('c_mode', c_mode);
+    }
+    if (t_type && t_type !== GRAPH_FILTER_DEFAULTS.t_type) {
+        params.set('t_type', t_type);
+    }
+    if (cost_mode && cost_mode !== GRAPH_FILTER_DEFAULTS.cost_mode) {
+        params.set('cost_mode', cost_mode);
+    }
+    if (l_type && l_type !== GRAPH_FILTER_DEFAULTS.l_type) {
+        params.set('l_type', l_type);
+    }
+    if (x_max !== undefined && x_max !== null && x_max !== Infinity && x_max !== GRAPH_FILTER_DEFAULTS.x_max) {
+        params.set('x_max', x_max);
+    }
+    if (per_chip !== undefined && Boolean(per_chip) !== GRAPH_FILTER_DEFAULTS.per_chip) {
+        params.set('per_chip', Boolean(per_chip));
+    }
+    if (sel_only !== undefined && Boolean(sel_only) !== GRAPH_FILTER_DEFAULTS.sel_only) {
+        params.set('sel_only', Boolean(sel_only));
+    }
+    if (pareto !== undefined && Boolean(pareto) !== GRAPH_FILTER_DEFAULTS.pareto) {
+        params.set('pareto', Boolean(pareto));
+    }
+    if (labels !== undefined && Boolean(labels) !== GRAPH_FILTER_DEFAULTS.labels) {
+        params.set('labels', Boolean(labels));
+    }
+    if (points !== undefined && Boolean(points) !== GRAPH_FILTER_DEFAULTS.points) {
+        params.set('points', Boolean(points));
+    }
+    if (y_qual && y_qual !== GRAPH_FILTER_DEFAULTS.y_qual) {
+        params.set('y_qual', y_qual);
+    }
+    if (x_qual && x_qual !== GRAPH_FILTER_DEFAULTS.x_qual) {
+        params.set('x_qual', x_qual);
+    }
+    if (color_mode && color_mode !== GRAPH_FILTER_DEFAULTS.color_mode) {
+        params.set('color_mode', color_mode);
+    }
+    if (conn_mode && conn_mode !== GRAPH_FILTER_DEFAULTS.conn_mode) {
+        params.set('conn_mode', conn_mode);
+    }
+};
 
 /**
  * Removes all Results Store filter params (f_*) and extra params from a URLSearchParams object.

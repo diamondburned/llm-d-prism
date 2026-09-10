@@ -21,5 +21,12 @@ export default defineConfig({
         secure: false,
       }
     }
+  },
+  test: {
+    environmentOptions: {
+      jsdom: {
+        url: 'http://localhost:3000/'
+      }
+    }
   }
 })
