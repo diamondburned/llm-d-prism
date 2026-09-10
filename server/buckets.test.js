@@ -150,4 +150,54 @@ describe('buckets configuration & parsing', () => {
         expect(getConfiguredBucketEntries('', 'llm-d-benchmarks')).toEqual(['llm-d-benchmarks']);
         expect(getConfiguredBucketNames('', 'llm-d-benchmarks')).toEqual(['llm-d-benchmarks']);
     });
+
+    it('includes custom RESULTS_STORE_BUCKET alongside DEFAULT_BUCKETS and deduplicates matches', () => {
+        // Slabe deployment scenario: custom scoped store + custom scoped catalog
+        expect(
+            getConfiguredBucketEntries('slabe-bucket/prism-results-store', 'slabe-bucket/prism-upload')
+        ).toEqual(['slabe-bucket/prism-upload', 'slabe-bucket/prism-results-store']);
+
+        expect(
+            getConfiguredBucketNames('slabe-bucket/prism-results-store', 'slabe-bucket/prism-upload')
+        ).toEqual(['slabe-bucket', 'slabe-bucket']);
+
+        // Slabe deployment scenario with duplicate entry in DEFAULT_BUCKETS
+        expect(
+            getConfiguredBucketEntries(
+                'slabe-bucket/prism-upload, slabe-bucket/prism-results-store',
+                'slabe-bucket/prism-upload'
+            )
+        ).toEqual(['slabe-bucket/prism-upload', 'slabe-bucket/prism-results-store']);
+
+        // Scheme prefix stripping and trailing slash normalization in deduplication
+        expect(
+            getConfiguredBucketEntries(
+                'gs://slabe-bucket/prism-upload/, gs://slabe-bucket/prism-results-store/',
+                'gs://slabe-bucket/prism-upload/'
+            )
+        ).toEqual(['slabe-bucket/prism-upload', 'slabe-bucket/prism-results-store']);
+
+        // Internal enterprise staging and mirror catalog
+        expect(
+            getConfiguredBucketEntries(
+                'internal-prism/harness-mirror',
+                'internal-prism/curated'
+            )
+        ).toEqual(['internal-prism/curated', 'internal-prism/harness-mirror']);
+
+        // Custom Results Store bucket when DEFAULT_BUCKETS is empty or omitted
+        expect(
+            getConfiguredBucketEntries('', 'slabe-bucket/prism-upload')
+        ).toEqual(['slabe-bucket/prism-upload']);
+
+        // Bare custom Results Store bucket
+        expect(
+            getConfiguredBucketEntries('catalog-a, catalog-b', 'custom-results-bucket')
+        ).toEqual(['custom-results-bucket', 'catalog-a', 'catalog-b']);
+
+        // Scoped prefix on llm-d-benchmarks
+        expect(
+            getConfiguredBucketEntries('llm-d-benchmarks', 'llm-d-benchmarks/staging')
+        ).toEqual(['llm-d-benchmarks/staging', 'llm-d-benchmarks']);
+    });
 });

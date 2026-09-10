@@ -151,9 +151,12 @@ export function parseBucketEntry(entry) {
 }
 
 /**
- * Returns the raw (trimmed) entries configured via DEFAULT_BUCKETS.
- * If DEFAULT_BUCKETS is not set, falls back to RESULTS_STORE_BUCKET
- * or DEFAULT_RESULTS_BUCKETS.
+ * Returns the configured bucket entries combining the primary RESULTS_STORE_BUCKET
+ * and any additional DEFAULT_BUCKETS.
+ * If RESULTS_STORE_BUCKET is explicitly configured to a custom location, it is
+ * prepended to the bucket list as the primary results store, and any matching
+ * entries in DEFAULT_BUCKETS are automatically deduplicated.
+ * If DEFAULT_BUCKETS is not set, falls back to RESULTS_STORE_BUCKET or DEFAULT_RESULTS_BUCKETS.
  *
  * @param {string|undefined} [rawBuckets=process.env.DEFAULT_BUCKETS]
  * @param {string|undefined} [rawResultsStoreBucket=process.env.RESULTS_STORE_BUCKET]
@@ -163,14 +166,48 @@ export function getConfiguredBucketEntries(
     rawBuckets = process.env.DEFAULT_BUCKETS,
     rawResultsStoreBucket = process.env.RESULTS_STORE_BUCKET
 ) {
-    const defaultFallback = rawResultsStoreBucket || DEFAULT_RESULTS_BUCKETS;
-    const raw = (rawBuckets !== undefined && rawBuckets !== '')
-        ? rawBuckets
-        : defaultFallback;
-    return raw
-        .split(',')
-        .map(e => e.trim())
-        .filter(Boolean);
+    const cleanStore = String(rawResultsStoreBucket || '')
+        .trim()
+        .replace(/^(gs|s3|https?):\/\//i, '')
+        .replace(/\/+$/, '');
+
+    const hasRawBuckets = rawBuckets !== undefined && rawBuckets !== null && String(rawBuckets).trim() !== '';
+    const bucketList = hasRawBuckets
+        ? String(rawBuckets)
+            .split(',')
+            .map(e => e.trim().replace(/^(gs|s3|https?):\/\//i, '').replace(/\/+$/, ''))
+            .filter(Boolean)
+        : [];
+
+    if (!hasRawBuckets) {
+        const fallback = cleanStore || DEFAULT_RESULTS_BUCKETS;
+        return [fallback];
+    }
+
+    const seen = new Set();
+    const result = [];
+
+    // If an explicit custom RESULTS_STORE_BUCKET is configured, include it as the primary entry
+    const isCustomStore = Boolean(cleanStore && cleanStore !== DEFAULT_RESULTS_STORE_BUCKET);
+    if (isCustomStore) {
+        const storeParsed = parseBucketEntry(cleanStore);
+        const storeKey = `${storeParsed.bucket}/${storeParsed.prefix}`;
+        seen.add(storeKey);
+        result.push(cleanStore);
+    }
+
+    // Append entries from DEFAULT_BUCKETS, deduplicating against RESULTS_STORE_BUCKET and prior entries
+    for (const entry of bucketList) {
+        const parsed = parseBucketEntry(entry);
+        if (!parsed.bucket) continue;
+        const key = `${parsed.bucket}/${parsed.prefix}`;
+        if (!seen.has(key)) {
+            seen.add(key);
+            result.push(entry);
+        }
+    }
+
+    return result.length > 0 ? result : [DEFAULT_RESULTS_BUCKETS];
 }
 
 /**
