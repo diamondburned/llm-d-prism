@@ -1895,9 +1895,15 @@ export const useDashboardData = (initialState, dashboardState) => {
                 const identifier = file.webkitRelativePath || file.relativePath || file.name;
                 const record = await parseReportV02(text, identifier);
                 if (record) {
-                    const isDupInBatch = trulyNewStages.some(s => s.filename === record.filename);
+                    const isSameStage = (s) => {
+                        if (s.runId && record.runId && s.runId !== record.runId) return false;
+                        if (s.runEid && record.runEid && s.runEid !== record.runEid) return false;
+                        if (s.runUid && record.runUid && s.runUid !== record.runUid) return false;
+                        return s.filename === record.filename;
+                    };
+                    const isDupInBatch = trulyNewStages.some(isSameStage);
                     const isDupInExisting = brv02Runs.some(run => 
-                        run.stages.some(existingStage => existingStage.filename === record.filename)
+                        run.stages.some(isSameStage)
                     );
                     if (!isDupInBatch && !isDupInExisting) {
                         trulyNewStages.push(record);

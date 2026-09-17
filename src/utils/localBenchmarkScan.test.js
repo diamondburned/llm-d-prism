@@ -202,24 +202,31 @@ describe('local benchmark scan', () => {
         assert.strictEqual(isFileBackedRun(collidingUpload[0], new Set(['run-a/benchmark_report_v0.2.yaml'])), false);
     });
 
-    it('keeps uploads sharing load metadata with scanned runs separate', () => {
-        // 8. An upload sharing load metadata with a scanned run must not join it. The
+    it('keeps uploads sharing runEid or load metadata with scanned runs separate', () => {
+        // 8. An upload sharing runEid or load metadata with a scanned run must not join it. The
         // runId-less fallback would otherwise put it under a run the next scan rebuilds
         // from disk, and the reconcile would delete a file that never existed.
         const withUpload = groupStagesIntoRuns([
-            { filename: 'a.yaml', runId: 'local:exp-1', origin: 'local-scan', loadMetadata: { cfg_id: 'A' }, stageIndex: 0 },
-            { filename: 'upload.yaml', loadMetadata: { cfg_id: 'A' }, stageIndex: 0 },
+            { filename: 'a.yaml', runId: 'local:exp-1', origin: 'local-scan', runEid: 'eid-1', loadMetadata: { cfg_id: 'A' }, stageIndex: 0 },
+            { filename: 'upload.yaml', runEid: 'eid-1', loadMetadata: { cfg_id: 'A' }, stageIndex: 0 },
         ]);
         assert.strictEqual(withUpload.length, 2);
         assert.strictEqual(reconcile(withUpload, []).length, 1);
 
-        // Uploads still group with each other by load metadata.
+        // Uploads group with each other when sharing a valid runEid.
         const twoUploads = groupStagesIntoRuns([
-            { filename: 'u1.yaml', loadMetadata: { cfg_id: 'Z' }, stageIndex: 0 },
-            { filename: 'u2.yaml', loadMetadata: { cfg_id: 'Z' }, stageIndex: 1 },
+            { filename: 'u1.yaml', runEid: 'valid-eid-1', loadMetadata: { cfg_id: 'Z' }, stageIndex: 0 },
+            { filename: 'u2.yaml', runEid: 'valid-eid-1', loadMetadata: { cfg_id: 'Z' }, stageIndex: 1 },
         ]);
         assert.strictEqual(twoUploads.length, 1);
         assert.strictEqual(twoUploads[0].stages.length, 2);
+
+        // Uploads sharing only load metadata without a valid runEid remain separate.
+        const separateByMetadata = groupStagesIntoRuns([
+            { filename: 'u1.yaml', loadMetadata: { cfg_id: 'Z' }, stageIndex: 0 },
+            { filename: 'u2.yaml', loadMetadata: { cfg_id: 'Z' }, stageIndex: 1 },
+        ]);
+        assert.strictEqual(separateByMetadata.length, 2);
     });
 
     it('requires both marks for isPristineScannedRun', () => {

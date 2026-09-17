@@ -3,7 +3,7 @@ import { X, UploadCloud, CheckCircle, AlertCircle, AlertOctagon, AlertTriangle, 
 import { v4 as uuidv4 } from 'uuid';
 import { ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Scatter } from 'recharts';
 import { validateBenchmark, validatePrismUploadStructure } from '../../utils/benchmarkValidator';
-import { parseReportV02, stageToEntry, canonicalStringify, mutateRawReportMetadata, compareOriginalStageOrder, normalizeReportUnits } from '../../utils/benchmarkReportV02Parser';
+import { parseReportV02, stageToEntry, isValidRunEid, groupStandaloneBRV02Stages, mergeStagedBundlesByRunEid, mutateRawReportMetadata, compareOriginalStageOrder, normalizeReportUnits } from '../../utils/benchmarkReportV02Parser';
 import { toOptimalDataUri, parseDataUri } from '../../utils/dataParser';
 import yaml from 'js-yaml';
 import { isValidUuid } from '../../utils/shareLinkEncoder';
@@ -1445,65 +1445,8 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
         }
 
 
-        // Group the standalone report files
-        const brv02StandaloneGroups = [];
-        for (const item of standaloneReportFiles) {
-            if (item.validation.format === 'brv02') {
-                const parsedStage = parseReportV02(item.content, getFilePath(item.file));
-                if (!parsedStage) {
-                    const tempId = uuidv4();
-                    brv02StandaloneGroups.push({
-                        id: tempId,
-                        dirKey: `staged-${tempId}`,
-                        name: '',
-                        files: [item.file],
-                        parsedStages: [{ file: item.file, content: item.content, validation: item.validation }]
-                    });
-                    continue;
-                }
-
-                let targetGroup = null;
-                if (parsedStage.runUid) {
-                    targetGroup = brv02StandaloneGroups.find(g => g.runUid === parsedStage.runUid);
-                }
-                if (!targetGroup) {
-                    const recordMetaStr = canonicalStringify(parsedStage.loadMetadata);
-                    if (recordMetaStr && recordMetaStr !== '') {
-                        targetGroup = brv02StandaloneGroups.find(g => {
-                            const groupMetaStr = canonicalStringify(g.loadMetadata);
-                            return groupMetaStr === recordMetaStr;
-                        });
-                    }
-                }
-
-                if (targetGroup) {
-                    targetGroup.files.push(item.file);
-                    targetGroup.parsedStages.push({ file: item.file, content: item.content, validation: item.validation });
-                } else {
-                    const tempId = uuidv4();
-                    brv02StandaloneGroups.push({
-                        id: tempId,
-                        dirKey: parsedStage.runUid || `staged-${tempId}`,
-                        name: parsedStage.runLabel || '',
-                        runUid: parsedStage.runUid,
-                        loadMetadata: parsedStage.loadMetadata,
-                        files: [item.file],
-                        parsedStages: [{ file: item.file, content: item.content, validation: item.validation }]
-                    });
-                }
-            } else {
-                // inference-perf standalone file
-                const tempId = uuidv4();
-                const baseName = item.file.name.replace(/\.(ya?ml|json)$/i, '');
-                brv02StandaloneGroups.push({
-                    id: tempId,
-                    dirKey: `staged-${tempId}`,
-                    name: baseName,
-                    files: [item.file],
-                    parsedStages: [{ file: item.file, content: item.content, validation: item.validation }]
-                });
-            }
-        }
+        // Group the standalone report files by valid run.eid
+        const brv02StandaloneGroups = groupStandaloneBRV02Stages(standaloneReportFiles, getFilePath);
 
         const groupsToProcess = [];
 
@@ -1524,6 +1467,8 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
             groupsToProcess.push({
                 id: sg.id,
                 dirKey: sg.dirKey,
+                runEid: sg.runEid || null,
+                isDirUpload: false,
                 name: sg.name,
                 files: sg.files,
                 preParsedStages: sg.parsedStages,
@@ -1979,6 +1924,8 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
             newStagedBundles.push({
                 id: group.id,
                 dirKey: group.dirKey,
+                runEid: group.runEid || (isValidRunEid(firstParsedStage?.runEid) ? firstParsedStage.runEid.trim() : null),
+                isDirUpload: Boolean(group.isDirUpload),
                 name: groupName,
                 stageFiles: parsedStages,
                 metadataFiles: {
@@ -1997,13 +1944,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
         }
 
         if (newStagedBundles.length > 0) {
-            setStagedFiles(prev => {
-                const combined = [...prev, ...newStagedBundles];
-                combined.sort((a, b) => {
-                    return a.dirKey.localeCompare(b.dirKey, undefined, { numeric: true, sensitivity: 'base' });
-                });
-                return combined;
-            });
+            setStagedFiles(prev => mergeStagedBundlesByRunEid(prev, newStagedBundles));
         }
 
         if (addToast) {

@@ -1,6 +1,6 @@
 import yaml from 'js-yaml';
 import { v4 as uuidv4 } from 'uuid';
-import { parseReportV02, groupStagesIntoRuns } from './benchmarkReportV02Parser.js';
+import { parseReportV02, groupStagesIntoRuns, isValidRunEid } from './benchmarkReportV02Parser.js';
 
 const generateUUID = () => {
     return uuidv4();
@@ -338,7 +338,7 @@ export const scanLocalBenchmarks = async () => {
                 // run.eid is shared by the stages of one experiment; run.uid is
                 // per-report, so falling back to it splits the sweep into
                 // single-stage runs rather than guessing from load metadata.
-                const runKey = record.runEid || record.runUid;
+                const runKey = (isValidRunEid(record.runEid) ? record.runEid.trim() : null) || record.runUid;
                 if (runKey) {
                     record.runId = `local:${runKey}`;
                     // Stamped per stage to survive a regroup. Only ever set with a

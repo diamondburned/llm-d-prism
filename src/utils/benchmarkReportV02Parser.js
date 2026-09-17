@@ -788,33 +788,173 @@ export function forwardBundleMetadata(stage, payload) {
     return stage;
 }
 
+export const LEGACY_EMPTY_RUN_EID = '1b4db7eb-4057-5ddf-91e0-36dec72071f5';
+
+export function isValidRunEid(eid) {
+    if (!eid || typeof eid !== 'string') return false;
+    const trimmed = eid.trim();
+    return trimmed !== '' && trimmed.toLowerCase() !== 'unknown' && trimmed !== LEGACY_EMPTY_RUN_EID;
+}
+
+export function groupStandaloneBRV02Stages(standaloneReportFiles, getFilePath = (f) => (f && (f.webkitRelativePath || f.name)) || '', makeId = uuidv4) {
+    const groups = [];
+    for (const item of standaloneReportFiles) {
+        if (item.validation?.format === 'brv02') {
+            const parsedStage = item.parsedStage !== undefined
+                ? item.parsedStage
+                : parseReportV02(item.content, getFilePath(item.file));
+            if (!parsedStage) {
+                const tempId = makeId();
+                groups.push({
+                    id: tempId,
+                    dirKey: `staged-${tempId}`,
+                    name: '',
+                    runEid: null,
+                    files: [item.file],
+                    parsedStages: [{ file: item.file, content: item.content, validation: item.validation }]
+                });
+                continue;
+            }
+
+            const validEid = isValidRunEid(parsedStage.runEid) ? parsedStage.runEid.trim() : null;
+            let targetGroup = null;
+            if (validEid) {
+                targetGroup = groups.find(g => g.runEid === validEid);
+            }
+
+            if (targetGroup) {
+                targetGroup.files.push(item.file);
+                targetGroup.parsedStages.push({ file: item.file, content: item.content, validation: item.validation });
+            } else {
+                const tempId = makeId();
+                groups.push({
+                    id: tempId,
+                    dirKey: validEid || `staged-${tempId}`,
+                    name: parsedStage.runLabel || '',
+                    runEid: validEid,
+                    files: [item.file],
+                    parsedStages: [{ file: item.file, content: item.content, validation: item.validation }]
+                });
+            }
+        } else {
+            // inference-perf standalone file
+            const tempId = makeId();
+            const baseName = (item.file?.name || '').replace(/\.(ya?ml|json)$/i, '');
+            groups.push({
+                id: tempId,
+                dirKey: `staged-${tempId}`,
+                name: baseName,
+                runEid: null,
+                files: [item.file],
+                parsedStages: [{ file: item.file, content: item.content, validation: item.validation }]
+            });
+        }
+    }
+    return groups;
+}
+
+export function mergeStagedBundlesByRunEid(existingBundles, newBundles) {
+    const combined = (existingBundles || []).map(b => ({
+        ...b,
+        stageFiles: [...(b.stageFiles || [])],
+        payload: b.payload ? {
+            ...b.payload,
+            entries: [...(b.payload.entries || [])]
+        } : b.payload,
+        validation: b.validation ? {
+            ...b.validation,
+            entries: [...(b.validation.entries || [])],
+            errors: [...(b.validation.errors || [])],
+            warnings: [...(b.validation.warnings || [])]
+        } : b.validation
+    }));
+
+    for (const newBundle of (newBundles || [])) {
+        const validEid = isValidRunEid(newBundle.runEid) ? newBundle.runEid.trim() : null;
+        let targetBundle = null;
+        if (validEid && !newBundle.isDirUpload) {
+            targetBundle = combined.find(b => !b.isDirUpload && isValidRunEid(b.runEid) && b.runEid.trim() === validEid);
+        }
+
+        if (targetBundle) {
+            const existingFilenames = new Set(targetBundle.stageFiles.map(sf => sf.file?.name || sf.filename));
+            for (const sf of (newBundle.stageFiles || [])) {
+                const fname = sf.file?.name || sf.filename;
+                if (!existingFilenames.has(fname)) {
+                    targetBundle.stageFiles.push(sf);
+                    existingFilenames.add(fname);
+                }
+            }
+
+            if (targetBundle.payload && newBundle.payload) {
+                const existingEntryNames = new Set((targetBundle.payload.entries || []).map(e => e.filename));
+                for (const entry of (newBundle.payload.entries || [])) {
+                    if (!existingEntryNames.has(entry.filename)) {
+                        targetBundle.payload.entries.push(entry);
+                        existingEntryNames.add(entry.filename);
+                    }
+                }
+                targetBundle.payload.entries.sort(compareOriginalStageOrder);
+                targetBundle.payload.entries.forEach((entry, idx) => {
+                    entry.prism_stage_index = idx;
+                });
+            }
+
+            if (targetBundle.validation && newBundle.validation) {
+                targetBundle.validation.entries.push(...(newBundle.validation.entries || []));
+                targetBundle.validation.errors = [...new Set([...targetBundle.validation.errors, ...(newBundle.validation.errors || [])])];
+                targetBundle.validation.warnings = [...new Set([...targetBundle.validation.warnings, ...(newBundle.validation.warnings || [])])];
+            }
+        } else {
+            combined.push(newBundle);
+        }
+    }
+
+    combined.sort((a, b) => {
+        return (a.dirKey || '').localeCompare(b.dirKey || '', undefined, { numeric: true, sensitivity: 'base' });
+    });
+
+    return combined;
+}
+
 export function groupStagesIntoRuns(stageRecords) {
     const runsList = [];
 
     for (const record of stageRecords) {
-        const recordMetaStr = canonicalStringify(record.loadMetadata);
-        
-        // Find an existing run that has the same runId
+        // 1. Find an existing run that has the same explicit runId
         let targetRun = null;
         if (record.runId) {
             targetRun = runsList.find(run => run.runId === record.runId);
         }
 
-        // Fallback: Find an existing run that has the same loadMetadata (only if runId is missing).
-        // Scanned runs are excluded: a report on disk and an upload can share load
-        // metadata, and fusing them would put the upload under a run the next scan
-        // rebuilds from disk, destroying it.
-        if (!targetRun && !record.runId) {
+        // 2. Directory-based fallback: if runId is missing and filename has a directory prefix
+        if (!targetRun && !record.runId && record.filename && record.filename.includes('/')) {
+            const dirPrefix = record.filename.slice(0, record.filename.lastIndexOf('/'));
             targetRun = runsList.find(run => {
                 if (isPristineScannedRun(run)) return false;
-                const runMetaStr = canonicalStringify(run.stages[0]?.loadMetadata);
-                return runMetaStr === recordMetaStr && runMetaStr !== '';
+                return run.stages.some(s => {
+                    if (!s.filename || !s.filename.includes('/')) return false;
+                    return s.filename.slice(0, s.filename.lastIndexOf('/')) === dirPrefix;
+                });
+            });
+        }
+
+        // 3. Coalescing fallback: group by valid runEid (only if runId is missing).
+        // Scanned runs are excluded: a report on disk and an upload can share an eid,
+        // and fusing them would put the upload under a run the next scan
+        // rebuilds from disk, destroying it.
+        if (!targetRun && !record.runId && isValidRunEid(record.runEid)) {
+            const validEid = record.runEid.trim();
+            targetRun = runsList.find(run => {
+                if (isPristineScannedRun(run)) return false;
+                return run.stages.some(s => isValidRunEid(s.runEid) && s.runEid.trim() === validEid);
             });
         }
 
         if (!targetRun) {
             targetRun = {
                 runId: record.runId || uuidv4(),
+                runEid: isValidRunEid(record.runEid) ? record.runEid.trim() : null,
                 runLabel: record.runLabel || "",
                 stages: [],
                 model_name: record.model_name || null,
@@ -846,6 +986,8 @@ export function groupStagesIntoRuns(stageRecords) {
         // Ensure the stage has the same runId as the group it joined
         record.runId = targetRun.runId;
         targetRun.stages.push(record);
+        
+        if (!targetRun.runEid && isValidRunEid(record.runEid)) targetRun.runEid = record.runEid.trim();
         
         if (!targetRun.model_name && record.model_name) targetRun.model_name = record.model_name;
         if (!targetRun.hardware && record.hardware) targetRun.hardware = record.hardware;

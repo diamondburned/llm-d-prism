@@ -20,6 +20,10 @@ import {
     detectMissingUnitWarnings,
     forwardBundleMetadata,
     mutateRawReportMetadata,
+    LEGACY_EMPTY_RUN_EID,
+    isValidRunEid,
+    groupStandaloneBRV02Stages,
+    mergeStagedBundlesByRunEid,
 } from './benchmarkReportV02Parser.js';
 import { validateBenchmark, validatePrismUploadStructure, formatZodIssuePath } from './benchmarkValidator.js';
 
@@ -1440,4 +1444,145 @@ describe('missing units detection and warning generation', () => {
         });
     });
 });
+
+describe('BRV0.2 run.eid grouping and standalone stage coalescing', () => {
+    it('validates run.eid properly and rejects legacy empty-string UUID5 hash', () => {
+        expect(isValidRunEid(null)).toBe(false);
+        expect(isValidRunEid(undefined)).toBe(false);
+        expect(isValidRunEid('')).toBe(false);
+        expect(isValidRunEid('   ')).toBe(false);
+        expect(isValidRunEid('unknown')).toBe(false);
+        expect(isValidRunEid('UNKNOWN')).toBe(false);
+        expect(isValidRunEid(LEGACY_EMPTY_RUN_EID)).toBe(false);
+
+        expect(isValidRunEid('a4f9d123-8888-5555-9999-123456789abc')).toBe(true);
+        expect(isValidRunEid('exp-custom-id')).toBe(true);
+    });
+
+    it('coalesces standalone stages in groupStagesIntoRuns only when sharing a valid runEid', () => {
+        const sharedEid = 'a4f9d123-8888-5555-9999-123456789abc';
+        const stagesWithSameEid = [
+            { filename: 'stage0.yaml', runUid: 'uid-1', runEid: sharedEid, loadMetadata: { cfg_id: 'cfg-1' }, stageIndex: 0 },
+            { filename: 'stage1.yaml', runUid: 'uid-2', runEid: sharedEid, loadMetadata: { cfg_id: 'cfg-1' }, stageIndex: 1 },
+        ];
+        const runs = groupStagesIntoRuns(stagesWithSameEid);
+        expect(runs).toHaveLength(1);
+        expect(runs[0].stages).toHaveLength(2);
+        expect(runs[0].runEid).toBe(sharedEid);
+
+        // Stages sharing loadMetadata and runUid but lacking valid runEid remain separate
+        const stagesWithoutValidEid = [
+            { filename: 's0.yaml', runUid: 'same-uid', runEid: LEGACY_EMPTY_RUN_EID, loadMetadata: { cfg_id: 'same-cfg' }, stageIndex: 0 },
+            { filename: 's1.yaml', runUid: 'same-uid', runEid: null, loadMetadata: { cfg_id: 'same-cfg' }, stageIndex: 1 },
+        ];
+        const ungroupedRuns = groupStagesIntoRuns(stagesWithoutValidEid);
+        expect(ungroupedRuns).toHaveLength(2);
+    });
+
+    it('groups standalone uploaded BRV0.2 files by valid run.eid and keeps legacy/distinct files separate', () => {
+        const sharedEid = 'e9012345-6789-5abc-def0-1234567890ab';
+        const reportA = {
+            version: '0.2',
+            run: { uid: 'uid-a', eid: sharedEid },
+            scenario: { load: { metadata: { cfg_id: 'hash-a' } } },
+        };
+        const reportB = {
+            version: '0.2',
+            run: { uid: 'uid-b', eid: sharedEid },
+            scenario: { load: { metadata: { cfg_id: 'hash-b' } } },
+        };
+        const reportLegacy1 = {
+            version: '0.2',
+            run: { uid: 'same-uid', eid: LEGACY_EMPTY_RUN_EID },
+            scenario: { load: { metadata: { cfg_id: 'same-cfg-hash' } } },
+        };
+        const reportLegacy2 = {
+            version: '0.2',
+            run: { uid: 'same-uid', eid: LEGACY_EMPTY_RUN_EID },
+            scenario: { load: { metadata: { cfg_id: 'same-cfg-hash' } } },
+        };
+
+        let idCounter = 0;
+        const makeId = () => `bundle-${++idCounter}`;
+        const getFilePath = (f) => f.name;
+
+        const standaloneFiles = [
+            { file: { name: 'stage0.yaml' }, content: reportA, validation: { format: 'brv02' } },
+            { file: { name: 'stage1.yaml' }, content: reportB, validation: { format: 'brv02' } },
+            { file: { name: 'legacy0.yaml' }, content: reportLegacy1, validation: { format: 'brv02' } },
+            { file: { name: 'legacy1.yaml' }, content: reportLegacy2, validation: { format: 'brv02' } },
+        ];
+
+        const grouped = groupStandaloneBRV02Stages(standaloneFiles, getFilePath, makeId);
+        // reportA + reportB coalesce into 1 bundle; reportLegacy1 and reportLegacy2 stay separate (total 3 bundles)
+        expect(grouped).toHaveLength(3);
+        expect(grouped[0].files).toHaveLength(2);
+        expect(grouped[0].parsedStages).toHaveLength(2);
+        expect(grouped[0].runEid).toBe(sharedEid);
+        expect(grouped[1].files).toHaveLength(1);
+        expect(grouped[1].runEid).toBe(null);
+        expect(grouped[2].files).toHaveLength(1);
+        expect(grouped[2].runEid).toBe(null);
+    });
+
+    it('merges staged standalone bundles across multiple drops when sharing a valid run.eid', () => {
+        const sharedEid = 'f1122334-5566-5778-99aa-bbccddeeff00';
+        const existingBundles = [
+            {
+                id: 'bundle-1',
+                dirKey: sharedEid,
+                isDirUpload: false,
+                runEid: sharedEid,
+                stageFiles: [{ file: { name: 'stage0.yaml' }, filename: 'stage0.yaml' }],
+                payload: { entries: [{ filename: 'stage0.yaml', prism_stage_index: 0 }] },
+                validation: { entries: [{ filename: 'stage0.yaml' }], errors: [], warnings: [] },
+            },
+            {
+                id: 'bundle-dir',
+                dirKey: 'folder',
+                isDirUpload: true,
+                runEid: sharedEid,
+                stageFiles: [{ file: { name: 'folder/stage0.yaml' }, filename: 'folder/stage0.yaml' }],
+                payload: { entries: [{ filename: 'folder/stage0.yaml', prism_stage_index: 0 }] },
+                validation: { entries: [{ filename: 'folder/stage0.yaml' }], errors: [], warnings: [] },
+            },
+        ];
+
+        const newBundles = [
+            {
+                id: 'bundle-2',
+                dirKey: sharedEid,
+                isDirUpload: false,
+                runEid: sharedEid,
+                stageFiles: [{ file: { name: 'stage1.yaml' }, filename: 'stage1.yaml' }],
+                payload: { entries: [{ filename: 'stage1.yaml', prism_stage_index: 0 }] },
+                validation: { entries: [{ filename: 'stage1.yaml' }], errors: [], warnings: [] },
+            },
+            {
+                id: 'bundle-no-eid',
+                dirKey: 'staged-no-eid',
+                isDirUpload: false,
+                runEid: null,
+                stageFiles: [{ file: { name: 'other.yaml' }, filename: 'other.yaml' }],
+                payload: { entries: [{ filename: 'other.yaml', prism_stage_index: 0 }] },
+                validation: { entries: [{ filename: 'other.yaml' }], errors: [], warnings: [] },
+            },
+        ];
+
+        const merged = mergeStagedBundlesByRunEid(existingBundles, newBundles);
+        // bundle-2 merges into bundle-1; bundle-dir is untouched; bundle-no-eid is appended
+        expect(merged).toHaveLength(3);
+        const mergedStandalone = merged.find(b => b.id === 'bundle-1');
+        expect(mergedStandalone.stageFiles).toHaveLength(2);
+        expect(mergedStandalone.payload.entries).toHaveLength(2);
+        expect(mergedStandalone.payload.entries[0].filename).toBe('stage0.yaml');
+        expect(mergedStandalone.payload.entries[0].prism_stage_index).toBe(0);
+        expect(mergedStandalone.payload.entries[1].filename).toBe('stage1.yaml');
+        expect(mergedStandalone.payload.entries[1].prism_stage_index).toBe(1);
+
+        const dirBundle = merged.find(b => b.id === 'bundle-dir');
+        expect(dirBundle.stageFiles).toHaveLength(1);
+    });
+});
+
 
