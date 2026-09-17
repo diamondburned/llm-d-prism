@@ -613,6 +613,16 @@ export const UnifiedDataTable = (props) => {
             || run.stages?.[0]?.inference_tool_version 
             || null;
 
+        const benchmarkHarnessVal = run.benchmark_harness
+            || run.payload?.benchmark_harness
+            || run.stages?.[0]?.benchmark_harness
+            || null;
+
+        const benchmarkHarnessVersionVal = run.benchmark_harness_version
+            || run.payload?.benchmark_harness_version
+            || run.stages?.[0]?.benchmark_harness_version
+            || null;
+
         const manifestsVal = run.manifests 
             || run.payload?.manifests 
             || run.bundle?.payload?.manifests 
@@ -666,6 +676,8 @@ export const UnifiedDataTable = (props) => {
             ...(githubAuthorVal ? { github_author: githubAuthorVal } : {}),
             ...(inferenceToolVal ? { inference_tool: inferenceToolVal } : {}),
             ...(inferenceToolVersionVal ? { inference_tool_version: inferenceToolVersionVal } : {}),
+            ...(benchmarkHarnessVal ? { benchmark_harness: benchmarkHarnessVal } : {}),
+            ...(benchmarkHarnessVersionVal ? { benchmark_harness_version: benchmarkHarnessVersionVal } : {}),
             ...(manifestsVal ? { manifests: manifestsVal } : {}),
             ...(evidenceVal ? { evidence: evidenceVal } : {})
         };

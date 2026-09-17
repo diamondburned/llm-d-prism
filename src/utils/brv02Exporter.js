@@ -412,6 +412,8 @@ export function getRawPrismCloudPayload(runPayloadOrStat, benchmarkData = []) {
         well_lit_path: runPayloadOrStat.well_lit_path || first.well_lit_path || null,
         inference_tool: runPayloadOrStat.inference_tool || first.inference_tool || null,
         inference_tool_version: runPayloadOrStat.inference_tool_version || first.inference_tool_version || null,
+        benchmark_harness: runPayloadOrStat.benchmark_harness || first.benchmark_harness || null,
+        benchmark_harness_version: runPayloadOrStat.benchmark_harness_version || first.benchmark_harness_version || null,
         other_tools: runPayloadOrStat.other_tools || first.other_tools || null,
         manifests,
         evidence,

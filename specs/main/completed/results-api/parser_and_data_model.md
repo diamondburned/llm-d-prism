@@ -62,7 +62,12 @@ containing:
 - `acceleratorCount`: Total accelerator count.
 - `tp`: Tensor Parallelism degree.
 - `role`: Component role (e.g., `aggregate`, `decode`).
-- `harness`: Standard load tool identity (e.g., `inference-perf`, `guidellm`).
+- `inferenceTool` & `inferenceToolVersion`: Serving stack engine and version
+  parsed from the primary stack component (`scenario.stack[].standardized.tool`
+  / `tool_version`).
+- `harness` & `harnessVersion`: Standard load tool identity and version (e.g.,
+  `inference-perf`, `guidellm` from `scenario.load.standardized.tool` /
+  `tool_version`).
 - `isl` & `osl`: Input and output sequence lengths.
 - `rateQps` & `concurrency`: Traffic load characteristics.
 
@@ -217,36 +222,40 @@ complete missing information before submitting.
 
 ### 6.1 UI-Staging Validation and Runtime Propagation
 
-- **Root-Level Updates:** Edits update the root `model_name`,
-  `hardware.hardware_name`, and `hardware.accelerator_count` properties of the
-  run package.
+- **Root-Level Updates:** Edits update the root `model_name`, `runLabel`,
+  `hardware.hardware_name`, `hardware.accelerator_count`, `inference_tool`,
+  `inference_tool_version`, `benchmark_harness`, and `benchmark_harness_version`
+  properties of the run package.
+- **Raw Report Synchronization:** Live edits and coalescing operations
+  synchronize these high-level metadata fields directly into
+  `$.entries[].raw_report` via `mutateRawReportMetadata` (updating
+  `run.description`, `scenario.stack`, and `scenario.load.standardized`), while
+  preserving original stage numbers (`workload.stage`) and stage UIDs
+  (`run.uid`) untouched.
 - **Metadata Propagation:** The changes are passed to the stage normalization
-  utility
-  [stageToEntry](file:///usr/local/google/home/diamondburned/Projects/llm-d/llm-d-prism/src/utils/benchmarkReportV02Parser.js#L381)
+  utility [stageToEntry](../../../../src/utils/benchmarkReportV02Parser.js)
   during runtime, ensuring individual stages fall back to root properties if
   their raw stage report files lack this information.
-- **Raw BRV0.2 Untouched:** None of the live-edited fields modify the raw
-  reports stored in `$.entries[].raw_report` or the `$.run_metadata` block,
-  preserving them for reference and auditing.
 
 ### 6.2 Editable Metadata Schema
 
 > [!IMPORTANT] **Keep in Sync with Code:** Developers and agentic assistants
 > MUST always keep this table in sync with actual code changes to frontend
 > staging edit handlers (e.g., `updateSingleField` in
-> [SubmitValidationPage.jsx](file:///usr/local/google/home/diamondburned/Projects/llm-d/llm-d-prism/src/components/DataConnections/SubmitValidationPage.jsx)),
+> [SubmitValidationPage.jsx](../../../../src/components/DataConnections/SubmitValidationPage.jsx)),
 > backend API payload schemas (`PrismResultPayload` in
-> [api.ts](file:///usr/local/google/home/diamondburned/Projects/llm-d/llm-d-prism/server/results/api.ts)),
-> and vice-versa.
+> [api.ts](../../../../server/results/api.ts)), and vice-versa.
 
-| Field Name               | Purpose                                                                                              | UI Field Name          | Storage Location in Payload    | GCS Custom Context              | Alters Raw BRV0.2? |
-| :----------------------- | :--------------------------------------------------------------------------------------------------- | :--------------------- | :----------------------------- | :------------------------------ | :----------------: |
-| `runLabel`               | Human-friendly description/label identifying the overall benchmark run. Defaults to the folder name. | Benchmark Name         | `$.runLabel`                   | `contexts.custom.run_label`     |         No         |
-| `model_name`             | Standardized, canonical name of the target model evaluated.                                          | Model Name             | `$.model_name`                 | `contexts.custom.model_name`    |         No         |
-| `hardware_name`          | Normalized name of the accelerator hardware.                                                         | Detailed Hardware      | `$.hardware.hardware_name`     | `contexts.custom.hardware_name` |         No         |
-| `accelerator_count`      | Number of accelerator chips used.                                                                    | Accelerator/Chip Count | `$.hardware.accelerator_count` | N/A                             |         No         |
-| `inference_tool`         | Primary software tool/engine used for inference.                                                     | Serving Stack / Tool   | `$.inference_tool`             | N/A                             |         No         |
-| `inference_tool_version` | Software version of the primary inference tool.                                                      | Serving Stack Version  | `$.inference_tool_version`     | N/A                             |         No         |
+| Field Name                  | Purpose                                                                                              | UI Field Name             | Storage Location in Payload    | GCS Custom Context              | Alters Raw BRV0.2? |
+| :-------------------------- | :--------------------------------------------------------------------------------------------------- | :------------------------ | :----------------------------- | :------------------------------ | :----------------: |
+| `runLabel`                  | Human-friendly description/label identifying the overall benchmark run. Defaults to the folder name. | Benchmark Name            | `$.runLabel`                   | `contexts.custom.run_label`     |        Yes         |
+| `model_name`                | Standardized, canonical name of the target model evaluated.                                          | Model Name                | `$.model_name`                 | `contexts.custom.model_name`    |        Yes         |
+| `hardware_name`             | Normalized name of the accelerator hardware.                                                         | Detailed Hardware         | `$.hardware.hardware_name`     | `contexts.custom.hardware_name` |        Yes         |
+| `accelerator_count`         | Number of accelerator chips used.                                                                    | Accelerator/Chip Count    | `$.hardware.accelerator_count` | N/A                             |        Yes         |
+| `inference_tool`            | Primary software tool/engine used for inference.                                                     | Serving Stack / Tool      | `$.inference_tool`             | N/A                             |        Yes         |
+| `inference_tool_version`    | Software version of the primary inference tool.                                                      | Serving Stack Version     | `$.inference_tool_version`     | N/A                             |        Yes         |
+| `benchmark_harness`         | Benchmark load generation harness tool.                                                              | Benchmark Harness         | `$.benchmark_harness`          | N/A                             |        Yes         |
+| `benchmark_harness_version` | Software version of the benchmark harness tool.                                                      | Benchmark Harness Version | `$.benchmark_harness_version`  | N/A                             |        Yes         |
 
 ---
 

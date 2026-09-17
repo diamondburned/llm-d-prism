@@ -300,6 +300,8 @@ export function validatePrismUploadStructure(uploadData, options = {}) {
                     normalizedEntry = {
                         model_name: parsed.model || "",
                         hardware: parsed.hardware || parsed.accelerator || "",
+                        inference_tool: (parsed.inference_tool && parsed.inference_tool !== 'unknown') ? parsed.inference_tool : "",
+                        benchmark_harness: (parsed.benchmark_harness && parsed.benchmark_harness !== 'unknown') ? parsed.benchmark_harness : "",
                         throughput,
                         latency: latencyVal
                     };
@@ -349,7 +351,7 @@ export function validatePrismUploadStructure(uploadData, options = {}) {
 
             // 2b. Verify serving stack tool matches root $.inference_tool
             const rootTool = uploadData.inference_tool || '';
-            const stageTool = normalizedEntry.inference_tool || parsedStage?.scenario?.stack?.[0]?.standardized?.tool || '';
+            const stageTool = normalizedEntry.inference_tool || parsedStage?.scenario?.inferenceTool || '';
             if (rootTool && stageTool && rootTool.toLowerCase() !== stageTool.toLowerCase()) {
                 const msg = `Stage ${stageIndex} (${entry.filename}) has mismatching serving stack: expected '${rootTool}', but found '${stageTool}'`;
                 if (isUpload) {
@@ -358,6 +360,20 @@ export function validatePrismUploadStructure(uploadData, options = {}) {
                 } else {
                     warnings.push(msg);
                     fieldErrors['inference_tool'] = { message: msg, severity: 'warning' };
+                }
+            }
+
+            // 2c. Verify benchmark harness tool matches root $.benchmark_harness
+            const rootHarness = uploadData.benchmark_harness || '';
+            const stageHarness = normalizedEntry.benchmark_harness || parsedStage?.scenario?.harness || '';
+            if (rootHarness && stageHarness && rootHarness.toLowerCase() !== stageHarness.toLowerCase()) {
+                const msg = `Stage ${stageIndex} (${entry.filename}) has mismatching benchmark harness: expected '${rootHarness}', but found '${stageHarness}'`;
+                if (isUpload) {
+                    errors.push(msg);
+                    fieldErrors['benchmark_harness'] = { message: msg, severity: 'error' };
+                } else {
+                    warnings.push(msg);
+                    fieldErrors['benchmark_harness'] = { message: msg, severity: 'warning' };
                 }
             }
 

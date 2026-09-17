@@ -1348,6 +1348,96 @@ describe('missing units detection and warning generation', () => {
             expect(mutated.scenario.stack[0].standardized.accelerator.count).toBe(8);
             expect(mutated.scenario.stack[0].standardized.tool).toBe('vllm');
         });
+
+        it('does not conflate benchmark harness with serving stack when validating or mutating BRV02 reports', () => {
+            const rawStageReport = {
+                version: '0.2',
+                run: { uid: 'a35b33a3-425c-4deb-8fc9-189ed16e5887', description: 'run-20260831-precise-prefix' },
+                scenario: {
+                    stack: [{
+                        standardized: {
+                            kind: 'inference_engine',
+                            role: 'decode',
+                            model: { name: 'gemma-4-31b-it' },
+                            accelerator: { model: 'TPU v6e', count: 1 },
+                            tool: '',
+                            tool_version: '//:'
+                        }
+                    }],
+                    load: {
+                        standardized: {
+                            stage: 0,
+                            tool: 'inference-perf'
+                        }
+                    }
+                },
+                results: {
+                    request_performance: {
+                        aggregate: {
+                            throughput: { output_token_rate: { mean: 65.18 } },
+                            latency: { request_latency: { mean: 20.8 } }
+                        }
+                    }
+                }
+            };
+
+            // 1. Parse stage and verify inference_tool is not conflated with benchmark harness ('inference-perf')
+            const parsedStage = parseReportV02(rawStageReport, 'stage_0.yaml');
+            expect(parsedStage.inference_tool).toBe(null);
+            expect(parsedStage.benchmark_harness).toBe('inference-perf');
+
+            const normalizedEntry = stageToEntry(parsedStage);
+            expect(normalizedEntry.inference_tool).toBe('');
+            expect(normalizedEntry.benchmark_harness).toBe('inference-perf');
+
+            // 2. When user sets Serving Stack to 'vLLM', mutateRawReportMetadata updates stack tool and validation has 0 warnings
+            const mutatedReport = mutateRawReportMetadata(rawStageReport, {
+                inference_tool: 'vLLM',
+                inference_tool_version: 'v0.6.3',
+                benchmark_harness: 'inference-perf'
+            });
+            expect(mutatedReport.scenario.stack[0].standardized.tool).toBe('vLLM');
+            expect(mutatedReport.scenario.stack[0].standardized.tool_version).toBe('v0.6.3');
+            expect(mutatedReport.scenario.load.standardized.tool).toBe('inference-perf');
+
+            const uploadPayload = {
+                runId: '11111111-1111-4111-8111-111111111111',
+                runLabel: 'run-20260831-precise-prefix',
+                model_name: 'gemma-4-31b-it',
+                hardware: { hardware_name: 'TPU v6e', accelerator_count: 1 },
+                format: 'brv02',
+                inference_tool: 'vLLM',
+                inference_tool_version: 'v0.6.3',
+                benchmark_harness: 'inference-perf',
+                manifests: { 'config.yaml': 'data:text/plain;base64,Cg==' },
+                evidence: { 'log.txt': 'data:text/plain;base64,Cg==' },
+                entries: [{
+                    run_id: '22222222-2222-4222-8222-222222222222',
+                    run_description: 'run-20260831-precise-prefix',
+                    filename: 'stage_0.yaml',
+                    prism_stage_index: 0,
+                    raw_report: mutatedReport
+                }]
+            };
+
+            const validation = validatePrismUploadStructure(uploadPayload, { isUpload: false });
+            expect(validation.isValid).toBe(true);
+            expect(validation.warnings.filter(w => w.includes('mismatching serving stack'))).toHaveLength(0);
+
+            // 3. Clearing Serving Stack back to empty string properly clears stack tool
+            const clearedReport = mutateRawReportMetadata(mutatedReport, {
+                inference_tool: ''
+            });
+            expect(clearedReport.scenario.stack[0].standardized.tool).toBe('');
+
+            // 4. Changing Benchmark Harness updates scenario.load.standardized.tool
+            const harnessUpdatedReport = mutateRawReportMetadata(clearedReport, {
+                benchmark_harness: 'guidellm',
+                benchmark_harness_version: 'v0.2.0'
+            });
+            expect(harnessUpdatedReport.scenario.load.standardized.tool).toBe('guidellm');
+            expect(harnessUpdatedReport.scenario.load.standardized.tool_version).toBe('v0.2.0');
+        });
     });
 });
 

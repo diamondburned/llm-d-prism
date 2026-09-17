@@ -549,9 +549,11 @@ export function parseReportV02(yamlText, filename) {
     const stack = doc.scenario?.stack || [];
     const components = extractComponents(stack);
     const primaryComponent = (
+        stack.find(c => c.standardized?.kind === 'inference_engine') ||
+        stack.find(c => ['vllm', 'tgi', 'tensorrt', 'tensorrt_llm', 'sglang', 'ollama'].includes(String(c.standardized?.tool || '').toLowerCase())) ||
         stack.find(c => c.standardized?.role === 'aggregate') ||
         stack.find(c => c.standardized?.role === 'decode') ||
-        stack.find(c => c.standardized?.kind === 'inference_engine') ||
+        stack.find(c => c.standardized?.role === 'prefill') ||
         stack[0] ||
         {}
     );
@@ -563,7 +565,10 @@ export function parseReportV02(yamlText, filename) {
     const rawModel = std.model?.name || doc.scenario?.load?.native?.config?.server?.model_name;
     const modelVal = rawModel && rawModel !== 'Unknown' && rawModel !== 'Unknown Model' ? rawModel : '';
     const accelVal = accel.model && accel.model !== 'Unknown' && accel.model !== 'Unknown Hardware' ? accel.model : '';
+    const inferenceToolVal = std.tool && std.tool !== 'unknown' && std.tool !== 'service' ? std.tool : '';
+    const inferenceToolVersionVal = std.tool_version && std.tool_version !== 'unknown' && std.tool_version !== '//:' ? std.tool_version : '';
     const harnessVal = load.tool && load.tool !== 'unknown' ? load.tool : '';
+    const harnessVersionVal = load.tool_version && load.tool_version !== 'unknown' && load.tool_version !== '//:' ? load.tool_version : '';
 
     const scenario = {
         model: modelVal,
@@ -571,7 +576,10 @@ export function parseReportV02(yamlText, filename) {
         acceleratorCount: accel.count ?? null,
         tp: parallelism.tp ?? null,
         role: std.role || 'aggregate',
+        inferenceTool: inferenceToolVal,
+        inferenceToolVersion: inferenceToolVersionVal,
         harness: harnessVal,
+        harnessVersion: harnessVersionVal,
         isl: load.input_seq_len?.value ?? null,
         osl: load.output_seq_len?.value ?? null,
         rateQps: load.rate_qps ?? null,
@@ -661,6 +669,10 @@ export function parseReportV02(yamlText, filename) {
         timestamp: doc.run?.time?.start || null,
         stageIndex: doc.workload?.stage ?? load.stage ?? null,
         loadMetadata: doc.scenario?.load?.metadata || null,
+        inference_tool: inferenceToolVal || null,
+        inference_tool_version: inferenceToolVersionVal || null,
+        benchmark_harness: harnessVal || null,
+        benchmark_harness_version: harnessVersionVal || null,
         scenario,
         performance,
         observability,
@@ -759,10 +771,10 @@ export function forwardBundleMetadata(stage, payload) {
     if (payload.submission_state) stage.submission_state = payload.submission_state;
     if (payload.submitted_at) stage.submitted_at = payload.submitted_at;
     if (payload.approved_at) stage.approved_at = payload.approved_at;
-    if (payload.inference_tool) stage.inference_tool = payload.inference_tool;
-    if (payload.inference_tool_version) stage.inference_tool_version = payload.inference_tool_version;
-    if (payload.benchmark_harness) stage.benchmark_harness = payload.benchmark_harness;
-    if (payload.benchmark_harness_version) stage.benchmark_harness_version = payload.benchmark_harness_version;
+    if (payload.inference_tool !== undefined && payload.inference_tool !== null) stage.inference_tool = payload.inference_tool;
+    if (payload.inference_tool_version !== undefined && payload.inference_tool_version !== null) stage.inference_tool_version = payload.inference_tool_version;
+    if (payload.benchmark_harness !== undefined && payload.benchmark_harness !== null) stage.benchmark_harness = payload.benchmark_harness;
+    if (payload.benchmark_harness_version !== undefined && payload.benchmark_harness_version !== null) stage.benchmark_harness_version = payload.benchmark_harness_version;
     if (payload.other_tools) stage.other_tools = payload.other_tools;
     if (payload.manifests) stage.manifests = payload.manifests;
     if (payload.evidence) stage.evidence = payload.evidence;
@@ -1047,6 +1059,9 @@ export function stageToEntry(stage) {
     };
 
     const harness = scenario.harness && scenario.harness !== 'unknown' ? scenario.harness : '';
+    const harnessVersion = scenario.harnessVersion && scenario.harnessVersion !== 'unknown' && scenario.harnessVersion !== '//:' ? scenario.harnessVersion : null;
+    const scenarioInferenceTool = scenario.inferenceTool && scenario.inferenceTool !== 'unknown' && scenario.inferenceTool !== 'service' ? scenario.inferenceTool : '';
+    const scenarioInferenceToolVersion = scenario.inferenceToolVersion && scenario.inferenceToolVersion !== 'unknown' && scenario.inferenceToolVersion !== '//:' ? scenario.inferenceToolVersion : null;
 
     // normalizeModelName strips the bracketed part from model_name, so without this
     // the description never reaches a label.
@@ -1073,10 +1088,10 @@ export function stageToEntry(stage) {
         components: components || [],
         well_lit_path: stage.well_lit_path || stage.wellLitPath || stage.payload?.well_lit_path || null,
         wellLitPath: stage.well_lit_path || stage.wellLitPath || stage.payload?.well_lit_path || null,
-        inference_tool: stage.inference_tool || stage.payload?.inference_tool || harness,
-        inference_tool_version: stage.inference_tool_version || stage.payload?.inference_tool_version || null,
+        inference_tool: stage.inference_tool || stage.payload?.inference_tool || scenarioInferenceTool || '',
+        inference_tool_version: stage.inference_tool_version || stage.payload?.inference_tool_version || scenarioInferenceToolVersion || null,
         benchmark_harness: stage.benchmark_harness || stage.payload?.benchmark_harness || harness,
-        benchmark_harness_version: stage.benchmark_harness_version || stage.payload?.benchmark_harness_version || null,
+        benchmark_harness_version: stage.benchmark_harness_version || stage.payload?.benchmark_harness_version || harnessVersion || null,
         other_tools: stage.other_tools || stage.payload?.other_tools || null,
         manifests: stage.manifests || stage.payload?.manifests || null,
         evidence: stage.evidence || stage.payload?.evidence || null,
@@ -1171,10 +1186,19 @@ export function stageToEntry(stage) {
 }
 
 /**
- * Mutates/synchronizes metadata fields (model_name, hardware_name, runLabel, inference_tool, accelerator_count) in a BRV02 raw_report.
+ * Mutates/synchronizes metadata fields (model_name, hardware_name, runLabel, inference_tool, inference_tool_version, benchmark_harness, benchmark_harness_version, accelerator_count) in a BRV02 raw_report.
  * Note: Stage numbers / uids are intentionally untouched.
  */
-export function mutateRawReportMetadata(rawReport, { model_name, hardware_name, runLabel, inference_tool, accelerator_count } = {}) {
+export function mutateRawReportMetadata(rawReport, {
+    model_name,
+    hardware_name,
+    runLabel,
+    inference_tool,
+    inference_tool_version,
+    benchmark_harness,
+    benchmark_harness_version,
+    accelerator_count
+} = {}) {
     if (!rawReport || typeof rawReport !== 'object') return rawReport;
 
     const newReport = normalizeReportUnits(rawReport);
@@ -1229,17 +1253,40 @@ export function mutateRawReportMetadata(rawReport, { model_name, hardware_name, 
         }
     }
 
-    // 4. Update inference_tool (serving stack) in scenario.stack
-    if (inference_tool) {
-        if (newReport.scenario && Array.isArray(newReport.scenario.stack)) {
-            const primary = newReport.scenario.stack.find(comp => 
-                comp.standardized?.kind === 'inference_engine' ||
-                ['vllm', 'tgi', 'tensorrt', 'tensorrt_llm', 'sglang', 'ollama'].includes(String(comp.standardized?.tool || '').toLowerCase())
-            ) || newReport.scenario.stack[0];
-            if (primary) {
-                if (!primary.standardized) primary.standardized = {};
-                primary.standardized.tool = inference_tool;
+    // 4. Update inference_tool & version (serving stack) in scenario.stack
+    if (inference_tool !== undefined || inference_tool_version !== undefined) {
+        if (!newReport.scenario) newReport.scenario = {};
+        if (!Array.isArray(newReport.scenario.stack) || newReport.scenario.stack.length === 0) {
+            newReport.scenario.stack = [{ standardized: { kind: 'inference_engine' } }];
+        }
+        const primary = newReport.scenario.stack.find(comp => 
+            comp.standardized?.kind === 'inference_engine' ||
+            ['vllm', 'tgi', 'tensorrt', 'tensorrt_llm', 'sglang', 'ollama'].includes(String(comp.standardized?.tool || '').toLowerCase()) ||
+            comp.standardized?.role === 'aggregate' ||
+            comp.standardized?.role === 'decode' ||
+            comp.standardized?.role === 'prefill'
+        ) || newReport.scenario.stack[0];
+        if (primary) {
+            if (!primary.standardized) primary.standardized = {};
+            if (inference_tool !== undefined) {
+                primary.standardized.tool = inference_tool || '';
             }
+            if (inference_tool_version !== undefined) {
+                primary.standardized.tool_version = inference_tool_version || '';
+            }
+        }
+    }
+
+    // 5. Update benchmark_harness & version in scenario.load.standardized
+    if (benchmark_harness !== undefined || benchmark_harness_version !== undefined) {
+        if (!newReport.scenario) newReport.scenario = {};
+        if (!newReport.scenario.load) newReport.scenario.load = {};
+        if (!newReport.scenario.load.standardized) newReport.scenario.load.standardized = {};
+        if (benchmark_harness !== undefined) {
+            newReport.scenario.load.standardized.tool = benchmark_harness || '';
+        }
+        if (benchmark_harness_version !== undefined) {
+            newReport.scenario.load.standardized.tool_version = benchmark_harness_version || '';
         }
     }
 

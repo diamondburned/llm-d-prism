@@ -121,8 +121,8 @@ const checkStageMetrics = (entry, format) => {
             isValid: !!(normalized?.hardware || parsedStage?.scenario?.hardware) && (normalized?.hardware || parsedStage?.scenario?.hardware) !== 'Unknown' && (normalized?.hardware || parsedStage?.scenario?.hardware) !== 'Unknown Hardware'
         },
         stack: {
-            val: normalized?.inference_tool || parsedStage?.scenario?.harness || parsedStage?.scenario?.stack?.[0]?.standardized?.tool,
-            isValid: !!(normalized?.inference_tool || parsedStage?.scenario?.harness || parsedStage?.scenario?.stack?.[0]?.standardized?.tool)
+            val: normalized?.inference_tool || parsedStage?.scenario?.inferenceTool || parsedStage?.scenario?.harness || parsedStage?.scenario?.stack?.[0]?.standardized?.tool,
+            isValid: !!(normalized?.inference_tool || parsedStage?.scenario?.inferenceTool || parsedStage?.scenario?.harness || parsedStage?.scenario?.stack?.[0]?.standardized?.tool)
         }
     };
 };
@@ -308,7 +308,9 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
             b => b.payload?.hardware?.hardware_name,
             b => b.payload?.hardware?.accelerator_count,
             b => b.payload?.inference_tool,
-            b => b.payload?.inference_tool_version
+            b => b.payload?.inference_tool_version,
+            b => b.payload?.benchmark_harness,
+            b => b.payload?.benchmark_harness_version
         ];
 
         let hasConflicts = false;
@@ -337,7 +339,9 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                 hardware_name: selectedBundles.find(b => b.payload?.hardware?.hardware_name)?.payload?.hardware?.hardware_name || '',
                 accelerator_count: selectedBundles.find(b => b.payload?.hardware?.accelerator_count)?.payload?.hardware?.accelerator_count || 1,
                 inference_tool: selectedBundles.find(b => b.payload?.inference_tool)?.payload?.inference_tool || '',
-                inference_tool_version: selectedBundles.find(b => b.payload?.inference_tool_version)?.payload?.inference_tool_version || ''
+                inference_tool_version: selectedBundles.find(b => b.payload?.inference_tool_version)?.payload?.inference_tool_version || '',
+                benchmark_harness: selectedBundles.find(b => b.payload?.benchmark_harness)?.payload?.benchmark_harness || '',
+                benchmark_harness_version: selectedBundles.find(b => b.payload?.benchmark_harness_version)?.payload?.benchmark_harness_version || ''
             };
             executeCoalesce(selectedBundles, resolvedMetadata);
         }
@@ -387,6 +391,9 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                     hardware_name: resolvedMetadata.hardware_name,
                     runLabel: resolvedMetadata.runLabel,
                     inference_tool: resolvedMetadata.inference_tool,
+                    inference_tool_version: resolvedMetadata.inference_tool_version,
+                    benchmark_harness: resolvedMetadata.benchmark_harness,
+                    benchmark_harness_version: resolvedMetadata.benchmark_harness_version,
                     accelerator_count: resolvedMetadata.accelerator_count
                 });
                 const originalFilePath = entry.filename || entry.run_uid || 'report.json';
@@ -599,7 +606,9 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                         hardware_name: bundlesToCoalesce.find(b => b.payload?.hardware?.hardware_name)?.payload?.hardware?.hardware_name || '',
                         accelerator_count: bundlesToCoalesce.find(b => b.payload?.hardware?.accelerator_count)?.payload?.hardware?.accelerator_count || 1,
                         inference_tool: bundlesToCoalesce.find(b => b.payload?.inference_tool)?.payload?.inference_tool || '',
-                        inference_tool_version: bundlesToCoalesce.find(b => b.payload?.inference_tool_version)?.payload?.inference_tool_version || ''
+                        inference_tool_version: bundlesToCoalesce.find(b => b.payload?.inference_tool_version)?.payload?.inference_tool_version || '',
+                        benchmark_harness: bundlesToCoalesce.find(b => b.payload?.benchmark_harness)?.payload?.benchmark_harness || '',
+                        benchmark_harness_version: bundlesToCoalesce.find(b => b.payload?.benchmark_harness_version)?.payload?.benchmark_harness_version || ''
                     };
                     executeCoalesce(bundlesToCoalesce, resolvedMetadata, true);
                     autoGroupedCount += bundlesToCoalesce.length;
@@ -935,7 +944,16 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                     updatedPayload[key] = value;
                 }
 
-                if (updatedPayload.entries && (key === 'model_name' || key === 'hardware_name' || key === 'runLabel' || key === 'accelerator_count' || key === 'inference_tool')) {
+                if (updatedPayload.entries && (
+                    key === 'model_name' ||
+                    key === 'hardware_name' ||
+                    key === 'runLabel' ||
+                    key === 'accelerator_count' ||
+                    key === 'inference_tool' ||
+                    key === 'inference_tool_version' ||
+                    key === 'benchmark_harness' ||
+                    key === 'benchmark_harness_version'
+                )) {
                     updatedPayload.entries = updatedPayload.entries.map(entry => ({
                         ...entry,
                         run_description: updatedPayload.runLabel || entry.run_description,
@@ -944,7 +962,10 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                             hardware_name: updatedPayload.hardware?.hardware_name,
                             runLabel: updatedPayload.runLabel,
                             accelerator_count: updatedPayload.hardware?.accelerator_count,
-                            inference_tool: updatedPayload.inference_tool
+                            inference_tool: updatedPayload.inference_tool,
+                            inference_tool_version: updatedPayload.inference_tool_version,
+                            benchmark_harness: updatedPayload.benchmark_harness,
+                            benchmark_harness_version: updatedPayload.benchmark_harness_version
                         })
                     }));
                 }
@@ -1069,6 +1090,19 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
             updatedPayload.inference_tool = resolvedTool;
             updatedPayload.inference_tool_version = resolvedToolVer;
             updatedPayload.well_lit_path = resolvedWellLit;
+
+            if (updatedPayload.entries) {
+                updatedPayload.entries = updatedPayload.entries.map(entry => ({
+                    ...entry,
+                    raw_report: mutateRawReportMetadata(entry.raw_report, {
+                        model_name: updatedPayload.model_name,
+                        hardware_name: updatedPayload.hardware?.hardware_name,
+                        accelerator_count: updatedPayload.hardware?.accelerator_count,
+                        inference_tool: updatedPayload.inference_tool,
+                        inference_tool_version: updatedPayload.inference_tool_version
+                    })
+                }));
+            }
 
             // Re-validate structure
             const uploadValidation = validatePrismUploadStructure(updatedPayload, { isUpload: false });
@@ -1825,11 +1859,8 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                         ['vllm', 'tgi', 'tensorrt', 'tensorrt_llm', 'sglang', 'ollama'].includes(String(c.standardized?.tool || '').toLowerCase())
                     );
                     if (inferenceEngine) {
-                        initialInferenceTool = (inferenceEngine.standardized?.tool && inferenceEngine.standardized.tool !== 'unknown') ? inferenceEngine.standardized.tool : "";
-                        initialInferenceToolVersion = (inferenceEngine.standardized?.tool_version && inferenceEngine.standardized.tool_version !== 'unknown') ? inferenceEngine.standardized.tool_version : "";
-                    } else if (rawReport?.scenario?.load?.standardized?.tool) {
-                        initialInferenceTool = (rawReport.scenario.load.standardized.tool && rawReport.scenario.load.standardized.tool !== 'unknown') ? rawReport.scenario.load.standardized.tool : "";
-                        initialInferenceToolVersion = (rawReport.scenario.load.standardized.tool_version && rawReport.scenario.load.standardized.tool_version !== 'unknown') ? rawReport.scenario.load.standardized.tool_version : "";
+                        initialInferenceTool = (inferenceEngine.standardized?.tool && inferenceEngine.standardized.tool !== 'unknown' && inferenceEngine.standardized.tool !== 'service') ? inferenceEngine.standardized.tool : "";
+                        initialInferenceToolVersion = (inferenceEngine.standardized?.tool_version && inferenceEngine.standardized.tool_version !== 'unknown' && inferenceEngine.standardized.tool_version !== '//:') ? inferenceEngine.standardized.tool_version : "";
                     }
                 }
 
@@ -1837,9 +1868,9 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                 const loadVer = rawReport?.scenario?.load?.standardized?.tool_version;
                 if (loadTool && loadTool !== 'unknown') {
                     initialBenchmarkHarness = loadTool;
-                    initialBenchmarkHarnessVersion = loadVer && loadVer !== 'unknown' ? loadVer : '';
+                    initialBenchmarkHarnessVersion = loadVer && loadVer !== 'unknown' && loadVer !== '//:' ? loadVer : '';
                     if (loadTool.toLowerCase() !== initialInferenceTool.toLowerCase()) {
-                        initialOtherTools[loadTool] = loadVer && loadVer !== 'unknown' ? loadVer : '';
+                        initialOtherTools[loadTool] = loadVer && loadVer !== 'unknown' && loadVer !== '//:' ? loadVer : '';
                     }
                 }
 
