@@ -31,7 +31,7 @@ import {
     stripDerivedTimeSeries,
     rehydrateDerivedTimeSeries,
 } from './benchmarkReportV02Parser.js';
-import { validateBenchmark, validatePrismUploadStructure, formatZodIssuePath } from './benchmarkValidator.js';
+import { validateBenchmark, validatePrismUploadStructure, formatZodIssuePath, coalesceValidationMessages } from './benchmarkValidator.js';
 
 const createReport = (throughput) => ({
     version: '0.2',
@@ -1449,6 +1449,202 @@ describe('missing units detection and warning generation', () => {
             expect(harnessUpdatedReport.scenario.load.standardized.tool_version).toBe('v0.2.0');
         });
     });
+
+    describe('stage failures and metric error separation', () => {
+        const buildPayloadWithStage = (rawStageReport) => ({
+            runId: '11111111-1111-4111-8111-111111111111',
+            runLabel: 'Failure Validation Sweep',
+            model_name: 'meta-llama/Llama-3.1-8B-Instruct',
+            hardware: { hardware_name: 'H100', accelerator_count: 8 },
+            format: 'brv02',
+            entries: [{
+                run_id: '22222222-2222-4222-8222-222222222222',
+                run_description: 'Failure Validation Sweep',
+                filename: 'stage_1.yaml',
+                prism_stage_index: 1,
+                raw_report: rawStageReport
+            }]
+        });
+
+        it('rejects 100% failure stage (30/30 failed, null metrics) with failure count error and suppresses secondary missing metrics error', () => {
+            const rawStage = {
+                version: '0.2',
+                scenario: {
+                    stack: [{ standardized: { role: 'aggregate', model: { name: 'meta-llama/Llama-3.1-8B-Instruct' }, accelerator: { model: 'H100' } } }],
+                    load: { standardized: { tool: 'inference-perf' }, stage: 1 }
+                },
+                results: {
+                    request_performance: {
+                        aggregate: {
+                            requests: { total: 30, failures: 30 }
+                            // throughput and latency omitted due to 100% timeout
+                        }
+                    }
+                }
+            };
+
+            const fileVal = validateBenchmark(JSON.stringify(rawStage), 'stage_1.yaml');
+            expect(fileVal.errors).toHaveLength(1);
+            expect(fileVal.errors[0]).toContain('Stage 1 recorded 30 request failures (30/30 failed). Stages with 100% failed requests cannot be submitted.');
+            expect(fileVal.errors[0]).not.toContain('missing required throughput');
+
+            const structVal = validatePrismUploadStructure(buildPayloadWithStage(rawStage), { isUpload: false });
+            expect(structVal.isValid).toBe(false);
+            expect(structVal.errors).toHaveLength(1);
+            expect(structVal.errors[0]).toBe('Stage 1 (stage_1.yaml) recorded 30 request failures (30/30 failed). Stages with 100% failed requests cannot be submitted.');
+            expect(structVal.fieldErrors['entries.1.failures']?.severity).toBe('error');
+        });
+
+        it('emits a warning (not a blocking error) for partial failure stage (10/30 failed, >0% and <100%)', () => {
+            const rawStage = {
+                version: '0.2',
+                scenario: {
+                    stack: [{ standardized: { role: 'aggregate', model: { name: 'meta-llama/Llama-3.1-8B-Instruct' }, accelerator: { model: 'H100' } } }],
+                    load: { standardized: { tool: 'inference-perf' }, stage: 2 }
+                },
+                results: {
+                    request_performance: {
+                        aggregate: {
+                            requests: { total: 30, failures: 10 },
+                            throughput: { output_token_rate: { mean: 85.4, units: 'tokens/s' } },
+                            latency: { request_latency: { mean: 1.2, units: 's' } }
+                        }
+                    }
+                }
+            };
+
+            const structVal = validatePrismUploadStructure(buildPayloadWithStage(rawStage), { isUpload: false });
+            expect(structVal.isValid).toBe(true);
+            expect(structVal.errors).toHaveLength(0);
+            expect(structVal.warnings.some(w => w.includes('recorded 10 request failures (10/30 failed). Partial request failures may skew latency and throughput metrics.'))).toBe(true);
+            expect(structVal.fieldErrors['entries.1.failures']?.severity).toBe('warning');
+        });
+
+        it('reports missing required metrics when failures == 0 but throughput or latency is null', () => {
+            const rawStage = {
+                version: '0.2',
+                scenario: {
+                    stack: [{ standardized: { role: 'aggregate', model: { name: 'meta-llama/Llama-3.1-8B-Instruct' }, accelerator: { model: 'H100' } } }],
+                    load: { standardized: { tool: 'inference-perf' }, stage: 0 }
+                },
+                results: {
+                    request_performance: {
+                        aggregate: {
+                            requests: { total: 30, failures: 0 },
+                            throughput: { output_token_rate: { mean: 100, units: 'tokens/s' } }
+                            // latency missing
+                        }
+                    }
+                }
+            };
+
+            const structVal = validatePrismUploadStructure(buildPayloadWithStage(rawStage), { isUpload: false });
+            expect(structVal.isValid).toBe(false);
+            expect(structVal.errors).toHaveLength(1);
+            expect(structVal.errors[0]).toBe('Stage 1 (stage_1.yaml) is missing required throughput or latency metrics.');
+            expect(structVal.errors[0]).not.toContain('negative metrics');
+        });
+
+        it('reports negative metrics specifically when throughput or latency is < 0', () => {
+            const rawStage = {
+                version: '0.2',
+                scenario: {
+                    stack: [{ standardized: { role: 'aggregate', model: { name: 'meta-llama/Llama-3.1-8B-Instruct' }, accelerator: { model: 'H100' } } }],
+                    load: { standardized: { tool: 'inference-perf' }, stage: 0 }
+                },
+                results: {
+                    request_performance: {
+                        aggregate: {
+                            requests: { total: 30, failures: 0 },
+                            throughput: { output_token_rate: { mean: -10, units: 'tokens/s' } },
+                            latency: { request_latency: { mean: 1.5, units: 's' } }
+                        }
+                    }
+                }
+            };
+
+            const structVal = validatePrismUploadStructure(buildPayloadWithStage(rawStage), { isUpload: false });
+            expect(structVal.isValid).toBe(false);
+            expect(structVal.errors).toContain('Stage 1 (stage_1.yaml) has negative metrics.');
+        });
+
+        it('coalesces multiple stage failure messages into a single expandable group while preserving single errors', () => {
+            const rawWarnings = [
+                'hardware.hardware_name: Missing hardware specification.',
+                'Stage 0 (run-20260728-135023/benchmark_report_v0.2,_stage_0_lifecycle_metrics.json.yaml) recorded 733 request failures (733/750 failed). Partial request failures may skew latency and throughput metrics.',
+                'Stage 1 (run-20260728-135023/benchmark_report_v0.2,_stage_1_lifecycle_metrics.json.yaml) recorded 42 request failures (42/60 failed). Partial request failures may skew latency and throughput metrics.',
+                'Stage 2 (run-20260728-135023/benchmark_report_v0.2,_stage_2_lifecycle_metrics.json.yaml) recorded 183 request failures (183/200 failed). Partial request failures may skew latency and throughput metrics.',
+            ];
+
+            const coalesced = coalesceValidationMessages(rawWarnings);
+            expect(coalesced).toHaveLength(2);
+
+            expect(coalesced[0]).toEqual({
+                type: 'single',
+                key: 'single:hardware.hardware_name: Missing hardware specification.',
+                message: 'hardware.hardware_name: Missing hardware specification.'
+            });
+
+            expect(coalesced[1]).toEqual({
+                type: 'group',
+                key: 'stage_failures:Partial request failures may skew latency and throughput metrics.',
+                count: 3,
+                summary: 'Partial request failures may skew latency and throughput metrics.',
+                items: [
+                    'Stage 0 (run-20260728-135023/benchmark_report_v0.2,_stage_0_lifecycle_metrics.json.yaml) — 733/750 failed',
+                    'Stage 1 (run-20260728-135023/benchmark_report_v0.2,_stage_1_lifecycle_metrics.json.yaml) — 42/60 failed',
+                    'Stage 2 (run-20260728-135023/benchmark_report_v0.2,_stage_2_lifecycle_metrics.json.yaml) — 183/200 failed',
+                ],
+                rawMessages: rawWarnings.slice(1)
+            });
+        });
+
+        it('leaves single stage errors ungrouped and coalesces general stage errors, mismatches, and bracketed file warnings', () => {
+            const messages = [
+                'Stage 0 (stage_0.yaml) recorded 5 request failures (5/10 failed). Benchmarks must have 0 failed requests.',
+                'Stage 1 (stage_1.yaml) is missing required throughput or latency metrics.',
+                'Stage 2 (stage_2.yaml) is missing required throughput or latency metrics.',
+                "Stage 1 (stage_1.yaml) has mismatching model name: expected 'Llama-3', but found 'Model-A'",
+                "Stage 2 (stage_2.yaml) has mismatching model name: expected 'Llama-3', but found 'Model-B'",
+                "[stage_1.yaml] Missing units for '$.results.latency'; assumed 's' (seconds).",
+                "[stage_2.yaml] Missing units for '$.results.latency'; assumed 's' (seconds).",
+            ];
+
+            const coalesced = coalesceValidationMessages(messages);
+            expect(coalesced).toHaveLength(4);
+
+            // Single failure stays 'single'
+            expect(coalesced[0].type).toBe('single');
+            expect(coalesced[0].message).toBe(messages[0]);
+
+            // 2 missing metric stage errors coalesced
+            expect(coalesced[1]).toMatchObject({
+                type: 'group',
+                count: 2,
+                summary: 'Stage is missing required throughput or latency metrics.',
+                items: ['Stage 1 (stage_1.yaml)', 'Stage 2 (stage_2.yaml)']
+            });
+
+            // 2 mismatching model errors with different actual values coalesced
+            expect(coalesced[2]).toMatchObject({
+                type: 'group',
+                count: 2,
+                summary: "Stage has mismatching model name (expected 'Llama-3').",
+                items: [
+                    "Stage 1 (stage_1.yaml) — found 'Model-A'",
+                    "Stage 2 (stage_2.yaml) — found 'Model-B'"
+                ]
+            });
+
+            // 2 bracketed file warnings coalesced
+            expect(coalesced[3]).toMatchObject({
+                type: 'group',
+                count: 2,
+                summary: "Missing units for '$.results.latency'; assumed 's' (seconds).",
+                items: ['stage_1.yaml', 'stage_2.yaml']
+            });
+        });
+    });
 });
 
 describe('BRV0.2 run.eid grouping and standalone stage coalescing', () => {
@@ -2036,3 +2232,4 @@ describe('session performance and request counts', () => {
         expect(stageToEntry(parseReportV02(requests, 'stage_0.yaml')).metrics.requests_completed).toBeNull();
     });
 });
+

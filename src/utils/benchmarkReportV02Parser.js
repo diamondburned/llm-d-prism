@@ -895,7 +895,7 @@ export function parseReportV02(yamlText, filename) {
         runPid: doc.run?.pid || null,
         timestamp: doc.run?.time?.start || null,
         tags: normalizeTags(doc.run?.keywords),
-        stageIndex: doc.workload?.stage ?? load.stage ?? null,
+        stageIndex: doc.workload?.stage ?? load.stage ?? getOriginalStageIndex({ raw_report: doc, filename }),
         loadMetadata: doc.scenario?.load?.metadata || null,
         inference_tool: inferenceToolVal || null,
         inference_tool_version: inferenceToolVersionVal || null,
@@ -1529,6 +1529,8 @@ export function stageToEntry(stage) {
         tpot: performance.tpotMean ?? null,
         ntpot: performance.ntpotMean ?? performance.tpotMean ?? null,
         itl: performance.itlMean ?? null,
+        failures: performance.failures ?? null,
+        total_requests: performance.totalRequests ?? null,
         accelerator_count: acceleratorCount,
 
         prism_stage_index: stage.prism_stage_index !== undefined && stage.prism_stage_index !== null
@@ -1610,6 +1612,8 @@ export function stageToEntry(stage) {
             // Not error_count above: that one says 0 when the block is missing,
             // which would look like a measured zero.
             requests_failed: performance.failures ?? null,
+            failures: performance.failures ?? null,
+            total_requests: performance.totalRequests ?? null,
             observability: stage.observability || null,
             sessions: stage.sessionStats || null,
         },
