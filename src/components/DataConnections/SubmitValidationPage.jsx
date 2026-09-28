@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, UploadCloud, CheckCircle, AlertCircle, AlertOctagon, AlertTriangle, FileText, ChevronLeft, ChevronRight, ChevronDown, Trash2, Upload, ShieldAlert, Check, ArrowRight, ArrowLeft, GitCompare, Zap, Cpu, Pencil, Layers, Split, GripVertical, Sparkles, Info, RotateCcw, GitFork } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Scatter } from 'recharts';
-import { validateBenchmark, validatePrismUploadStructure } from '../../utils/benchmarkValidator';
+import { validateBenchmark, validatePrismUploadStructure, coalesceValidationMessages } from '../../utils/benchmarkValidator';
 import { parseReportV02, stageToEntry, isValidRunEid, groupStandaloneBRV02Stages, mergeStagedBundlesByRunEid, mutateRawReportMetadata, compareOriginalStageOrder, normalizeReportUnits, normalizeTags } from '../../utils/benchmarkReportV02Parser';
 import { toOptimalDataUri, parseDataUri } from '../../utils/dataParser';
 import yaml from 'js-yaml';
@@ -32,9 +32,13 @@ const checkStageMetrics = (entry, format) => {
             } else if (parsed?.metrics?.latency) {
                 latencyVal = typeof parsed.metrics.latency === 'number' ? parsed.metrics.latency : parsed.metrics.latency.mean || 0;
             }
+            const failuresVal = parsed?.failures ?? parsed?.metrics?.failures ?? parsed?.requests?.failures ?? null;
+            const totalReqsVal = parsed?.total_requests ?? parsed?.metrics?.total_requests ?? parsed?.requests?.total ?? null;
             normalized = {
                 throughput,
                 latency: latencyVal,
+                failures: failuresVal,
+                total_requests: totalReqsVal,
                 model_name: (parsed?.model && parsed.model !== 'Unknown' && parsed.model !== 'Unknown Model') ? parsed.model : "",
                 hardware: (parsed?.hardware || parsed?.accelerator) && (parsed.hardware || parsed.accelerator) !== 'Unknown' && (parsed.hardware || parsed.accelerator) !== 'Unknown Hardware' ? (parsed.hardware || parsed.accelerator) : "",
                 inference_tool: (parsed?.inference_tool || parsed?.backend) && (parsed.inference_tool || parsed.backend) !== 'Unknown' ? (parsed.inference_tool || parsed.backend) : ""
@@ -57,6 +61,15 @@ const checkStageMetrics = (entry, format) => {
     const ttftVal = parsedStage?.performance?.ttftMean ?? null;
     const tpotVal = parsedStage?.performance?.tpotMean ?? null;
     const throughputVal = normalized?.throughput ?? null;
+    const failuresVal = normalized?.failures ?? parsedStage?.performance?.failures ?? null;
+    const totalReqsVal = normalized?.total_requests ?? parsedStage?.performance?.totalRequests ?? null;
+    const hasFailures = typeof failuresVal === 'number' && failuresVal > 0;
+    const isAllFailed = hasFailures && (
+        (typeof totalReqsVal === 'number' && totalReqsVal > 0)
+            ? failuresVal >= totalReqsVal
+            : (!(typeof throughputVal === 'number' && throughputVal > 0) || !(typeof latencyVal === 'number' && latencyVal > 0))
+    );
+    const isPartialFailure = hasFailures && !isAllFailed;
 
     // Latency warning thresholds (seconds)
     const e2eSec = typeof latencyVal === 'number' && latencyVal > 0 ? latencyVal / 1000 : 0;
@@ -91,6 +104,14 @@ const checkStageMetrics = (entry, format) => {
         filename: entry.filename,
         rawTimestamp,
         timestamp: formattedTimestamp,
+        failures: {
+            val: failuresVal,
+            total: totalReqsVal,
+            isValid: !isAllFailed,
+            isWarning: isPartialFailure,
+            hasFailures,
+            isAllFailed
+        },
         throughput: {
             val: throughputVal,
             isValid: typeof throughputVal === 'number' && throughputVal > 0,
@@ -191,6 +212,14 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
     const [hoveredFilenameTooltip, setHoveredFilenameTooltip] = useState(null);
     const [hoveredWarningTooltip, setHoveredWarningTooltip] = useState(null);
     const [hoveredTimestampTooltip, setHoveredTimestampTooltip] = useState(null);
+    const [expandedMessageGroups, setExpandedMessageGroups] = useState({});
+
+    const toggleMessageGroup = (groupKey) => {
+        setExpandedMessageGroups(prev => ({
+            ...prev,
+            [groupKey]: !prev[groupKey]
+        }));
+    };
 
     const [previewModalState, setPreviewModalState] = useState({
         isOpen: false,
@@ -709,6 +738,9 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                 } else if (column === 'timestamp') {
                     valA = a.check.rawTimestamp ? new Date(a.check.rawTimestamp).getTime() : 0;
                     valB = b.check.rawTimestamp ? new Date(b.check.rawTimestamp).getTime() : 0;
+                } else if (column === 'failures') {
+                    valA = a.check.failures?.val ?? 0;
+                    valB = b.check.failures?.val ?? 0;
                 } else if (column === 'throughput') {
                     valA = a.check.throughput?.val ?? 0;
                     valB = b.check.throughput?.val ?? 0;
@@ -859,6 +891,58 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                 if (bundle.stageFiles?.length === bundle.payload?.entries?.length) {
                     return idx !== stageIndexToDelete;
                 }
+                const fname = sf.filename || sf.name || sf.file?.name || sf.path;
+                return remainingFilenames.has(fname) || remainingEntries.some(e => e.filename?.endsWith(fname));
+            });
+
+            const updatedPayload = {
+                ...bundle.payload,
+                entries: reindexedEntries
+            };
+
+            const uploadValidation = validatePrismUploadStructure(updatedPayload, { isUpload: false });
+            return prev.map(b => {
+                if (b.id !== bundleId) return b;
+                return {
+                    ...b,
+                    stageFiles: updatedStageFiles,
+                    payload: updatedPayload,
+                    validation: {
+                        ...b.validation,
+                        errors: uploadValidation.errors || [],
+                        warnings: uploadValidation.warnings || [],
+                        fieldErrors: uploadValidation.fieldErrors || {}
+                    }
+                };
+            });
+        });
+    };
+
+    const handleRemoveFailedStages = (bundleId) => {
+        setStagedFiles(prev => {
+            const bundle = prev.find(b => b.id === bundleId);
+            if (!bundle || !bundle.payload?.entries) return prev;
+
+            const isStageFailed = (entry) => {
+                const check = checkStageMetrics(entry, bundle.payload.format);
+                return !check.failures.isValid || !check.throughput.isValid || !check.latency.isValid || !check.ttft.isValid || !check.tpot.isValid;
+            };
+
+            const remainingEntries = bundle.payload.entries.filter(entry => !isStageFailed(entry));
+            if (remainingEntries.length === 0) {
+                return prev.filter(b => b.id !== bundleId);
+            }
+
+            const fallbackRunDesc = bundle.name || bundle.payload?.runLabel || 'Unnamed Run';
+            const reindexedEntries = remainingEntries.map((entry, idx) => ({
+                ...entry,
+                run_id: (entry.run_id && isValidUuid(entry.run_id)) ? entry.run_id : uuidv4(),
+                run_description: entry.run_description || fallbackRunDesc,
+                prism_stage_index: idx
+            }));
+
+            const remainingFilenames = new Set(remainingEntries.map(e => e.filename));
+            const updatedStageFiles = (bundle.stageFiles || []).filter(sf => {
                 const fname = sf.filename || sf.name || sf.file?.name || sf.path;
                 return remainingFilenames.has(fname) || remainingEntries.some(e => e.filename?.endsWith(fname));
             });
@@ -1607,10 +1691,6 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                     isFormatValid = true;
                     if (validation.hasHardware) hasHardware = true;
                     entries.push(...validation.entries);
-                    bundleWarnings.push(...validation.warnings.map(w => `[${filePath}] ${w}`));
-                    if (validation.errors.length > 0) {
-                        bundleErrors.push(...validation.errors.map(e => `[${filePath}] ${e}`));
-                    }
                     parsedStages.push({
                         file,
                         content,
@@ -3323,23 +3403,106 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                             );
                                                         }
 
+                                                        const failedStagesCount = (bundle.payload?.entries || []).filter(entry => {
+                                                            const check = checkStageMetrics(entry, bundle.payload.format);
+                                                            return !check.failures.isValid || !check.throughput.isValid || !check.latency.isValid || !check.ttft.isValid || !check.tpot.isValid;
+                                                        }).length;
+
                                                         if (activeErrors.length === 0 && activeWarnings.length === 0) return null;
+
+                                                        const coalescedErrors = coalesceValidationMessages(activeErrors, {
+                                                            entries: bundle.payload?.entries
+                                                        });
+                                                        const coalescedWarnings = coalesceValidationMessages(activeWarnings, {
+                                                            entries: bundle.payload?.entries
+                                                        });
 
                                                         return (
                                                             <div className="space-y-3 mb-3">
-                                                                {activeErrors.length > 0 && (
+                                                                {coalescedErrors.length > 0 && (
                                                                     <div className="p-3 rounded-lg border text-xs bg-red-50 dark:bg-red-900/25 border-red-200 dark:border-red-900/50 text-red-750 dark:text-red-300">
-                                                                        <h4 className="font-semibold mb-1 flex items-center gap-1.5 text-red-750 dark:text-red-300"><AlertOctagon size={14} className="shrink-0 text-red-500"/> Errors:</h4>
+                                                                        <div className="flex items-center justify-between gap-2 mb-1.5">
+                                                                            <h4 className="font-semibold flex items-center gap-1.5 text-red-750 dark:text-red-300"><AlertOctagon size={14} className="shrink-0 text-red-500"/> Errors:</h4>
+                                                                            {failedStagesCount > 0 && (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => handleRemoveFailedStages(bundle.id)}
+                                                                                    className="px-2 py-1 text-[11px] font-semibold bg-red-500/20 hover:bg-red-500/30 text-red-700 dark:text-red-300 border border-red-500/30 rounded transition-colors flex items-center gap-1 cursor-pointer shrink-0"
+                                                                                    title="Remove all stages with request failures or invalid metrics"
+                                                                                >
+                                                                                    <Trash2 size={12} />
+                                                                                    Remove {failedStagesCount} failed stage{failedStagesCount === 1 ? '' : 's'}
+                                                                                </button>
+                                                                            )}
+                                                                        </div>
                                                                         <ul className="list-disc pl-5 space-y-1 text-red-750 dark:text-red-300">
-                                                                            {activeErrors.map((e, i) => <li key={i}>{e}</li>)}
+                                                                            {coalescedErrors.map((errItem, i) => {
+                                                                                if (errItem.type === 'single') {
+                                                                                    return <li key={errItem.key || i}>{errItem.message}</li>;
+                                                                                }
+                                                                                const expandKey = `${bundle.id}:error:${errItem.key}`;
+                                                                                const isGroupExpanded = Boolean(expandedMessageGroups[expandKey]);
+                                                                                return (
+                                                                                    <li key={errItem.key || i}>
+                                                                                        <div className="inline-flex flex-wrap items-baseline gap-1.5">
+                                                                                            <span>
+                                                                                                <span className="font-semibold">Multiple errors ({errItem.count}):</span> {errItem.summary}
+                                                                                            </span>
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                onClick={() => toggleMessageGroup(expandKey)}
+                                                                                                className="text-[11px] font-semibold underline decoration-red-500/50 hover:decoration-red-400 text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-200 cursor-pointer select-none"
+                                                                                            >
+                                                                                                [{isGroupExpanded ? 'collapse' : 'expand'}]
+                                                                                            </button>
+                                                                                        </div>
+                                                                                        {isGroupExpanded && (
+                                                                                            <ul className="list-disc pl-5 mt-1 space-y-0.5 text-[11px] text-red-700/90 dark:text-red-300/85 font-mono">
+                                                                                                {errItem.items.map((subItem, idx) => (
+                                                                                                    <li key={idx}>{subItem}</li>
+                                                                                                ))}
+                                                                                            </ul>
+                                                                                        )}
+                                                                                    </li>
+                                                                                );
+                                                                            })}
                                                                         </ul>
                                                                     </div>
                                                                 )}
-                                                                {activeWarnings.length > 0 && (
+                                                                {coalescedWarnings.length > 0 && (
                                                                     <div className="p-3 rounded-lg border text-xs bg-amber-50 dark:bg-amber-900/25 border-amber-200 dark:border-amber-900/50 text-amber-750 dark:text-amber-300">
                                                                         <h4 className="font-semibold mb-1 flex items-center gap-1.5 text-amber-750 dark:text-amber-300"><AlertTriangle size={14} className="shrink-0 text-amber-500"/> Warnings:</h4>
                                                                         <ul className="list-disc pl-5 space-y-1 text-amber-750 dark:text-amber-300">
-                                                                            {activeWarnings.map((w, i) => <li key={i}>{w}</li>)}
+                                                                            {coalescedWarnings.map((warnItem, i) => {
+                                                                                if (warnItem.type === 'single') {
+                                                                                    return <li key={warnItem.key || i}>{warnItem.message}</li>;
+                                                                                }
+                                                                                const expandKey = `${bundle.id}:warning:${warnItem.key}`;
+                                                                                const isGroupExpanded = Boolean(expandedMessageGroups[expandKey]);
+                                                                                return (
+                                                                                    <li key={warnItem.key || i}>
+                                                                                        <div className="inline-flex flex-wrap items-baseline gap-1.5">
+                                                                                            <span>
+                                                                                                <span className="font-semibold">Multiple warnings ({warnItem.count}):</span> {warnItem.summary}
+                                                                                            </span>
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                onClick={() => toggleMessageGroup(expandKey)}
+                                                                                                className="text-[11px] font-semibold underline decoration-amber-500/50 hover:decoration-amber-400 text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-200 cursor-pointer select-none"
+                                                                                            >
+                                                                                                [{isGroupExpanded ? 'collapse' : 'expand'}]
+                                                                                            </button>
+                                                                                        </div>
+                                                                                        {isGroupExpanded && (
+                                                                                            <ul className="list-disc pl-5 mt-1 space-y-0.5 text-[11px] text-amber-700/90 dark:text-amber-300/85 font-mono">
+                                                                                                {warnItem.items.map((subItem, idx) => (
+                                                                                                    <li key={idx}>{subItem}</li>
+                                                                                                ))}
+                                                                                            </ul>
+                                                                                        )}
+                                                                                    </li>
+                                                                                );
+                                                                            })}
                                                                         </ul>
                                                                     </div>
                                                                 )}
@@ -3898,6 +4061,20 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                                                 </div>
                                                                             </th>
                                                                             <th
+                                                                                onClick={() => handleSortStages(bundle.id, 'failures')}
+                                                                                className="px-1.5 py-1.5 text-left cursor-pointer hover:text-cyan-400 select-none transition-colors group whitespace-nowrap w-px"
+                                                                                title="Click to sort by failed request count"
+                                                                            >
+                                                                                <div className="flex items-center gap-1">
+                                                                                    <span>Request Errors</span>
+                                                                                    {stageSortConfig[bundle.id]?.column === 'failures' ? (
+                                                                                        <span className="text-cyan-400 font-bold">{stageSortConfig[bundle.id].direction === 'asc' ? '▲' : '▼'}</span>
+                                                                                    ) : (
+                                                                                        <span className="opacity-0 group-hover:opacity-60 text-slate-500">▲</span>
+                                                                                    )}
+                                                                                </div>
+                                                                            </th>
+                                                                            <th
                                                                                 onClick={() => handleSortStages(bundle.id, 'throughput')}
                                                                                 className="px-1.5 py-1.5 text-right cursor-pointer hover:text-cyan-400 select-none transition-colors group whitespace-nowrap w-px"
                                                                                 title="Click to sort by throughput"
@@ -3978,6 +4155,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                                     <tbody className="divide-y divide-slate-900/50">
                                                                         {bundle.payload.entries.map((entry, idx) => {
                                                                             const check = checkStageMetrics(entry, bundle.payload.format);
+                                                                            const isStageInvalid = !check.failures.isValid || !check.throughput.isValid || !check.latency.isValid || !check.ttft.isValid || !check.tpot.isValid;
                                                                             return (
                                                                                     <tr
                                                                                         key={entry.run_id || idx}
@@ -4004,6 +4182,11 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                                                                     <button
                                                                                                         onClick={(e) => {
                                                                                                             e.stopPropagation();
+                                                                                                            if (isStageInvalid) {
+                                                                                                                handleDeleteStage(bundle.id, idx);
+                                                                                                                setConfirmDeleteStage(null);
+                                                                                                                return;
+                                                                                                            }
                                                                                                             if (confirmDeleteStage?.bundleId === bundle.id && confirmDeleteStage?.stageIndex === idx) {
                                                                                                                 setConfirmDeleteStage(null);
                                                                                                             } else {
@@ -4011,7 +4194,7 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                                                                             }
                                                                                                         }}
                                                                                                         className="p-1 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors cursor-pointer"
-                                                                                                        title="Delete sub-run stage"
+                                                                                                        title={isStageInvalid ? "Delete failed stage immediately" : "Delete sub-run stage"}
                                                                                                     >
                                                                                                         <X size={13} />
                                                                                                     </button>
@@ -4051,6 +4234,29 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                                                                                             >
                                                                                                 <Info size={15} />
                                                                                             </div>
+                                                                                        </td>
+
+                                                                                        <td className="px-1.5 py-1.5 text-left font-mono whitespace-nowrap">
+                                                                                            {!check.failures.isValid ? (
+                                                                                                <span
+                                                                                                    className="text-red-500 bg-red-500/10 px-1.5 py-0.5 rounded border border-red-500/20"
+                                                                                                    title={`Stage recorded ${check.failures.val} request failure${check.failures.val === 1 ? '' : 's'}${check.failures.total ? ` out of ${check.failures.total} requests` : ''} (100% failed). Stages with 100% failed requests cannot be submitted.`}
+                                                                                                >
+                                                                                                    ❌ {check.failures.total ? `${check.failures.val}/${check.failures.total}` : check.failures.val}
+                                                                                                </span>
+                                                                                            ) : check.failures.isWarning ? (
+                                                                                                <span
+                                                                                                    className="text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20 inline-flex items-center gap-1"
+                                                                                                    title={`Stage recorded ${check.failures.val} request failure${check.failures.val === 1 ? '' : 's'}${check.failures.total ? ` out of ${check.failures.total} requests` : ''}. Partial request failures may skew latency and throughput metrics.`}
+                                                                                                >
+                                                                                                    <AlertTriangle size={12} className="shrink-0 text-amber-400" />
+                                                                                                    <span>{check.failures.total ? `${check.failures.val}/${check.failures.total}` : check.failures.val}</span>
+                                                                                                </span>
+                                                                                            ) : (
+                                                                                                <span className="text-slate-400">
+                                                                                                    {check.failures.val !== null && check.failures.val !== undefined ? check.failures.val : 0}
+                                                                                                </span>
+                                                                                            )}
                                                                                         </td>
                                                                                         
                                                                                         <td className="px-1.5 py-1.5 text-right font-mono whitespace-nowrap">

@@ -14,7 +14,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { getRawPrismCloudPayload, resolveRunLabel } from './brv02Exporter.js';
-import { validateBenchmark } from './benchmarkValidator.js';
+import { validateBenchmark, validatePrismUploadStructure } from './benchmarkValidator.js';
 
 /**
  * Extracts and deep-clones a canonical PrismResultPayload from any benchmark stat/entry representation,
@@ -190,11 +190,13 @@ export function buildForkedBundle(forkedPayload, rawRunStat = null) {
         } : null
     };
 
+    const uploadValidation = validatePrismUploadStructure(forkedPayload, { isUpload: false });
     const bundleValidation = {
         format: 'brv02',
-        isValid: true,
-        errors: [],
-        warnings: [],
+        isValid: uploadValidation.isValid,
+        errors: uploadValidation.errors || [],
+        warnings: uploadValidation.warnings || [],
+        fieldErrors: uploadValidation.fieldErrors || {},
         dcoChecked: true
     };
 

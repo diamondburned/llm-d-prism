@@ -176,7 +176,21 @@ describe('benchmarkForker', () => {
                     model_name: "meta-llama/Llama-3.1-70B-Instruct",
                     hardware: { hardware_name: "H100", accelerator_count: 8 },
                     format: "brv02",
-                    entries: [{ filename: "stage_0.yaml", raw_report: { version: "0.2", workload: { stage: 0 } } }]
+                    entries: [{
+                        filename: "stage_0.yaml",
+                        raw_report: {
+                            version: "0.2",
+                            workload: { stage: 0 },
+                            results: {
+                                request_performance: {
+                                    aggregate: {
+                                        throughput: { output_token_rate: { mean: 100, units: "tokens/s" } },
+                                        latency: { request_latency: { mean: 1.5, units: "s" } }
+                                    }
+                                }
+                            }
+                        }
+                    }]
                 }
             }]
         };
