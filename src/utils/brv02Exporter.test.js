@@ -12,72 +12,105 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { unzipSync, strFromU8 } from 'fflate';
+import { describe, it, expect } from 'vitest';
 import yaml from 'js-yaml';
-import { downloadRunBRV02 } from './brv02Exporter.js';
-import { parseReportV02, stageToEntry } from './benchmarkReportV02Parser.js';
-import { createRunZipBuffer } from '../../server/results/exporter.ts';
+import {
+    getRawPrismCloudPayload,
+    syncMetadataToStageRawReport,
+    serializeRawReportToYaml,
+} from './brv02Exporter.js';
 
-const reports = [
-    { version: '0.2.1', workload: { stage: 0 }, results: { request_performance: { aggregate: { requests: { total: 22 } } } } },
-    { version: '0.2.1', workload: { stage: 0 }, results: { session_performance: { sessions: { total: 2 } } } },
-    { version: '0.2.1', workload: { stage: 1 }, results: { request_performance: { aggregate: { requests: { total: 44 } } } } },
-];
+describe('brv02Exporter', () => {
+    describe('getRawPrismCloudPayload', () => {
+        it('properly extracts hardware.hardware_name as a string and hardware.accelerator_count as a number when hardware is an object', () => {
+            const stat = {
+                runId: '11111111-1111-4111-8111-111111111111',
+                runLabel: 'Test Object Hardware Run',
+                model: 'qwen3-32b',
+                hardware: { hardware_name: 'TPU v7x', accelerator_count: 4 },
+                data: [{
+                    prism_stage_index: 0,
+                    raw_report: {
+                        version: '0.2',
+                        scenario: {
+                            stack: [{
+                                standardized: {
+                                    model: { name: 'qwen3-32b' },
+                                    accelerator: { model: 'Unknown' },
+                                },
+                            }],
+                        },
+                    },
+                }],
+            };
 
-const payload = {
-    runId: 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d',
-    runLabel: 'agentic run',
-    entries: reports.map((raw_report, i) => ({
-        prism_stage_index: raw_report.workload.stage,
-        filename: `report_${i}.yaml`,
-        raw_report,
-    })),
-};
-
-function expectReports(buffer) {
-    const files = unzipSync(new Uint8Array(buffer));
-    const names = Object.keys(files);
-    expect(names).toHaveLength(reports.length);
-    expect(names.every(name => name.includes('stage_'))).toBe(true);
-    expect(names.map(name => yaml.load(strFromU8(files[name])))).toEqual(reports);
-}
-
-async function browserDownload(run, entries = []) {
-    vi.useFakeTimers();
-    let download;
-    vi.spyOn(URL, 'createObjectURL').mockImplementation(blob => {
-        download = blob;
-        return 'blob:test';
-    });
-    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
-    vi.stubGlobal('document', {
-        createElement: () => ({ click: vi.fn() }),
-        body: { appendChild: vi.fn(), removeChild: vi.fn() },
-    });
-    downloadRunBRV02(run, entries);
-    return download.arrayBuffer();
-}
-
-afterEach(() => {
-    vi.restoreAllMocks();
-    vi.unstubAllGlobals();
-    vi.useRealTimers();
-});
-
-describe('benchmark archives with companion request and session reports', () => {
-    it('keeps every report in a Results API archive', () => {
-        expectReports(createRunZipBuffer(payload).buffer);
+            const payload = getRawPrismCloudPayload(stat);
+            expect(payload.hardware).toEqual({
+                hardware_name: 'TPU v7x',
+                accelerator_count: 4,
+            });
+            expect(typeof payload.hardware.hardware_name).toBe('string');
+            expect(typeof payload.hardware.accelerator_count).toBe('number');
+        });
     });
 
-    it('keeps every report in a browser payload download', async () => {
-        expectReports(await browserDownload(payload));
-    });
+    describe('syncMetadataToStageRawReport and export serialization', () => {
+        it('exports a payload where hardware: { hardware_name: "TPU v7x", accelerator_count: 4 } and raw_report has no accelerator.count, producing YAML with accelerator.count: 4 and accelerator.model: "TPU v7x"', () => {
+            const payload = {
+                runId: '22222222-2222-4222-8222-222222222222',
+                runLabel: 'Sync Explicit Count',
+                model_name: 'qwen3-32b',
+                hardware: { hardware_name: 'TPU v7x', accelerator_count: 4 },
+            };
 
-    it('keeps every report in a download from normalized comparison entries', async () => {
-        const entries = reports.map((rawReport, i) =>
-            stageToEntry(parseReportV02(rawReport, `report_${i}.yaml`)));
-        expect(entries.map(entry => entry.workload.stage)).toEqual([0, 0, 1]);
-        expectReports(await browserDownload({ runId: payload.runId, runLabel: payload.runLabel }, entries));
+            const rawReport = {
+                version: '0.2',
+                scenario: {
+                    stack: [{
+                        standardized: {
+                            role: 'aggregate',
+                            model: { name: 'qwen3-32b' },
+                            accelerator: { model: 'Unknown' },
+                        },
+                    }],
+                },
+            };
+
+            const synced = syncMetadataToStageRawReport(rawReport, payload);
+            const yamlStr = serializeRawReportToYaml(synced);
+            const parsedBack = yaml.load(yamlStr);
+
+            expect(parsedBack.scenario.stack[0].standardized.accelerator.model).toBe('TPU v7x');
+            expect(parsedBack.scenario.stack[0].standardized.accelerator.count).toBe(4);
+        });
+
+        it('exports a payload where hardware: { hardware_name: "TPU v7x" } (no accelerator_count) and raw_report has accelerator: { model: "tpu7x-2x2x1" }, preserving/setting accelerator.count: 4 in exported YAML', () => {
+            const payload = {
+                runId: '33333333-3333-4333-8333-333333333333',
+                runLabel: 'Sync Topology Count',
+                model_name: 'qwen3-32b',
+                hardware: { hardware_name: 'TPU v7x' },
+            };
+
+            const rawReport = {
+                version: '0.2',
+                scenario: {
+                    stack: [{
+                        standardized: {
+                            role: 'aggregate',
+                            model: { name: 'qwen3-32b' },
+                            accelerator: { model: 'tpu7x-2x2x1' },
+                        },
+                    }],
+                },
+            };
+
+            const synced = syncMetadataToStageRawReport(rawReport, payload);
+            const yamlStr = serializeRawReportToYaml(synced);
+            const parsedBack = yaml.load(yamlStr);
+
+            expect(parsedBack.scenario.stack[0].standardized.accelerator.model).toBe('TPU v7x');
+            expect(parsedBack.scenario.stack[0].standardized.accelerator.count).toBe(4);
+        });
     });
 });

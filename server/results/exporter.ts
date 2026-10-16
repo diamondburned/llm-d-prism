@@ -145,6 +145,211 @@ export function toOptimalDataUri(content: string, mimeType = 'text/plain'): stri
 }
 
 /**
+ * Helper to extract accelerator count from parenthetical strings (xN) or topology strings (e.g. 2x2x1, 2x4).
+ */
+function extractBackendAcceleratorCount(hardwareStr: unknown): number {
+    if (!hardwareStr || typeof hardwareStr !== 'string') return 1;
+    const matchParen = hardwareStr.match(/\(x(\d+)\)/i);
+    if (matchParen) {
+        const count = parseInt(matchParen[1], 10);
+        if (!isNaN(count) && count > 0) return count;
+    }
+    const matchTopo = hardwareStr.match(/(?:^|[-_\s/])(\d+(?:x\d+)+)(?:$|[-_\s/])/i);
+    if (matchTopo) {
+        const dims = matchTopo[1].toLowerCase().split('x').map(d => parseInt(d, 10));
+        if (dims.length > 0 && dims.every(n => !isNaN(n) && n > 0)) {
+            const product = dims.reduce((a, b) => a * b, 1);
+            if (product > 0) return product;
+        }
+    }
+    return 1;
+}
+
+interface RawReportStackComponent {
+    standardized?: {
+        kind?: string;
+        role?: string;
+        tool?: string;
+        tool_version?: string;
+        model?: {
+            name?: string;
+        };
+        accelerator?: {
+            model?: string;
+            count?: number;
+        };
+    };
+}
+
+interface RawReportStructure {
+    version?: string;
+    run?: {
+        description?: string;
+        keywords?: string[];
+    };
+    scenario?: {
+        model?: string;
+        stack?: RawReportStackComponent[];
+        load?: {
+            native?: {
+                config?: {
+                    server?: {
+                        model_name?: string;
+                    };
+                };
+            };
+            standardized?: {
+                tool?: string;
+                tool_version?: string;
+            };
+        };
+    };
+}
+
+/**
+ * Synchronizes top-level PrismResultPayload metadata into a raw BRV0.2 report object.
+ * Clones the input object so the source entry is not unexpectedly mutated.
+ */
+export function syncPayloadMetadataToRawReport(rawReport: unknown, payload: PrismResultPayload): unknown {
+    if (!rawReport) return rawReport;
+
+    let reportObj: RawReportStructure | null = null;
+    if (typeof rawReport === 'string') {
+        try {
+            reportObj = yaml.load(rawReport) as RawReportStructure;
+        } catch {
+            return rawReport;
+        }
+    } else if (rawReport && typeof rawReport === 'object') {
+        reportObj = rawReport as RawReportStructure;
+    }
+
+    if (!reportObj || typeof reportObj !== 'object') {
+        return rawReport;
+    }
+
+    // Clone reportObj so we do not mutate the input
+    const newReport: RawReportStructure = JSON.parse(JSON.stringify(reportObj));
+
+    // 1. Run label / description
+    const runLabel = resolvePayloadRunLabel(payload);
+    if (runLabel) {
+        if (!newReport.run) newReport.run = {};
+        newReport.run.description = runLabel;
+    }
+
+    // Tags
+    if (payload.tags !== undefined && payload.tags !== null) {
+        if (!newReport.run) newReport.run = {};
+        const rawTags = payload.tags;
+        const normalized = Array.isArray(rawTags)
+            ? rawTags.map(t => String(t).trim()).filter(Boolean)
+            : (typeof rawTags === 'string' ? rawTags.split(',').map(t => t.trim()).filter(Boolean) : []);
+        newReport.run.keywords = normalized;
+    }
+
+    // 2. Model name
+    const modelName = payload.model_name;
+    if (modelName && modelName !== 'Unknown Model' && modelName !== 'Unknown') {
+        if (!newReport.scenario) newReport.scenario = {};
+        if (Array.isArray(newReport.scenario.stack)) {
+            newReport.scenario.stack.forEach((comp) => {
+                if (comp.standardized) {
+                    if (!comp.standardized.model) comp.standardized.model = {};
+                    comp.standardized.model.name = modelName;
+                }
+            });
+        }
+        if (newReport.scenario.load?.native?.config?.server) {
+            newReport.scenario.load.native.config.server.model_name = modelName;
+        }
+    }
+
+    // 3. Hardware name and accelerator count
+    const hwName = payload.hardware?.hardware_name || (typeof payload.hardware === 'string' ? payload.hardware : '');
+    const explicitTopLevelCount = payload.hardware?.accelerator_count ?? (payload as Record<string, unknown>).accelerator_count;
+
+    const rawStack = Array.isArray(newReport.scenario?.stack) ? newReport.scenario.stack : [];
+    const primaryAccel = rawStack.find((c) => c?.standardized?.accelerator)?.standardized?.accelerator;
+    const existingStackCount = primaryAccel?.count;
+    const existingStackModel = primaryAccel?.model;
+
+    const explicitNum = typeof explicitTopLevelCount === 'number'
+        ? explicitTopLevelCount
+        : (explicitTopLevelCount ? Number(explicitTopLevelCount) : null);
+    const existingNum = typeof existingStackCount === 'number'
+        ? existingStackCount
+        : (existingStackCount ? Number(existingStackCount) : null);
+
+    const countCandidates = [
+        explicitNum,
+        extractBackendAcceleratorCount(hwName),
+        existingNum,
+        extractBackendAcceleratorCount(existingStackModel)
+    ];
+
+    let resolvedCount = countCandidates.find(c => typeof c === 'number' && !isNaN(c) && c > 1);
+    if (!resolvedCount && explicitNum && !isNaN(explicitNum) && explicitNum > 0) {
+        resolvedCount = explicitNum;
+    }
+
+    if (hwName && hwName !== 'Unknown Hardware' && hwName !== 'Unknown') {
+        if (!newReport.scenario) newReport.scenario = {};
+        if (Array.isArray(newReport.scenario.stack)) {
+            newReport.scenario.stack.forEach((comp) => {
+                if (comp.standardized) {
+                    if (!comp.standardized.accelerator) comp.standardized.accelerator = {};
+                    comp.standardized.accelerator.model = hwName;
+                }
+            });
+        }
+    }
+
+    if (resolvedCount !== undefined && resolvedCount !== null && resolvedCount > 0) {
+        if (!newReport.scenario) newReport.scenario = {};
+        if (Array.isArray(newReport.scenario.stack)) {
+            newReport.scenario.stack.forEach((comp) => {
+                if (comp.standardized) {
+                    if (!comp.standardized.accelerator) comp.standardized.accelerator = {};
+                    comp.standardized.accelerator.count = resolvedCount;
+                }
+            });
+        }
+    }
+
+    // 4. Inference tool & version
+    if (payload.inference_tool !== undefined || payload.inference_tool_version !== undefined) {
+        if (!newReport.scenario) newReport.scenario = {};
+        if (!Array.isArray(newReport.scenario.stack) || newReport.scenario.stack.length === 0) {
+            newReport.scenario.stack = [{ standardized: { kind: 'inference_engine' } }];
+        }
+        const primary = newReport.scenario.stack.find((comp) =>
+            comp.standardized?.kind === 'inference_engine' ||
+            ['vllm', 'tgi', 'tensorrt', 'tensorrt_llm', 'sglang', 'ollama'].includes(String(comp.standardized?.tool || '').toLowerCase()) ||
+            comp.standardized?.role === 'aggregate' ||
+            comp.standardized?.role === 'decode' ||
+            comp.standardized?.role === 'prefill'
+        ) || newReport.scenario.stack[0];
+
+        if (primary.standardized) {
+            if (payload.inference_tool) primary.standardized.tool = payload.inference_tool;
+            if (payload.inference_tool_version) primary.standardized.tool_version = payload.inference_tool_version;
+        }
+    }
+
+    // 5. Benchmark harness & version
+    if (payload.benchmark_harness !== undefined || payload.benchmark_harness_version !== undefined) {
+        if (!newReport.scenario) newReport.scenario = {};
+        if (!newReport.scenario.load) newReport.scenario.load = {};
+        if (!newReport.scenario.load.standardized) newReport.scenario.load.standardized = {};
+        if (payload.benchmark_harness) newReport.scenario.load.standardized.tool = payload.benchmark_harness;
+        if (payload.benchmark_harness_version) newReport.scenario.load.standardized.tool_version = payload.benchmark_harness_version;
+    }
+
+    return newReport;
+}
+
+/**
  * Packs all constituent stage entries of a PrismResultPayload into a ZIP buffer containing BRV0.2 .yaml files,
  * as well as unpacking data: URIs in manifests (to root) and evidence (to evidence/ subfolder).
  */
@@ -159,7 +364,8 @@ export function createRunZipBuffer(payload: PrismResultPayload): { buffer: Buffe
     const entries = payload.entries || [];
     const stageNameCounts = new Map<string, number>();
     entries.forEach((entry, idx) => {
-        const rawYaml = serializeRawReportToYaml(entry.raw_report);
+        const syncedReport = syncPayloadMetadataToRawReport(entry.raw_report, payload);
+        const rawYaml = serializeRawReportToYaml(syncedReport);
         const stageNum = entry.prism_stage_index ?? idx;
         const canonicalName = getBRV02StageFilename(stageNum);
         const count = (stageNameCounts.get(canonicalName) || 0) + 1;

@@ -16,7 +16,7 @@ import { Request, Response } from 'express';
 import { validateGitHubToken } from '../../oauth.ts';
 import { readResultPayload, readResultMetadata } from '../gcs.ts';
 import { PrismResultPayload } from '../api.ts';
-import { createRunZipBuffer, getBRV02StageFilename, serializeRawReportToYaml } from '../exporter.ts';
+import { createRunZipBuffer, getBRV02StageFilename, serializeRawReportToYaml, syncPayloadMetadataToRawReport } from '../exporter.ts';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -96,7 +96,8 @@ export async function exportResultsHandler(req: Request, res: Response) {
         // If single stage and format=yaml requested, return the single YAML file directly
         if (entries.length === 1 && formatQuery === 'yaml') {
             const entry = entries[0];
-            const yamlContent = serializeRawReportToYaml(entry.raw_report);
+            const syncedReport = syncPayloadMetadataToRawReport(entry.raw_report, payload);
+            const yamlContent = serializeRawReportToYaml(syncedReport);
             const stageNum = entry.prism_stage_index ?? 0;
             const filename = getBRV02StageFilename(stageNum);
 
@@ -143,7 +144,8 @@ export async function downloadEntryHandler(req: Request, res: Response) {
         }
 
         const entry = entries[entryIndex];
-        const yamlContent = serializeRawReportToYaml(entry.raw_report);
+        const syncedReport = syncPayloadMetadataToRawReport(entry.raw_report, payload);
+        const yamlContent = serializeRawReportToYaml(syncedReport);
         const stageNum = entry.prism_stage_index ?? entryIndex;
         const filename = getBRV02StageFilename(stageNum);
 

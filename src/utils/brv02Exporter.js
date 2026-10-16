@@ -14,7 +14,8 @@
 
 import yaml from 'js-yaml';
 import { zipSync, strToU8 } from 'fflate';
-import { parseDataUri } from './dataParser.js';
+import { parseDataUri, extractAcceleratorCount } from './dataParser.js';
+import { mutateRawReportMetadata } from './benchmarkReportV02Parser.js';
 
 
 /**
@@ -154,6 +155,128 @@ export function downloadSingleStageYaml(rawReport, stageIndexOrName = 0) {
 }
 
 /**
+ * Synchronizes top-level payload/stat metadata into a stage's raw BRV0.2 report.
+ */
+export function syncMetadataToStageRawReport(rawReport, runPayloadOrStat, benchmarkData = [], runLabel = '') {
+    if (!rawReport) return rawReport;
+
+    let parsedReport = rawReport;
+    if (typeof rawReport === 'string') {
+        try {
+            parsedReport = yaml.load(rawReport);
+        } catch {
+            return rawReport;
+        }
+    }
+    if (!parsedReport || typeof parsedReport !== 'object') return rawReport;
+
+    const dataArr = Array.isArray(benchmarkData) && benchmarkData.length > 0
+        ? benchmarkData
+        : (runPayloadOrStat?.data || (Array.isArray(runPayloadOrStat) ? runPayloadOrStat : [runPayloadOrStat]));
+    const first = dataArr[0] || {};
+
+    const rawModel = runPayloadOrStat?.model_name
+        || runPayloadOrStat?.model
+        || runPayloadOrStat?.payload?.model_name
+        || runPayloadOrStat?.bundle?.payload?.model_name
+        || first?.model_name
+        || first?.model
+        || first?.payload?.model_name
+        || '';
+    const modelName = rawModel && rawModel !== 'Unknown' && rawModel !== 'Unknown Model' ? rawModel : undefined;
+
+    const rawHardware = runPayloadOrStat?.hardware?.hardware_name
+        || (typeof runPayloadOrStat?.hardware === 'string' ? runPayloadOrStat.hardware : null)
+        || runPayloadOrStat?.hardware_name
+        || runPayloadOrStat?.payload?.hardware?.hardware_name
+        || (typeof runPayloadOrStat?.payload?.hardware === 'string' ? runPayloadOrStat.payload.hardware : null)
+        || runPayloadOrStat?.bundle?.payload?.hardware?.hardware_name
+        || first?.hardware?.hardware_name
+        || (typeof first?.hardware === 'string' ? first.hardware : null)
+        || first?.hardware_name
+        || first?.payload?.hardware?.hardware_name
+        || '';
+    const hardwareName = rawHardware && rawHardware !== 'Unknown' && rawHardware !== 'Unknown Hardware' ? rawHardware : undefined;
+
+    const explicitTopLevelCount = runPayloadOrStat?.accelerator_count
+        ?? runPayloadOrStat?.hardware?.accelerator_count
+        ?? runPayloadOrStat?.payload?.hardware?.accelerator_count
+        ?? runPayloadOrStat?.bundle?.payload?.hardware?.accelerator_count
+        ?? first?.accelerator_count
+        ?? first?.hardware?.accelerator_count
+        ?? first?.payload?.hardware?.accelerator_count
+        ?? first?.metadata?.accelerator_count;
+
+    const rawStack = Array.isArray(parsedReport?.scenario?.stack) ? parsedReport.scenario.stack : [];
+    const primaryAccel = rawStack.find(comp => comp?.standardized?.accelerator)?.standardized?.accelerator;
+    const existingStackCount = primaryAccel?.count;
+    const existingStackAccelModel = primaryAccel?.model;
+
+    const explicitNum = typeof explicitTopLevelCount === 'number'
+        ? explicitTopLevelCount
+        : (explicitTopLevelCount ? Number(explicitTopLevelCount) : null);
+    const existingNum = typeof existingStackCount === 'number'
+        ? existingStackCount
+        : (existingStackCount ? Number(existingStackCount) : null);
+
+    const countCandidates = [
+        explicitNum,
+        extractAcceleratorCount(hardwareName),
+        existingNum,
+        extractAcceleratorCount(existingStackAccelModel)
+    ];
+
+    let resolvedCount = countCandidates.find(c => typeof c === 'number' && !isNaN(c) && c > 1);
+    if (!resolvedCount && explicitNum && !isNaN(explicitNum) && explicitNum > 0) {
+        resolvedCount = explicitNum;
+    }
+
+    const tags = runPayloadOrStat?.tags
+        ?? runPayloadOrStat?.keywords
+        ?? runPayloadOrStat?.payload?.tags
+        ?? runPayloadOrStat?.bundle?.payload?.tags
+        ?? first?.tags
+        ?? first?.keywords
+        ?? first?.payload?.tags;
+
+    const inference_tool = runPayloadOrStat?.inference_tool
+        ?? runPayloadOrStat?.payload?.inference_tool
+        ?? runPayloadOrStat?.bundle?.payload?.inference_tool
+        ?? first?.inference_tool
+        ?? first?.payload?.inference_tool;
+
+    const inference_tool_version = runPayloadOrStat?.inference_tool_version
+        ?? runPayloadOrStat?.payload?.inference_tool_version
+        ?? runPayloadOrStat?.bundle?.payload?.inference_tool_version
+        ?? first?.inference_tool_version
+        ?? first?.payload?.inference_tool_version;
+
+    const benchmark_harness = runPayloadOrStat?.benchmark_harness
+        ?? runPayloadOrStat?.payload?.benchmark_harness
+        ?? runPayloadOrStat?.bundle?.payload?.benchmark_harness
+        ?? first?.benchmark_harness
+        ?? first?.payload?.benchmark_harness;
+
+    const benchmark_harness_version = runPayloadOrStat?.benchmark_harness_version
+        ?? runPayloadOrStat?.payload?.benchmark_harness_version
+        ?? runPayloadOrStat?.bundle?.payload?.benchmark_harness_version
+        ?? first?.benchmark_harness_version
+        ?? first?.payload?.benchmark_harness_version;
+
+    return mutateRawReportMetadata(parsedReport, {
+        model_name: modelName,
+        hardware_name: hardwareName,
+        runLabel: runLabel || undefined,
+        tags: tags !== undefined ? tags : undefined,
+        inference_tool: inference_tool || undefined,
+        inference_tool_version: inference_tool_version || undefined,
+        benchmark_harness: benchmark_harness || undefined,
+        benchmark_harness_version: benchmark_harness_version || undefined,
+        accelerator_count: resolvedCount
+    });
+}
+
+/**
  * Dissects and exports a benchmark run's constituent stage reports into a ZIP file (or single .yaml if 1 stage).
  */
 export function downloadRunBRV02(runPayloadOrStat, benchmarkData = []) {
@@ -255,7 +378,8 @@ export function downloadRunBRV02(runPayloadOrStat, benchmarkData = []) {
     // Only skip ZIP creation if there's strictly 1 stage AND no extra manifest/evidence files attached
     if (stages.length === 1 && !hasExtraFiles) {
         const singleStage = stages[0];
-        const rawYaml = serializeRawReportToYaml(singleStage.rawReport);
+        const syncedReport = syncMetadataToStageRawReport(singleStage.rawReport, runPayloadOrStat, benchmarkData, runLabel);
+        const rawYaml = serializeRawReportToYaml(syncedReport);
         const stageNum = singleStage.stageIndex ?? 0;
         const stageFileName = getBRV02StageFilename(stageNum);
         triggerFileDownload(rawYaml, stageFileName, 'application/x-yaml');
@@ -269,7 +393,8 @@ export function downloadRunBRV02(runPayloadOrStat, benchmarkData = []) {
 
     const stageNameCounts = new Map();
     stages.forEach((stage, idx) => {
-        const rawYaml = serializeRawReportToYaml(stage.rawReport);
+        const syncedReport = syncMetadataToStageRawReport(stage.rawReport, runPayloadOrStat, benchmarkData, runLabel);
+        const rawYaml = serializeRawReportToYaml(syncedReport);
         const stageNum = stage.stageIndex ?? idx;
         const canonicalName = getBRV02StageFilename(stageNum);
         const count = (stageNameCounts.get(canonicalName) || 0) + 1;
@@ -360,8 +485,19 @@ export function getRawPrismCloudPayload(runPayloadOrStat, benchmarkData = []) {
     const runLabel = resolveRunLabel(runPayloadOrStat, benchmarkData, []);
 
     const modelName = runPayloadOrStat.model || runPayloadOrStat.model_name || first.model || first.rawReport?.scenario?.model || 'Unknown Model';
-    const hardwareName = runPayloadOrStat.hardware || runPayloadOrStat.hardware_name || first.hardware || first.rawReport?.system?.accelerator?.name || 'Unknown Hardware';
-    const acceleratorCount = runPayloadOrStat.accelerator_count || first.accelerator_count || first.rawReport?.system?.accelerator?.count || undefined;
+    const hardwareName = runPayloadOrStat.hardware?.hardware_name
+        || (typeof runPayloadOrStat.hardware === 'string' ? runPayloadOrStat.hardware : null)
+        || runPayloadOrStat.hardware_name
+        || first.hardware?.hardware_name
+        || (typeof first.hardware === 'string' ? first.hardware : null)
+        || first.rawReport?.system?.accelerator?.name
+        || 'Unknown Hardware';
+    const acceleratorCount = runPayloadOrStat.accelerator_count
+        ?? runPayloadOrStat.hardware?.accelerator_count
+        ?? first.accelerator_count
+        ?? first.hardware?.accelerator_count
+        ?? first.rawReport?.system?.accelerator?.count
+        ?? undefined;
 
     const manifests = runPayloadOrStat?.manifests 
         || runPayloadOrStat?.payload?.manifests 
@@ -386,7 +522,7 @@ export function getRawPrismCloudPayload(runPayloadOrStat, benchmarkData = []) {
             run_description: runLabel,
             filename,
             prism_stage_index: stageIndex,
-            raw_report: rawReport
+            raw_report: syncMetadataToStageRawReport(rawReport, runPayloadOrStat, benchmarkData, runLabel)
         };
     });
 
