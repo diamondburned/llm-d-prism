@@ -38,7 +38,7 @@ import { ObservabilityTimeSeriesPanel } from './Dashboard/ObservabilityTimeSerie
 import DataInspector from './DataInspector';
 import { useDashboardState } from '../hooks/useDashboardState';
 import { useDashboardData } from '../hooks/useDashboardData';
-import { INTEGRATIONS, getBucket, getRatioType, getEffectiveTp, sortBuckets, findParetoPoint, getNodesAndType, getBenchmarkKey, getAcceleratorCount } from '../utils/dashboardHelpers';
+import { INTEGRATIONS, getBucket, getRatioType, getEffectiveTp, sortBuckets, findParetoPoint, getNodesAndType, getBenchmarkKey, getAcceleratorCount, extractAcceleratorCount } from '../utils/dashboardHelpers';
 import { getCanonicalBucketName, dedupeBucketConfigs } from '../utils/bucketUtils';
 
 const getCleanModelName = (name) => {
@@ -1495,11 +1495,11 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
         if (selectedBenchmarks.size === 0 && selectedModels.size === 0) return false;
         return [...selectedBenchmarks].some(k => {
             const stat = modelStats.find(s => s.benchmarkKey === k);
-            return stat && ((stat.accelerator_count && Number(stat.accelerator_count) > 1) || (stat.hardware && /\(x\d+\)/.test(stat.hardware)));
+            return stat && ((stat.accelerator_count && Number(stat.accelerator_count) > 1) || (stat.hardware && extractAcceleratorCount(stat.hardware) > 1));
         }) || [...selectedModels].some(m => {
             const stat = modelStats.find(s => s.model === m);
-            // Check if accelerator_count is available (>1) OR if hardware string has (xN)
-            return stat && ((stat.accelerator_count && Number(stat.accelerator_count) > 1) || (stat.hardware && /\(x\d+\)/.test(stat.hardware)));
+            // Check if accelerator_count is available (>1) OR if hardware string has (xN) or topology
+            return stat && ((stat.accelerator_count && Number(stat.accelerator_count) > 1) || (stat.hardware && extractAcceleratorCount(stat.hardware) > 1));
         });
     }, [selectedBenchmarks, selectedModels, modelStats]);
 

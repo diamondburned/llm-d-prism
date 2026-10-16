@@ -1229,6 +1229,46 @@ describe('missing units detection and warning generation', () => {
             expect(entry.metadata.accelerator_count).toBe(8);
         });
 
+        it('infers scenario.acceleratorCount from topology string in parseReportV02 when count is missing', () => {
+            const report = {
+                version: '0.2',
+                scenario: {
+                    stack: [{
+                        standardized: {
+                            role: 'aggregate',
+                            model: { name: 'qwen3-32b' },
+                            accelerator: { model: 'tpu7x-2x2x1' },
+                        },
+                    }],
+                },
+                results: {},
+            };
+            const stage = parseReportV02(report, 'report.yaml');
+            expect(stage.scenario.acceleratorCount).toBe(4);
+        });
+
+        it('infers accelerator_count from hardware topology when stored accelerator_count is 1 or missing', () => {
+            const stage = {
+                scenario: { model: 'qwen3-32b', hardware: 'tpu7x-2x2x1', acceleratorCount: 4 },
+                hardware: { hardware_name: 'TPU7X-2X2X1', accelerator_count: 1 },
+                performance: { outputTokenRate: 100 },
+            };
+            const entry = stageToEntry(stage);
+            expect(entry.accelerator_count).toBe(4);
+            expect(entry.metadata.accelerator_count).toBe(4);
+        });
+
+        it('infers accelerator_count from hardware name topology when scenario acceleratorCount is not set', () => {
+            const stage = {
+                scenario: { model: 'qwen3-32b', hardware: 'v6e-2x4', acceleratorCount: null },
+                hardware: 'v6e-2x4',
+                performance: { outputTokenRate: 100 },
+            };
+            const entry = stageToEntry(stage);
+            expect(entry.accelerator_count).toBe(8);
+            expect(entry.metadata.accelerator_count).toBe(8);
+        });
+
         it('forwards all root metadata fields into stage via forwardBundleMetadata', () => {
             const stage = {
                 scenario: { model: 'Unknown', hardware: 'Unknown' },

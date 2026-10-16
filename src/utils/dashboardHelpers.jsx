@@ -14,6 +14,9 @@
 
 import React from 'react';
 import { Zap, Cloud, FileJson, Target, ExternalLink, GitCompare } from 'lucide-react';
+import { extractAcceleratorCount } from './dataParser';
+
+export { extractAcceleratorCount };
 
 export const USE_CASE_META = {
     "Advanced Customer Support": "(~9k/256)",
@@ -108,12 +111,6 @@ export const INTEGRATIONS = [
         alwaysExpanded: true,
     }
 ];
-
-export const extractAcceleratorCount = (hardware) => {
-    if (!hardware || typeof hardware !== 'string') return 1;
-    const match = hardware.match(/\(x(\d+)\)/);
-    return match ? parseInt(match[1]) : 1;
-};
 
 export const getAcceleratorCount = (d) => {
     if (!d) return 1;

@@ -21,7 +21,7 @@
 import yaml from 'js-yaml';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
-import { createEntry, normalizeModelName, normalizeHardware } from './dataParser.js';
+import { createEntry, normalizeModelName, normalizeHardware, extractAcceleratorCount } from './dataParser.js';
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -792,7 +792,7 @@ export function parseReportV02(yamlText, filename) {
     const scenario = {
         model: modelVal,
         hardware: accelVal,
-        acceleratorCount: accel.count ?? null,
+        acceleratorCount: accel.count ?? (extractAcceleratorCount(accelVal) > 1 ? extractAcceleratorCount(accelVal) : null),
         tp: parallelism.tp ?? null,
         role: std.role || 'aggregate',
         inferenceTool: inferenceToolVal,
@@ -1434,7 +1434,10 @@ export function stageToEntry(stage) {
         stage.payload?.hardware?.accelerator_count,
         stage.bundle?.payload?.hardware?.accelerator_count,
         stage.metadata?.accelerator_count,
-        scenario.acceleratorCount
+        scenario.acceleratorCount,
+        extractAcceleratorCount(scenario.hardware),
+        extractAcceleratorCount(effectiveHardwareName),
+        extractAcceleratorCount(hardware)
     ];
     for (const c of explicitCountCandidates) {
         if (typeof c === 'number' && c > 1) {

@@ -26,6 +26,16 @@ describe('getAcceleratorCount and extractAcceleratorCount', () => {
         expect(extractAcceleratorCount({ hardware_name: 'H100' })).toBe(1);
     });
 
+    it('extracts count from hardware topology strings', () => {
+        expect(extractAcceleratorCount('tpu7x-2x2x1')).toBe(4);
+        expect(extractAcceleratorCount('TPU7X-2X2X1')).toBe(4);
+        expect(extractAcceleratorCount('v6e-2x4')).toBe(8);
+        expect(extractAcceleratorCount('tpu-v5e-4x4')).toBe(16);
+        expect(extractAcceleratorCount('tpu7x')).toBe(1);
+        expect(extractAcceleratorCount('8xH100')).toBe(1);
+        expect(extractAcceleratorCount('H100')).toBe(1);
+    });
+
     it('resolves accelerator count from root, metadata, hardware object, or hardware string', () => {
         // Root accelerator_count
         expect(getAcceleratorCount({ accelerator_count: 8, hardware: 'H100' })).toBe(8);
@@ -38,6 +48,9 @@ describe('getAcceleratorCount and extractAcceleratorCount', () => {
 
         // Hardware string (x8) when metadata default is 1
         expect(getAcceleratorCount({ metadata: { accelerator_count: 1 }, hardware: 'H100 (x8)' })).toBe(8);
+
+        // Hardware topology string when metadata default is 1
+        expect(getAcceleratorCount({ metadata: { accelerator_count: 1 }, hardware: 'tpu7x-2x2x1' })).toBe(4);
 
         // Explicit multi-node count > 1 takes precedence over single node (x8)
         expect(getAcceleratorCount({ accelerator_count: 16, hardware: 'H100 (x8)' })).toBe(16);

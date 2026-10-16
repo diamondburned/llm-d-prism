@@ -212,6 +212,26 @@ export const normalizeServingStack = (ss) => {
     return s === 'unknown' ? '' : ss;
 };
 
+export const extractAcceleratorCount = (hardware) => {
+    if (!hardware || typeof hardware !== 'string') return 1;
+    const matchParen = hardware.match(/\(x(\d+)\)/i);
+    if (matchParen) {
+        const count = parseInt(matchParen[1], 10);
+        if (!isNaN(count) && count > 0) return count;
+    }
+
+    const matchTopo = hardware.match(/(?:^|[-_\s/])(\d+(?:x\d+)+)(?:$|[-_\s/])/i);
+    if (matchTopo) {
+        const dims = matchTopo[1].toLowerCase().split('x').map(d => parseInt(d, 10));
+        if (dims.length > 0 && dims.every(n => !isNaN(n) && n > 0)) {
+            const product = dims.reduce((a, b) => a * b, 1);
+            if (product > 0) return product;
+        }
+    }
+
+    return 1;
+};
+
 
 // ============================================================================
 // GIQ API Parser
