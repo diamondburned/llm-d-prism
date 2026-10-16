@@ -1842,7 +1842,12 @@ export default function UploadValidationPage({ onNavigateBack, onNavigate, dashb
                 }
 
                 if (rawReportObj && typeof rawReportObj === 'object') {
-                    rawReportObj = normalizeReportUnits(rawReportObj);
+                    rawReportObj = mutateRawReportMetadata(rawReportObj, {
+                        model_name: resolvedModel || undefined,
+                        hardware_name: resolvedHw || undefined,
+                        runLabel: groupName || undefined,
+                        accelerator_count: resolvedCount || undefined,
+                    });
                 }
 
                 payloadEntries.push({

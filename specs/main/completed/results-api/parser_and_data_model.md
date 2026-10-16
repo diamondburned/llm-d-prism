@@ -215,6 +215,27 @@ Hardware names are resolved and standardized using the
 - **Standard Casing:** Normalizes remaining non-GPU/non-TPU strings to
   uppercase.
 
+### 5.3 Topology-Based Accelerator Count Inference
+
+When explicit accelerator counts are omitted, null, or defaulted to `1` by
+upstream harnesses, Prism infers the actual physical chip count directly from
+topology expressions embedded within hardware model strings:
+
+- **3D Topologies (`NxMxK`):** Patterns matching `(\d+)[xX](\d+)[xX](\d+)` (such
+  as `tpu7x-2x2x1` or `2x4x2`) compute the product of all three dimensions
+  (e.g., `2 * 2 * 1 = 4 chips`, `2 * 4 * 2 = 16 chips`).
+- **2D Topologies (`NxM`):** Patterns matching `(\d+)[xX](\d+)` (such as `2x2`
+  or `4x2`) compute the product of both dimensions (e.g., `2 * 2 = 4 chips`,
+  `4 * 2 = 8 chips`).
+- **Standard Suffixes (`-N` / `N-way`):** Suffixes like `8-way` or `-8` resolve
+  directly to `N` chips.
+
+This inference is executed via `extractAcceleratorCount` in
+[dataParser.js](../../../../src/utils/dataParser.js). Inferred topology
+candidates greater than `1` take precedence over uninformative default counts of
+`1` across parser mapping, bundle staging (`buildBundleForRun`), and export
+(`syncMetadataToStageRawReport`).
+
 ---
 
 ## 6. User-Initiated Overrides & Editing
@@ -259,6 +280,24 @@ complete missing information before submitting.
 | `inference_tool_version`    | Software version of the primary inference tool.                                                      | Serving Stack Version     | `$.inference_tool_version`     | N/A                             |        Yes         |
 | `benchmark_harness`         | Benchmark load generation harness tool.                                                              | Benchmark Harness         | `$.benchmark_harness`          | N/A                             |        Yes         |
 | `benchmark_harness_version` | Software version of the benchmark harness tool.                                                      | Benchmark Harness Version | `$.benchmark_harness_version`  | N/A                             |        Yes         |
+
+### 6.3 Export & Bundle Staging Synchronization
+
+When benchmarks are exported to YAML or staged into Prism Cloud payloads (via
+`syncMetadataToStageRawReport` in
+[brv02Exporter.js](../../../../src/utils/brv02Exporter.js) and
+`buildBundleForRun` in
+[UnifiedDataTable.jsx](../../../../src/components/ManageBenchmarks/UnifiedDataTable.jsx)):
+
+- **Hardware & Chip Count Preservation:** Handles both string hardware
+  representations (e.g. `'TPU v7x'`) and `{ hardware_name, accelerator_count }`
+  objects, resolving non-empty hardware strings and inferring topology-based
+  chip counts.
+- **In-Place Mutation:** `mutateRawReportMetadata` mutates each stage's
+  `raw_report` in-place, ensuring `scenario.stack[].standardized.model.name`,
+  `scenario.stack[].standardized.accelerator.model`, and
+  `scenario.stack[].standardized.accelerator.count` mirror the resolved
+  top-level metadata across both staging bundles and exported artifacts.
 
 ---
 

@@ -1656,6 +1656,13 @@ export function mutateRawReportMetadata(rawReport, {
         newReport.run.keywords = normalizeTags(tags);
     }
 
+    if (model_name || hardware_name || (accelerator_count !== undefined && accelerator_count !== null)) {
+        if (!newReport.scenario) newReport.scenario = {};
+        if (!Array.isArray(newReport.scenario.stack) || newReport.scenario.stack.length === 0) {
+            newReport.scenario.stack = [{ standardized: {} }];
+        }
+    }
+
     // 2. Update model name in scenario.stack and load.native
     if (model_name) {
         if (newReport.scenario) {
