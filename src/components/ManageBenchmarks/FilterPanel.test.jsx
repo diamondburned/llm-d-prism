@@ -46,9 +46,37 @@ const panel = (modelStats, { isPlaygroundMode = true, user = null, submissionsMa
 
 const publicCount = () => screen.getByRole('button', { name: /^Public Store\s*\d+$/ }).textContent;
 
+class MockStorage {
+    constructor() {
+        this.store = {};
+    }
+    getItem(key) {
+        return Object.prototype.hasOwnProperty.call(this.store, key) ? this.store[key] : null;
+    }
+    setItem(key, val) {
+        this.store[key] = String(val);
+    }
+    removeItem(key) {
+        delete this.store[key];
+    }
+    clear() {
+        this.store = {};
+    }
+    get length() {
+        return Object.keys(this.store).length;
+    }
+    key(i) {
+        return Object.keys(this.store)[i] || null;
+    }
+}
+
+const mockLocalStorage = new MockStorage();
+Object.defineProperty(window, 'localStorage', { value: mockLocalStorage, configurable: true, writable: true });
+Object.defineProperty(globalThis, 'localStorage', { value: mockLocalStorage, configurable: true, writable: true });
+
 afterEach(() => {
     cleanup();
-    localStorage.clear();
+    mockLocalStorage.clear();
 });
 
 describe('Public Store benchmark count', () => {

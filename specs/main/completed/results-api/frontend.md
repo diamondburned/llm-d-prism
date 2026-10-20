@@ -268,18 +268,21 @@ The share link uses the following query parameter format:
 
 To prevent sharing browser-local data or restricted review queue items:
 
-1. **Allowed Submission States:** Benchmark runs MUST have a status of `public`
-   or `unlisted`.
+1. **Allowed Submission States:** Benchmark runs MUST have a status of `public`,
+   `promoted`, or `unlisted`.
 2. **Forbidden Submission States:** Benchmark runs in `staged` (IndexedDB),
    `submitted_pending_processing`, `submitted_pending_review` (admin queue), or
    `rejected` states **cannot** be shared via URL.
 3. **Enforcement:**
+    - Across both the Results Store (`UnifiedDataTable.jsx`) and the Benchmark
+      Browser (`Dashboard.jsx`), validation inspects the selected benchmarks in
+      `selectedBenchmarks` (rather than global source toggles).
     - When multiple benchmarks are selected, the client validates that every
-      selected benchmark is either `public` or `unlisted`.
+      selected benchmark is `public`, `promoted`, or `unlisted`.
     - If any selected benchmark is in a forbidden state, link generation is
-      **forbidden**. The **Share Selected** button is disabled with an
-      explanatory tooltip, or an error notification is presented to the
-      submitter.
+      **forbidden**. The **Share Selected** button (or **Share view** in the
+      Benchmark Browser) is disabled with an explanatory tooltip, or an error
+      notification is presented to the submitter.
 
 ### 5.3 Compact Binary Base64 Encoding & Decoding Scheme
 
@@ -305,8 +308,10 @@ To prevent bloated URL strings when sharing multiple benchmarks:
 When navigating to a valid benchmark share URL:
 
 1. **Data Resolving:** Prism extracts the list of target UUIDs and checks
-   in-memory and cached runs. Any missing benchmark (e.g. `unlisted` runs hidden
-   from default grid lists) is fetched via `GET /api/results/:runId`.
+   in-memory and cached runs. Missing `results-store:<uuid>` runs (such as
+   `unlisted` runs hidden from default grid lists) are fetched via
+   `GET /api/results/:runId`. Recipient `localStorage` filters are bypassed on
+   share URLs to ensure the shared selection is immediately visible.
 2. **Selection Hydration:** Prism populates `selectedBenchmarks` with the
    decoded UUID keys.
 3. **Compare Activation:** Prism automatically opens the Compare drawer

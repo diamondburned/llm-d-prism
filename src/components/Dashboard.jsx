@@ -40,6 +40,8 @@ import { useDashboardState } from '../hooks/useDashboardState';
 import { useDashboardData } from '../hooks/useDashboardData';
 import { INTEGRATIONS, getBucket, getRatioType, getEffectiveTp, sortBuckets, findParetoPoint, getNodesAndType, getBenchmarkKey, getAcceleratorCount, extractAcceleratorCount } from '../utils/dashboardHelpers';
 import { getCanonicalBucketName, dedupeBucketConfigs } from '../utils/bucketUtils';
+import { isValidUuid } from '../utils/shareLinkEncoder';
+import { parseReportV02, stageToEntry, forwardBundleMetadata } from '../utils/benchmarkReportV02Parser';
 
 const getCleanModelName = (name) => {
     if (!name || typeof name !== 'string') return '';
@@ -227,8 +229,12 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
         brv02Runs, brv02CustomLabels, setBrv02CustomLabels, removeBrv02Run,
         apiError, setApiError, refreshSource,
         handleValidatedUpload,
-        submissions, isLoadingSubmissions, loadSubmissions
+        submissions, isLoadingSubmissions, loadSubmissions,
+        submissionsMap, injectDynamicEntries
     } = dashboardData;
+
+    const fetchedSharedUuidsRef = useRef(new Set());
+    const [isFetchingSharedRuns, setIsFetchingSharedRuns] = useState(false);
 
     const [activeDashboardTab, setActiveDashboardTab] = useState('charts');
     const [searchTerm, setSearchTerm] = useState('');
@@ -1107,6 +1113,107 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
     }, [loading, baseData, filterOptions.models]);
 
 
+    // Fetch missing shared runs (e.g. from share links)
+    useEffect(() => {
+        if (!selectedBenchmarks || selectedBenchmarks.size === 0) return;
+
+        const missingUuids = [];
+        selectedBenchmarks.forEach(key => {
+            if (typeof key !== 'string') return;
+            let uuid = null;
+            if (key.startsWith('results-store:')) {
+                uuid = key.replace('results-store:', '');
+            } else if (key.startsWith('brv02:')) {
+                uuid = key.replace('brv02:', '');
+            } else if (isValidUuid(key)) {
+                uuid = key;
+            }
+
+            if (uuid && isValidUuid(uuid) && !fetchedSharedUuidsRef.current.has(uuid)) {
+                const exists = (data || []).some(d =>
+                    d.run_id === uuid ||
+                    (d.source && d.source.endsWith(uuid)) ||
+                    (d.benchmarkKey && d.benchmarkKey.includes(uuid))
+                );
+                if (!exists) {
+                    missingUuids.push(uuid);
+                }
+            }
+        });
+
+        if (missingUuids.length === 0) return;
+
+        missingUuids.forEach(u => fetchedSharedUuidsRef.current.add(u));
+
+        let isMounted = true;
+        queueMicrotask(() => {
+            if (isMounted) {
+                setIsFetchingSharedRuns(true);
+            }
+        });
+
+        const headers = {};
+        const token = typeof window !== 'undefined' ? localStorage.getItem('prism_github_token') : null;
+        if (token) {
+            headers['X-Prism-Github-Token'] = token;
+        }
+
+        Promise.all(missingUuids.map(async (uuid) => {
+            try {
+                const res = await fetch(`/api/results/${uuid}`, { headers });
+                if (!res.ok) return;
+
+                const jsonPayload = await res.json();
+                if (jsonPayload && jsonPayload.entries && Array.isArray(jsonPayload.entries)) {
+                    const parsedEntries = [];
+                    for (const stageEntry of jsonPayload.entries) {
+                        if (stageEntry.raw_report) {
+                            const parsedStage = parseReportV02(stageEntry.raw_report, stageEntry.filename);
+                            if (parsedStage) {
+                                forwardBundleMetadata(parsedStage, jsonPayload);
+                                const entry = stageToEntry(parsedStage);
+                                entry.run_id = jsonPayload.runId;
+                                entry.source = 'gcs:llm-d-benchmarks';
+                                entry.source_info = {
+                                    type: 'benchmark_report_v02',
+                                    origin: 'gcs:llm-d-benchmarks',
+                                    submission_state: jsonPayload.submission_state || 'public',
+                                    file_identifier: jsonPayload.runId
+                                };
+                                parsedEntries.push(entry);
+                            }
+                        }
+                    }
+
+                    if (parsedEntries.length > 0) {
+                        if (injectDynamicEntries) {
+                            injectDynamicEntries(parsedEntries);
+                        }
+                        if (setSelectedSources) {
+                            setSelectedSources(prev => {
+                                const next = new Set(prev);
+                                for (const pe of parsedEntries) {
+                                    if (pe.source) next.add(pe.source);
+                                }
+                                return next;
+                            });
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn(`[Dashboard] Failed to fetch shared run ${uuid}:`, err);
+            }
+        })).finally(() => {
+            if (isMounted) {
+                setIsFetchingSharedRuns(false);
+            }
+        });
+
+        return () => {
+            isMounted = false;
+        };
+    }, [selectedBenchmarks, data, injectDynamicEntries, setSelectedSources]);
+
     // Unified Synchronization & Migration Effect
     // 1. Converts legacy/portable wildcards to concrete keys.
     // 2. Drops invisible/stale selections when filters change.
@@ -1114,7 +1221,7 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
     useEffect(() => {
         const isAnySourceLoading = gcsProfiles.some(p => p.loading);
         console.log("[Sync Effect] Running. loading:", loading, "isRestoringConnections:", isRestoringConnections, "isAnySourceLoading:", isAnySourceLoading, "filteredBySource length:", filteredBySource.length);
-        if (loading || isRestoringConnections || isAnySourceLoading || filteredBySource.length === 0) return;
+        if (loading || isRestoringConnections || isAnySourceLoading || isFetchingSharedRuns || filteredBySource.length === 0) return;
 
         const currentKeys = filteredBySource.map(d => getBenchmarkKey(d));
         const validKeys = new Set(currentKeys);
@@ -1212,7 +1319,7 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
             if (isFirstLoad.current) isFirstLoad.current = false;
             return changed ? next : prev;
         });
-    }, [loading, isRestoringConnections, gcsProfiles, filteredBySource, getBenchmarkKey, initialState]);
+    }, [loading, isRestoringConnections, gcsProfiles, filteredBySource, getBenchmarkKey, initialState, isFetchingSharedRuns]);
 
     // Clear baseline if its benchmark is no longer present in the visible
     // dataset (e.g., the user removed an upload or filtered out its source).
@@ -1593,19 +1700,93 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
     // Auto-Upgrade to NTPOT if available (and currently on default TPOT)
     // Only runs when availability changes to avoid locking user choice
     useEffect(() => {
+        if (initialState?.hasExplicitChartMode) return;
         if (metricAvailability.ntpot) {
             setChartMode(prev => prev === 'tpot' ? 'ntpot' : prev);
         }
-    }, [metricAvailability.ntpot]);
+    }, [metricAvailability.ntpot, initialState?.hasExplicitChartMode]);
 
-
+    const isInitialModeMount = useRef(true);
     // Reset axis filter and zoom when mode changes
     useEffect(() => {
+        if (isInitialModeMount.current) {
+            isInitialModeMount.current = false;
+            return;
+        }
         setXAxisMax(Infinity);
         setZoomDomain(null);
     }, [chartMode, tputType]);
 
-    const hasLocalBenchmarks = Array.from(selectedSources || []).some(source => source === 'local' || source.startsWith('brv02:'));
+    // eslint-disable-next-line react-hooks/preserve-manual-memoization
+    const { hasLocalBenchmarks, shareForbiddenReason } = useMemo(() => {
+        if (!selectedBenchmarks || selectedBenchmarks.size === 0) {
+            return { hasLocalBenchmarks: false, shareForbiddenReason: null };
+        }
+
+        for (const key of selectedBenchmarks) {
+            const stat = modelStats.find(s => s.benchmarkKey === key);
+            const firstEntry = stat?.data?.[0] || (data || []).find(d => getBenchmarkKey(d) === key);
+            const sourceStr = firstEntry?.source || stat?.source || '';
+
+            // 1. Local non-BRV02 sources
+            if (
+                sourceStr === 'local' ||
+                key.startsWith('local::') ||
+                key.startsWith('file:') ||
+                sourceStr === 'infperf' ||
+                sourceStr === 'inference-perf' ||
+                sourceStr.startsWith('inference-perf:') ||
+                key.startsWith('inference-perf:')
+            ) {
+                return {
+                    hasLocalBenchmarks: true,
+                    shareForbiddenReason: 'Local benchmark results cannot be shared yet.'
+                };
+            }
+
+            // 2. BRV02 benchmarks
+            const isBrv02 =
+                sourceStr.startsWith('brv02:') ||
+                key.startsWith('brv02:') ||
+                key.startsWith('results-store:') ||
+                firstEntry?.source_info?.type === 'benchmark_report_v02';
+
+            if (isBrv02) {
+                const runId =
+                    firstEntry?.run_id ||
+                    stat?.runId ||
+                    (key.startsWith('results-store:') ? key.replace('results-store:', '') : null) ||
+                    (sourceStr.startsWith('brv02:') ? sourceStr.replace('brv02:', '') : null) ||
+                    (key.startsWith('brv02:') ? key.replace('brv02:', '') : null);
+
+                if (!runId || !isValidUuid(runId)) {
+                    return {
+                        hasLocalBenchmarks: true,
+                        shareForbiddenReason: 'Local benchmark results cannot be shared yet.'
+                    };
+                }
+
+                const sub = runId && submissionsMap ? submissionsMap[runId] : null;
+                const status =
+                    sub?.status ||
+                    firstEntry?.source_info?.submission_state ||
+                    stat?.payload?.submission_state ||
+                    (sourceStr.startsWith('brv02:') || key.startsWith('brv02:') ? 'staged' : 'public');
+
+                if (status !== 'public' && status !== 'promoted' && status !== 'unlisted') {
+                    return {
+                        hasLocalBenchmarks: true,
+                        shareForbiddenReason:
+                            status === 'staged'
+                                ? 'Local benchmark results cannot be shared yet.'
+                                : 'Selection contains staged, pending review, or rejected runs. Only public and unlisted benchmarks can be shared.'
+                    };
+                }
+            }
+        }
+
+        return { hasLocalBenchmarks: false, shareForbiddenReason: null };
+    }, [selectedBenchmarks, modelStats, data, submissionsMap]);
 
     return (
         <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased relative pt-0">
@@ -1682,6 +1863,7 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
                         <Button
                             variant="secondary"
                             size="sm"
+                            disabled={hasLocalBenchmarks}
                             onClick={() => {
                                 if (hasLocalBenchmarks) return;
                                 const shareUrl = generateShareUrl(bucketConfigs, apiConfigs, selectedSources);
@@ -1709,7 +1891,7 @@ const Dashboard = ({ mode = 'browser', onNavigateBack, onNavigate, dashboardStat
                         </Button>
                         {hasLocalBenchmarks && (
                             <div className="absolute -bottom-10 right-0 bg-slate-800 border border-slate-700 text-slate-300 text-xs font-medium px-3 py-1.5 rounded shadow-lg z-50 flex items-center whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                                Local benchmark results cannot be shared yet.
+                                {shareForbiddenReason || 'Local benchmark results cannot be shared yet.'}
                             </div>
                         )}
                     </div>

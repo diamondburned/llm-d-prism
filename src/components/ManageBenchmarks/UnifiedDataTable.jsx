@@ -676,7 +676,7 @@ export const UnifiedDataTable = (props) => {
             const sub = isBrv02 && runId && submissionsMap ? submissionsMap[runId] : null;
             const status = sub?.status || firstEntry?.source_info?.submission_state || stat.payload?.submission_state || 'staged';
 
-            if (status !== 'public' && status !== 'unlisted') {
+            if (status !== 'public' && status !== 'promoted' && status !== 'unlisted') {
                 return {
                     canShare: false,
                     shareableUuids: [],

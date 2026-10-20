@@ -335,4 +335,84 @@ describe('URL Parameter Lifecycle Integration Tests', () => {
             expect(fetchUrls.filter(u => u.includes('/api/local/list') || u.includes('/data.json')).length).toBeGreaterThanOrEqual(1);
         });
     });
+
+    it('on Benchmark Browser (?view=benchmark-browser), selecting a published BRV02 benchmark enables Share view button and clicking it copies share URL', async () => {
+        const targetUuid = '0d778b34-7689-440e-ac10-911d8c4fed92';
+        const writeTextMock = vi.fn().mockResolvedValue();
+        Object.assign(navigator, {
+            clipboard: {
+                writeText: writeTextMock
+            }
+        });
+
+        // Seed with a published BRV02 benchmark key while selectedSources includes 'local'
+        localStorage.setItem('prism_selected_benchmarks', JSON.stringify([`results-store:${targetUuid}`]));
+        localStorage.setItem('prism_selected_sources', JSON.stringify(['local']));
+        window.history.replaceState(null, '', '/?view=benchmark-browser');
+
+        render(
+            <GitHubAuthProvider>
+                <App />
+            </GitHubAuthProvider>
+        );
+
+        // Share view button should be enabled even though 'local' is in selectedSources
+        await waitFor(() => {
+            const shareBtn = Array.from(document.body.querySelectorAll('button')).find(
+                b => b.textContent.includes('Share view')
+            );
+            expect(shareBtn).toBeDefined();
+            expect(shareBtn.disabled).toBe(false);
+        });
+
+        const shareBtn = Array.from(document.body.querySelectorAll('button')).find(
+            b => b.textContent.includes('Share view')
+        );
+        fireEvent.click(shareBtn);
+
+        await waitFor(() => {
+            expect(writeTextMock).toHaveBeenCalled();
+            const copiedUrl = writeTextMock.mock.calls[0][0];
+            expect(copiedUrl).toContain('view=benchmark-browser');
+            expect(decodeURIComponent(copiedUrl)).toContain(`models=results-store:${targetUuid}`);
+        });
+    });
+
+    it('selecting a local or staged BRV02 benchmark disables the Share view button', async () => {
+        const stagedUuid = 'a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d';
+        localStorage.setItem('prism_selected_benchmarks', JSON.stringify([`brv02:${stagedUuid}`]));
+        window.history.replaceState(null, '', '/?view=benchmark-browser');
+
+        render(
+            <GitHubAuthProvider>
+                <App />
+            </GitHubAuthProvider>
+        );
+
+        await waitFor(() => {
+            const shareBtn = Array.from(document.body.querySelectorAll('button')).find(
+                b => b.textContent.includes('Share view')
+            );
+            expect(shareBtn).toBeDefined();
+            expect(shareBtn.disabled).toBe(true);
+        });
+    });
+
+    it('opening a share URL keeps results-store:<uuid> selected on Benchmark Browser', async () => {
+        const targetUuid = '0d778b34-7689-440e-ac10-911d8c4fed92';
+        window.history.replaceState(null, '', `/?share=1&view=benchmark-browser&models=results-store:${targetUuid}`);
+
+        render(
+            <GitHubAuthProvider>
+                <App />
+            </GitHubAuthProvider>
+        );
+
+        await waitFor(() => {
+            const saved = localStorage.getItem('prism_selected_benchmarks');
+            expect(saved).not.toBeNull();
+            const parsed = JSON.parse(saved);
+            expect(parsed).toContain(`results-store:${targetUuid}`);
+        });
+    });
 });

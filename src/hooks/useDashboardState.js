@@ -70,6 +70,8 @@ export const getSharedState = () => {
             chartColorMode: params.get('color_mode') || GRAPH_FILTER_DEFAULTS.color_mode,
             lineConnectMode: params.get('conn_mode') || GRAPH_FILTER_DEFAULTS.conn_mode,
             hasBenchmarksParam: params.has('benchmarks') && Boolean(params.get('benchmarks')),
+            isShare: params.has('share') || params.has('models') || (params.has('benchmarks') && Boolean(params.get('benchmarks'))),
+            hasExplicitChartMode: params.has('c_mode'),
         };
     } catch (e) {
         console.error("Failed to parse shared state", e);
@@ -96,7 +98,11 @@ export const useDashboardState = () => {
     const [xAxisMax, setXAxisMax] = useState(initialState.xAxisMax);
     const [showPerChip, setShowPerChip] = useState(initialState.showPerChip);
     const [showSelectedOnly, setShowSelectedOnly] = useState(() => {
-        if (initialState.showSelectedOnly !== undefined && initialState.showSelectedOnly !== defaultState.showSelectedOnly) {
+        if (
+            initialState.isShare ||
+            (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('sel_only')) ||
+            (initialState.showSelectedOnly !== undefined && initialState.showSelectedOnly !== defaultState.showSelectedOnly)
+        ) {
             return initialState.showSelectedOnly;
         }
         try {
@@ -222,6 +228,9 @@ export const useDashboardState = () => {
             if (urlFilterSet && urlFilterSet.size > 0) {
                 return urlFilterSet;
             }
+            if (initialState.isShare) {
+                return new Set();
+            }
             if (Array.isArray(savedArray)) {
                 return new Set(savedArray);
             }
@@ -280,8 +289,24 @@ export const useDashboardState = () => {
         params.set('labels', showLabels);
         params.set('points', showDataLabels);
         
-        if (selectedBenchmarks.size > 0) [...selectedBenchmarks].forEach(v => params.append('models', v));
-        if (baselineBenchmarkKey) params.set('baseline', baselineBenchmarkKey);
+        if (selectedBenchmarks.size > 0) {
+            [...selectedBenchmarks].forEach(v => {
+                const modelKey = typeof v === 'string' && v.startsWith('brv02:')
+                    ? v.replace(/^brv02:/, 'results-store:')
+                    : v;
+                params.append('models', modelKey);
+            });
+        }
+        if (baselineBenchmarkKey) {
+            const baselineVal = typeof baselineBenchmarkKey === 'string' && baselineBenchmarkKey.startsWith('brv02:')
+                ? baselineBenchmarkKey.replace(/^brv02:/, 'results-store:')
+                : baselineBenchmarkKey;
+            params.set('baseline', baselineVal);
+        }
+        if (yQualityMode && yQualityMode !== GRAPH_FILTER_DEFAULTS.y_qual) params.set('y_qual', yQualityMode);
+        if (xQualityMode && xQualityMode !== GRAPH_FILTER_DEFAULTS.x_qual) params.set('x_qual', xQualityMode);
+        if (chartColorMode && chartColorMode !== GRAPH_FILTER_DEFAULTS.color_mode) params.set('color_mode', chartColorMode);
+        if (lineConnectMode && lineConnectMode !== GRAPH_FILTER_DEFAULTS.conn_mode) params.set('conn_mode', lineConnectMode);
         if (activeFilters.models.size > 0) [...activeFilters.models].forEach(v => params.append('f_models', v));
         if (activeFilters.hardware.size > 0) [...activeFilters.hardware].forEach(v => params.append('f_hw', v));
         if (activeFilters.tp.size > 0) [...activeFilters.tp].forEach(v => params.append('f_tp', v));
@@ -299,13 +324,14 @@ export const useDashboardState = () => {
         if (activeFilters.components.size > 0) [...activeFilters.components].forEach(v => params.append('f_comp', v));
         if (activeFilters.tags && activeFilters.tags.size > 0) [...activeFilters.tags].forEach(v => params.append('f_tags', v));
         
-        bucketConfigs.forEach(b => params.append('buckets', typeof b === 'string' ? b : b.bucket));
-        apiConfigs.forEach(c => params.append('apis', typeof c === 'string' ? c : c.projectId));
+        (bucketConfigs || []).forEach(b => params.append('buckets', typeof b === 'string' ? b : b.bucket));
+        (apiConfigs || []).forEach(c => params.append('apis', typeof c === 'string' ? c : c.projectId));
 
         return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
     }, [
         chartMode, tputType, costMode, latType, xAxisMax, showPerChip,
         showSelectedOnly, showPareto, showLabels, showDataLabels,
+        yQualityMode, xQualityMode, chartColorMode, lineConnectMode,
         selectedBenchmarks, activeFilters, baselineBenchmarkKey
     ]);
 
